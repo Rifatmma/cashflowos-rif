@@ -116,6 +116,20 @@ npm run import -- my-numbers.csv             # then your own file
 
 Model your file on **[`docs/sample-import.csv`](./docs/sample-import.csv)** — columns `title, category, amount, status, due_date, notes` (plus optional `customer, platform, format, views, potential, next`). The script forgives everyday words (`income` → `cash_in`, `expense` → `cash_out`), reads `RM 1,200` and `15/08/2026`, and **tells you in plain English why it skipped any bad row** — e.g. *"row 7 skipped: amount 'abc' isn't a number"*. Nothing is ever deleted.
 
+## 👥 Sharing it with your team
+
+One business, several people? **You don't share your Supabase or Vercel login** — and you don't pay for a Vercel seat either. One person owns the plumbing; everyone else comes in through the app passcode and a Telegram group.
+
+| Command | Who runs it | What it does |
+|---|---|---|
+| **`/team-owner`** | the owner | 4 questions → wires the passcode + team group, redeploys, verifies |
+| **`/team-crew`** | the owner | Writes the joining message to send your teammates |
+| **`/team-deputy`** | your builder | Clones the repo, builds, explains what they can't touch |
+
+Full picture — roles, why nobody else needs a Vercel login, and whether you need five bots: **[`docs/team-of-five.md`](./docs/team-of-five.md)**.
+
+---
+
 **Add a whole new tab** with the copy-paste prompt in **[`docs/add-a-tab-prompt.md`](./docs/add-a-tab-prompt.md)** — it updates both the desktop sidebar and the mobile bottom nav.
 
 ---
