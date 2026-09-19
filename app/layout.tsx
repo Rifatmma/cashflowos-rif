@@ -10,6 +10,15 @@ export const metadata: Metadata = {
   description: 'Your Money Robot — one AI HQ for the whole business.',
   manifest: '/manifest.webmanifest',
   appleWebApp: { capable: true, title: 'CashFlowOS', statusBarStyle: 'default' },
+  // iOS ignores the PWA manifest for Add-to-Home-Screen and reads apple-touch-icon,
+  // so the home-screen icon must be declared here as well as in app/manifest.ts.
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
 }
 
 // theme-color drives the phone status-bar tint when installed to the home screen.
