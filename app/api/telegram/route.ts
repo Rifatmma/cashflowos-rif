@@ -193,14 +193,79 @@ async function handleCallback(cb: any): Promise<Response> {
   return Response.json({ ok: true })
 }
 
+
+// ------------------------------------------------------------
+// GROUP ETIQUETTE. In a group the bot is a guest: it speaks only when spoken to,
+// and it never calls anyone out in front of the team.
+//   · addressed  = @mention of this bot, a reply to one of its messages, or a
+//                  /command (bare, or /command@thisbot — never @someotherbot).
+//   · outsiders  = silently ignored (no "Not authorized" in front of everyone).
+// Private chats are unaffected and behave exactly as before.
+// ------------------------------------------------------------
+const isGroupChat = (chat: any) => chat?.type === 'group' || chat?.type === 'supergroup'
+
+let cachedBotUsername: string | null = null
+async function botUsername(): Promise<string> {
+  if (cachedBotUsername !== null) return cachedBotUsername
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN?.trim()
+    const r = await fetch(`https://api.telegram.org/bot${token}/getMe`)
+    const j: any = await r.json()
+    cachedBotUsername = String(j?.result?.username || '').toLowerCase()
+  } catch {
+    cachedBotUsername = ''
+  }
+  return cachedBotUsername || ''
+}
+
+async function isAddressedToBot(msg: any): Promise<boolean> {
+  const uname = await botUsername()
+  const text: string = msg.text || msg.caption || ''
+  const entities: any[] = msg.entities || msg.caption_entities || []
+
+  // 1) A reply to one of the bot's own messages.
+  const repliedTo = msg.reply_to_message?.from
+  if (repliedTo?.is_bot && uname && String(repliedTo.username || '').toLowerCase() === uname) {
+    return true
+  }
+
+  // 2) An @mention of this bot.
+  if (uname) {
+    for (const e of entities) {
+      if (e.type === 'mention') {
+        if (text.slice(e.offset, e.offset + e.length).toLowerCase() === '@' + uname) return true
+      }
+    }
+  }
+
+  // 3) A /command — bare, or targeted at THIS bot.
+  if (text.startsWith('/')) {
+    const m = text.slice(1).match(/^[A-Za-z0-9_]+(?:@([A-Za-z0-9_]+))?/)
+    if (m) {
+      const target = (m[1] || '').toLowerCase()
+      if (!target || (uname && target === uname)) return true
+    }
+  }
+
+  return false
+}
+
 // ============================================================
 // MESSAGE — text Q&A, /start, /undo-<id>, and a calm photo placeholder.
 // ============================================================
 async function handleMessage(msg: any): Promise<Response> {
   const chatId = msg.chat?.id
 
-  // Allowlist on the sender — fail closed, echo the id.
-  if (!isAllowed(msg.from?.id)) {
+  // Gate. Groups: only when addressed, and outsiders are ignored in silence.
+  // Private: unchanged — fail closed and echo the id so you can add yourself.
+  if (isGroupChat(msg.chat)) {
+    if (!(await isAddressedToBot(msg))) {
+      return Response.json({ ok: true, ignored: 'group: not addressed' })
+    }
+    if (!isAllowed(msg.from?.id)) {
+      return Response.json({ ok: true, ignored: 'group: sender not allowed' })
+    }
+  } else if (!isAllowed(msg.from?.id)) {
     await sendMessage(
       chatId,
       `Not authorized. Your Telegram id is ${msg.from?.id} — add it to TELEGRAM_ALLOWED_USER_IDS, then redeploy.`,
