@@ -65,7 +65,27 @@ export async function GET(req: Request) {
     proposed = (data ?? []) as any[]
   }
 
-  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed)
+  // ① AD TASKS — the Facebook Ads playbook board. Read-only counting; this adds
+  //    a line to the brief and nothing else. (Extending the brief is the
+  //    sanctioned way to automate a tab — see docs/add-a-tab-prompt.md.)
+  const adOpen = rows.filter(
+    (r) => r.category === 'ad_task' && !['done', 'declined'].includes((r.status || '').toLowerCase()),
+  )
+  // 'ongoing' habits carry a start-by date, not a deadline — counting them as
+  // overdue would put a permanent red number in every brief from day two.
+  const adDeadlines = adOpen.filter((r) => r.meta?.phase !== 'ongoing')
+  const ads = {
+    overdue: adDeadlines.filter((r) => r.due_date && r.due_date < today).length,
+    dueToday: adDeadlines.filter((r) => r.due_date === today).length,
+    open: adOpen.length,
+    next: adDeadlines
+      .slice()
+      .sort((a, b) => (a.due_date ?? '9999') < (b.due_date ?? '9999') ? -1 : 1)
+      .slice(0, 3)
+      .map((r) => `• ${r.title}${r.due_date ? ` (${r.due_date})` : ''}`),
+  }
+
+  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads)
 
   // ② Optional Jarvis-Oyen narrative — a warm chief-of-staff paragraph. Only when a
   //    key is set; its absence NEVER blocks the mandated brief above.
@@ -138,6 +158,7 @@ function buildBrief(
   f: ReturnType<typeof getFunnel>,
   money: { cashIn: number; cashOut: number; owed: number },
   proposed: { agent_key: string; payload: any }[],
+  ads: { overdue: number; dueToday: number; open: number; next: string[] },
 ): string {
   const p = (i: number) => (f.pct[i] != null ? `${f.pct[i]}%` : '—')
   const funnelLine =
@@ -171,11 +192,21 @@ function buildBrief(
     if (proposed.length > 5) ask += `\n…and ${proposed.length - 5} more`
   }
 
+  // The ads line only appears once the board has been seeded — an empty board
+  // would otherwise add a permanent "0 tasks" line to every brief.
+  const adsBlock = ads.open
+    ? `\n\n<b>Facebook Ads</b>\n` +
+      (ads.overdue ? `🔴 <b>${ads.overdue}</b> overdue · ` : '') +
+      (ads.dueToday ? `📌 <b>${ads.dueToday}</b> due today · ` : '') +
+      `${ads.open} open\n${ads.next.join('\n')}`
+    : ''
+
   return (
     `☀️ <b>CashFlowOS — morning brief</b>\n\n` +
     `<b>The river</b>\n${funnelLine}\n\n` +
     `<b>The money</b>\n${moneyLine}\n\n` +
-    `<b>Needs you</b>\n${ask}`
+    `<b>Needs you</b>\n${ask}` +
+    adsBlock
   )
 }
 

@@ -21,8 +21,13 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
   ] },
   { label: 'Work', tabs: [
     { href: '/content', label: 'Content' },
-    { href: '/ads', label: 'Ads' },
     { href: '/tasks', label: 'Tasks' },
+  ] },
+  { label: 'Facebook Ads', tabs: [
+    { href: '/ads', label: 'Performance' },
+    { href: '/ads/competitors', label: 'Competitors' },
+    { href: '/ads/funnel', label: 'Leads & Money' },
+    { href: '/ads/playbook', label: 'Playbook' },
   ] },
   { label: 'Robot', tabs: [
     { href: '/approvals', label: 'Approvals' },
