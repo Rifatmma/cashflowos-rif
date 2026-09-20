@@ -21,6 +21,7 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
   ] },
   { label: 'Work', tabs: [
     { href: '/content', label: 'Content' },
+    { href: '/ads', label: 'Ads' },
     { href: '/tasks', label: 'Tasks' },
   ] },
   { label: 'Robot', tabs: [
