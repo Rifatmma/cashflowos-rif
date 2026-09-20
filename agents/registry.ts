@@ -39,6 +39,13 @@ export const AGENTS: AgentMeta[] = [
     emoji: '🤖',
     autonomyNote: 'Read-only Q&A over your numbers on Telegram. Answers only — never acts on money.',
   },
+  // ---- Department heads (docs/ai-csuite-blueprint.md) ----
+  {
+    key: 'head-marketing',
+    label: 'Head of Marketing',
+    emoji: '📣',
+    autonomyNote: '🟡 Daily: reads the ads playbook + content calendar, hands you ONE recommendation. Dial fully closed — it never publishes, boosts or spends.',
+  },
   // ---- Gallery placeholders (fill from agents/gallery/*.md; all DRAFT-only) ----
   {
     key: 'overdue-invoice',
@@ -267,6 +274,8 @@ export const EXECUTORS: Record<string, Executor> = {
   'log-cash-in': (p) => writeRecord('log-cash-in', p),
   'mark-paid': (p) => writeRecord('mark-paid', p),
   'lead-status': (p) => writeRecord('lead-status', p),
+  // The department heads — DRAFT-only. A head recommends; you decide.
+  'head-marketing': (p) => draftOnly('head-marketing', p),
   // The gallery agents — all DRAFT-only (a human sends).
   'overdue-invoice': (p) => draftOnly('overdue-invoice', p),
   'cold-lead': (p) => draftOnly('cold-lead', p),
@@ -291,6 +300,8 @@ export const EXECUTORS: Record<string, Executor> = {
 // ============================================================
 import type { Rec } from '@/lib/records'
 import { rm } from '@/lib/records'
+import { readMarketing } from './head-marketing/definition'
+import { briefText, briefHeadline } from './head-marketing/prompt'
 
 // `auto: true` = this one is 🟢 graduated (autopilot: run it, then just tell me).
 // Omitted/false = 🟡 ask first (the safe default every agent starts on).
@@ -338,4 +349,53 @@ const overdueInvoiceCheck: ScheduledCheck = {
       }),
 }
 
-export const SCHEDULED: ScheduledCheck[] = [overdueInvoiceCheck]
+// Marketing 📣 · Head of Marketing — the first department head.
+//
+// ONE PROPOSAL PER DAY, NOT ONE PER ROW. The blueprint says a head hands you ONE
+// clear recommendation; 25 ad tasks would otherwise become 25 cards on Approvals
+// and you would stop reading them. So this emits a single daily brief keyed by
+// date, and stays SILENT on days when there is genuinely nothing to raise — a
+// head that speaks every day regardless is just noise with a job title.
+const headMarketingCheck: ScheduledCheck = {
+  key: 'head-marketing',
+  label: 'Head of Marketing',
+  check: (rows, today) => {
+    const read = readMarketing(rows, today)
+
+    // Worth raising? Something is late or landing, the promo clock is running
+    // out, or the organic side is empty. Otherwise say nothing.
+    const worthRaising =
+      read.overdue.length > 0 ||
+      read.dueToday.length > 0 ||
+      read.dueSoon.length > 0 ||
+      (read.daysToPromoEnd >= 0 && read.daysToPromoEnd <= 3) ||
+      read.daysToPromoEnd < 0 ||
+      read.contentScheduled === 0
+    if (!worthRaising) return []
+
+    return [
+      {
+        idempotencyKey: `head-marketing:${today}`,
+        payload: {
+          channel: 'brief',
+          text: briefText(read),
+          // Kept on the payload so the audit trail records what the head saw,
+          // not just what it said.
+          read: {
+            overdue: read.overdue.length,
+            due_today: read.dueToday.length,
+            due_soon: read.dueSoon.length,
+            open: read.openCount,
+            done: read.doneCount,
+            on_time_pct: read.onTimePct,
+            days_to_promo_end: read.daysToPromoEnd,
+            top_priority: read.topPriority?.title ?? null,
+          },
+        },
+        text: briefHeadline(read),
+      },
+    ]
+  },
+}
+
+export const SCHEDULED: ScheduledCheck[] = [overdueInvoiceCheck, headMarketingCheck]

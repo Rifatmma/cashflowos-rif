@@ -51,6 +51,12 @@ export async function setStatus(id: number, status: TaskStatus): Promise<Result>
   delete next.declined_reason
   delete next.declined_at
 
+  // Stamp WHEN it was finished. Without this "completed on time" is unmeasurable —
+  // records has created_at but no updated_at, so the moment is lost otherwise.
+  // Re-opening a task clears the stamp so a later re-completion is judged fresh.
+  if (status === 'done') next.done_at = new Date().toISOString().slice(0, 10)
+  else delete next.done_at
+
   const { error } = await supabase
     .from('records')
     .update({ status, meta: next })
