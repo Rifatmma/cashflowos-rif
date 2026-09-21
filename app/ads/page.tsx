@@ -1,301 +1,314 @@
-// 👉 Facebook Ads → Performance. Unlike the other tabs this does NOT read
-// `records` — it renders the Meta Ads snapshot from lib/ads-snapshot.ts.
-import Stat from '@/app/_components/Stat'
+// 👉 Facebook Ads → Performance.
+//
+// Answers ONE question first, on a phone, in a few seconds: is my ad working
+// right now? Everything else sits below it in order of how often it drives a
+// decision. Numbers come from getAds() -- the newest daily pull from Meta, or the
+// hand-pulled snapshot if no pull has succeeded -- and every sentence that quotes
+// a number calculates it here. Writing that does NOT update (the 20 Sep analysis)
+// is folded at the bottom and stamped with its date.
+import { getAds } from '@/lib/ads-data'
+import { SNAPSHOT as S, HIGHLIGHTS, LOWLIGHTS, ACTIONS } from '@/lib/ads-snapshot'
+import { rangeLabel, type Row } from '@/lib/ads-model'
+import { verdict, alerts, costPerEngaged } from '@/lib/ads-verdict'
 import {
-  SNAPSHOT as S, RUNS, CURRENT, HIGHLIGHTS, LOWLIGHTS, ACTIONS,
-} from '@/lib/ads-snapshot'
-import {
-  SubNav, Breakdown, CostBars, CardCols, Note,
-  money, pct, num, cpa, byEfficiency,
+  AdsHeader, Fresh, Card, Mini, BarList, CompareRows, Fold, Written, Spark, Columns,
+  money, plain, num, pct, per, type Bar, type Cmp,
 } from './_ui'
 
 export const dynamic = 'force-dynamic'
 
-export default async function Performance() {
-  const t = S.totals
-  const prev = RUNS[RUNS.length - 2] // the run before this one
-  const costPerConvo = t.spend / t.convos
-  const depth2Rate = (t.depth2 / t.convos) * 100
-  const costPerEngaged = t.spend / t.depth2
+// Fewer chats than this and a cost is luck, not a result: one chat at RM 1.45
+// would otherwise rank "FB Search" as the best placement in the account.
+const MIN_CHATS = 3
 
-  // Cost per ENGAGED conversation is the honest quality-adjusted number: a run
-  // that buys chats nobody continues is not cheap, whatever the headline says.
-  const runsRanked = [...RUNS].sort((a, b) => a.spend / a.depth2 - b.spend / b.depth2)
-  const bestRun = runsRanked[0]
-  const worstRun = runsRanked[runsRanked.length - 1]
-
-  const evening = S.hours.filter(h => h.h >= 17 && h.h <= 20)
-  const evSpend = evening.reduce((s, h) => s + h.spend, 0)
-  const evConvos = evening.reduce((s, h) => s + h.convos, 0)
-  const night = S.hours.filter(h => h.h >= 1 && h.h <= 5)
-  const nightSpend = night.reduce((s, h) => s + h.spend, 0)
-  const nightConvos = night.reduce((s, h) => s + h.convos, 0)
-
-  const fb = S.platforms.find(x => x.label === 'Facebook')!
-  const ig = S.platforms.find(x => x.label === 'Instagram')!
-
-  // Every headline metric, this run against the one before.
-  const metrics: { k: string; now: string; was: string; better?: boolean | null }[] = [
-    { k: 'Spend', now: money(t.spend), was: money(prev.spend), better: null },
-    { k: 'Days delivering', now: `${t.deliveryDays} of ${t.calendarDays}`, was: String(prev.days), better: null },
-    { k: 'Spend per day', now: money(t.spend / t.deliveryDays), was: money(prev.spend / prev.days), better: null },
-    { k: 'Impressions', now: num(t.impressions), was: num(prev.impressions), better: t.impressions > prev.impressions },
-    { k: 'Reach', now: num(t.reach), was: num(prev.reach), better: t.reach > prev.reach },
-    { k: 'Frequency', now: t.frequency.toFixed(2), was: prev.frequency.toFixed(2), better: t.frequency < prev.frequency },
-    { k: 'Clicks', now: num(t.clicks), was: num(prev.clicks), better: null },
-    { k: 'Link clicks', now: num(t.linkClicks), was: '—', better: null },
-    { k: 'CTR', now: pct(t.ctr), was: pct(prev.ctr), better: t.ctr > prev.ctr },
-    { k: 'CPC', now: money(t.cpc), was: money(prev.cpc), better: t.cpc < prev.cpc },
-    { k: 'CPM', now: money(t.cpm), was: money(prev.cpm), better: t.cpm < prev.cpm },
-    { k: 'Conversations', now: String(t.convos), was: String(prev.convos), better: null },
-    { k: 'Cost per conversation', now: money(costPerConvo), was: money(prev.spend / prev.convos), better: costPerConvo < prev.spend / prev.convos },
-    { k: 'New contacts', now: String(t.newConnections), was: '—', better: null },
-    { k: 'Reached msg 2', now: `${t.depth2} (${pct(depth2Rate)})`, was: `${prev.depth2} (${pct((prev.depth2 / prev.convos) * 100)})`, better: depth2Rate > (prev.depth2 / prev.convos) * 100 },
-    { k: 'Reached msg 3', now: String(t.depth3), was: String(prev.depth3), better: null },
-    { k: 'Reached msg 5', now: String(t.depth5), was: String(prev.depth5), better: null },
-    { k: 'Cost per engaged chat', now: money(costPerEngaged), was: money(prev.spend / prev.depth2), better: costPerEngaged < prev.spend / prev.depth2 },
-    { k: 'Video views', now: num(t.videoViews), was: '—', better: null },
-    { k: 'Saves / comments / reactions', now: `${t.postSaves} / ${t.comments} / ${t.reactions}`, was: '—', better: null },
+// Bars for "cost per chat": shorter is better, so the bar length is the cost.
+// Judged rows first, cheapest first; too-small samples after, in grey; crumbs
+// (under RM 1 with no chats) dropped as noise.
+function costBars(rows: Row[], avg: number): Bar[] {
+  const kept = rows.filter(r => r.convos > 0 || r.spend >= 1)
+  const judged = kept.filter(r => r.convos >= MIN_CHATS)
+    .sort((a, b) => a.spend / a.convos - b.spend / b.convos)
+  const small = kept.filter(r => r.convos < MIN_CHATS)
+    .sort((a, b) => b.spend - a.spend)
+  return [
+    ...judged.map(r => {
+      const c = r.spend / r.convos
+      return {
+        label: r.label, value: c, display: plain(c),
+        sub: `${r.convos} chats`,
+        tone: (c > avg * 2 ? 'bad' : c <= avg ? 'good' : 'neutral') as Bar['tone'],
+      }
+    }),
+    ...small.map(r => ({
+      label: r.label,
+      value: r.convos ? r.spend / r.convos : r.spend,
+      display: r.convos ? plain(r.spend / r.convos) : 'no chats',
+      sub: r.convos ? `${r.convos} chat${r.convos === 1 ? '' : 's'} · too few to judge` : `${plain(r.spend)} spent`,
+      // Spent real money for nothing: that one IS worth flagging.
+      tone: (r.convos === 0 && r.spend >= 5 ? 'bad' : 'neutral') as Bar['tone'],
+    })),
   ]
+}
+
+export default async function Performance() {
+  const { n: d, lastError } = await getAds()
+  const t = d.totals
+  const cur = d.runs.at(-1)!
+  const prev = d.runs.at(-2)
+  const v = verdict(d)
+  const watch = alerts(d, { offer: S.offer, creative: S.liveCreative })
+  const avg = per(t.spend, t.convos) ?? 0
+  const engagedRate = t.convos ? (t.depth2 / t.convos) * 100 : 0
+  const reachChange = prev && prev.reach ? ((cur.reach - prev.reach) / prev.reach) * 100 : null
+
+  const rate = (r: { depth2: number; convos: number }) => (r.convos ? (r.depth2 / r.convos) * 100 : 0)
+  // One row: format both numbers, say which way it moved, and -- separately --
+  // whether that direction is good. higherBetter=null means "neither".
+  const row = (k: string, now: number | null, was: number | null, fmt: (x: number) => string, higherBetter: boolean | null): Cmp => {
+    if (now === null || was === null) return { k, now: now === null ? '—' : fmt(now), was: was === null ? '—' : fmt(was) }
+    if (Math.abs(now - was) < 1e-9) return { k, now: fmt(now), was: fmt(was) }
+    const up = now > was
+    return { k, now: fmt(now), was: fmt(was), up, good: higherBetter === null ? null : up === higherBetter }
+  }
+  const all: Cmp[] = prev ? [
+    row('Cost per engaged chat', costPerEngaged(cur), costPerEngaged(prev), plain, false),
+    row('Cost per chat', per(cur.spend, cur.convos), per(prev.spend, prev.convos), plain, false),
+    row('Reached message 2', rate(cur), rate(prev), x => pct(x), true),
+    row('CTR', cur.ctr, prev.ctr, x => pct(x, 2), true),
+    row('Reach', cur.reach, prev.reach, num, true),
+    // --- behind "show more" ---
+    row('Spend', cur.spend, prev.spend, plain, null),
+    { k: 'Days delivering', now: `${t.deliveryDays} of ${t.calendarDays}`, was: String(prev.days) },
+    row('Spend per day', cur.spend / Math.max(t.deliveryDays, 1), prev.spend / Math.max(prev.days, 1), plain, null),
+    row('Chats', cur.convos, prev.convos, num, true),
+    row('Reached message 3', cur.depth3, prev.depth3, num, true),
+    row('Reached message 5', cur.depth5, prev.depth5, num, true),
+    row('Impressions', cur.impressions, prev.impressions, num, true),
+    row('Frequency', cur.frequency, prev.frequency, x => x.toFixed(2), false),
+    row('Cost per 1,000 views', cur.cpm, prev.cpm, plain, false),
+    row('Cost per click', cur.cpc, prev.cpc, plain, false),
+    row('Clicks', cur.clicks, prev.clicks, num, true),
+    { k: 'New contacts', now: String(t.newConnections), was: '—' },
+    { k: 'Video views', now: num(t.videoViews), was: '—' },
+  ] : []
+  const SHOWN = 5
+
+  // Day by day, coloured by cost per chat against the run average.
+  const tone = (spend: number, convos: number): 'good' | 'mid' | 'bad' | 'none' => {
+    if (spend === 0) return 'none'
+    const c = per(spend, convos)
+    return c === null || c > avg * 2 ? 'bad' : c <= avg ? 'good' : 'mid'
+  }
+  const dayCols = d.days.map(x => ({
+    key: x.date, value: x.spend, tone: tone(x.spend, x.convos),
+    title: `${rangeLabel(x.date, x.date)} — ${money(x.spend)}, ${x.convos} chats`,
+  }))
+  const zeroDays = d.days.filter(x => x.spend === 0)
+
+  // Hour of day: the best and worst blocks, worked out -- never typed in.
+  const hourCols = d.hours.map(h => ({
+    key: String(h.h), value: h.spend, tone: tone(h.spend, h.convos),
+    title: `${String(h.h).padStart(2, '0')}:00 — ${money(h.spend)}, ${h.convos} chats`,
+  }))
+  const block = (from: number, to: number) => {
+    const hs = d.hours.filter(h => h.h >= from && h.h <= to)
+    const s = hs.reduce((a, h) => a + h.spend, 0), c = hs.reduce((a, h) => a + h.convos, 0)
+    return { s, c, cost: per(s, c) }
+  }
+  const evening = block(17, 20), night = block(1, 5)
+
+  const fb = d.platforms.find(p => p.label === 'Facebook')
+  const ig = d.platforms.find(p => p.label === 'Instagram')
+  const reachMax = Math.max(...d.runs.map(r => r.reach), 1)
+  const cpmMax = Math.max(...d.runs.map(r => r.cpm), 1)
+
+  const pill = { working: 'good', watch: 'mid', 'not-working': 'bad', paused: 'mid' }[v.status]
 
   return (
-    <>
-      <h1 className="ph">Facebook Ads — Performance 📊</h1>
-      <p className="cap">
-        {S.campaign.name} · {S.account.name} · run {CURRENT.id}, {S.period.since} to {S.period.until} · pulled {S.pulledAt}
-      </p>
-      <SubNav here="/ads" />
+    <div className="co ad">
+      <AdsHeader title="Performance" here="/ads" right={<Fresh at={d.pulledAt} error={lastError} />} />
 
-      <div className="grid">
-        <Stat label="Spend" value={money(t.spend)} />
-        <Stat label="Conversations" value={t.convos} />
-        <Stat label="Cost / conversation" value={money(costPerConvo)} />
-        <Stat label="Cost / engaged chat" value={money(costPerEngaged)} />
-        <Stat label="CTR" value={pct(t.ctr)} />
-        <Stat label="Reach" value={num(t.reach)} yes={t.reach < prev.reach} />
-      </div>
-
-      {/* ── Every number ─────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Every metric, this run vs the one before</p>
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>Run {CURRENT.id} — now</th>
-            <th>Run {prev.id} — {prev.label}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {metrics.map(m => (
-            <tr key={m.k}>
-              <td data-label="Metric">{m.k}</td>
-              <td data-label="Now">
-                <strong>{m.now}</strong>
-                {m.better === true && <span className="pill won" style={{ marginLeft: 6 }}>better</span>}
-                {m.better === false && <span className="pill overdue" style={{ marginLeft: 6 }}>worse</span>}
-              </td>
-              <td data-label="Before">{m.was}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Note>
-        Run {prev.id} ran {prev.days} days to {prev.until}, then nothing delivered for {prev.gapAfter} days.
-        Comparing calendar fortnights would have mixed live days with dead ones, so both columns are whole runs.
-      </Note>
-
-      {/* ── Run history ──────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Six runs since March</p>
-      <div className="banner info">
-        <strong>Raw cost per conversation is a trap.</strong> Run {worstRun.id} bought {worstRun.convos} conversations
-        at {money(worstRun.spend / worstRun.convos)} each — the cheapest ever — and only{' '}
-        {pct((worstRun.depth2 / worstRun.convos) * 100)} of them sent a second message. Ranked on cost per chat that
-        actually engaged, this run is your <strong>best of the six</strong> at {money(costPerEngaged)}.
-      </div>
-      <table className="tbl">
-        <thead>
-          <tr>
-            <th>Run</th><th>Dates</th><th>Days</th><th>Spend</th><th>Reach</th>
-            <th>CTR</th><th>CPM</th><th>Convos</th><th>Cost each</th><th>Msg 2</th><th>Cost / engaged</th>
-          </tr>
-        </thead>
-        <tbody>
-          {RUNS.map(r => {
-            const eng = r.spend / r.depth2
-            return (
-              <tr key={r.id} style={r.current ? { background: 'var(--clay-tint)' } : undefined}>
-                <td data-label="Run"><strong>{r.id}</strong> {r.current && <span className="pill active">now</span>}</td>
-                <td data-label="Dates">{r.since.slice(5)} → {r.until.slice(5)}</td>
-                <td data-label="Days">{r.days}</td>
-                <td data-label="Spend">{money(r.spend)}</td>
-                <td data-label="Reach">{num(r.reach)}</td>
-                <td data-label="CTR">{pct(r.ctr)}</td>
-                <td data-label="CPM">{money(r.cpm)}</td>
-                <td data-label="Convos">{r.convos}</td>
-                <td data-label="Cost each">{money(r.spend / r.convos)}</td>
-                <td data-label="Msg 2">{pct((r.depth2 / r.convos) * 100)}</td>
-                <td data-label="Cost / engaged">
-                  <span className={`pill ${eng < 25 ? 'won' : eng < 80 ? 'pending' : 'overdue'}`}>{money(eng)}</span>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      <Note>
-        Gaps between runs: {RUNS.filter(r => r.gapAfter).map(r => `${r.id}→ ${r.gapAfter}d`).join(' · ')}.
-        Five pauses in six months, the longest {Math.max(...RUNS.map(r => r.gapAfter ?? 0))} days. Every restart
-        re-enters the learning phase.
-      </Note>
-
-      {/* Reach + CPM trend — the thing that actually threatens you */}
-      <p className="rowlabel" style={{ marginTop: 20 }}>Reach is collapsing while CPM climbs</p>
-      <div className="kc">
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 100 }}>
-          {RUNS.map(r => {
-            const maxReach = Math.max(...RUNS.map(x => x.reach))
-            const maxCpm = Math.max(...RUNS.map(x => x.cpm))
-            return (
-              <div key={r.id} style={{ flex: 1, textAlign: 'center' }}
-                title={`Run ${r.id}: reach ${num(r.reach)}, CPM ${money(r.cpm)}`}>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80, justifyContent: 'center' }}>
-                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.reach / maxReach) * 78)), background: 'var(--info-fill)', borderRadius: 3 }} />
-                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.cpm / maxCpm) * 78)), background: 'var(--bad)', borderRadius: 3 }} />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 4 }}>{r.id}</div>
-              </div>
-            )
-          })}
-        </div>
-        <p className="s" style={{ marginTop: 8 }}>
-          <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>▉ Reach</span>{' · '}
-          <span style={{ color: 'var(--bad)', fontWeight: 600 }}>▉ CPM</span>{' — '}
-          reach fell from {num(RUNS[0].reach)} to {num(CURRENT.reach)} ({pct((1 - CURRENT.reach / RUNS[0].reach) * 100)} down)
-          while CPM rose from {money(RUNS[0].cpm)} to {money(CURRENT.cpm)}, a {(CURRENT.cpm / RUNS[0].cpm).toFixed(1)}× increase.
-          You are paying much more to reach a much smaller pool. This is the real long-term threat.
+      {lastError && (
+        <p className="ad-refresh-err">
+          Today&rsquo;s refresh from Meta didn&rsquo;t work ({lastError}). Showing the last numbers that did.
         </p>
+      )}
+
+      {/* ── the verdict ───────────────────────────────────────────── */}
+      <Card eyebrow="Is it working?" right={<span className={`ad-pill ad-pill-${pill}`}>{v.label}</span>} className="ad-verdict">
+        <div className="co-big num">{v.headline !== null ? money(v.headline) : '—'}</div>
+        <p className="co-sub" style={{ marginTop: 4 }}>
+          per engaged chat · run {cur.id}, {rangeLabel(cur.since, cur.until)}
+        </p>
+        <p className="ad-sentence">{v.sentence}</p>
+        <Spark values={v.trend} tone={v.status === 'not-working' ? 'bad' : 'good'} />
+        <p className="co-meta">
+          Cost per engaged chat, run by run since {rangeLabel(d.runs[0].since, d.runs[0].since)}.{' '}
+          {v.basis === 'trend' && 'Your target appears here once POS sales are coming in.'}
+        </p>
+      </Card>
+
+      <div className="ad-minis">
+        <Mini label="Spend" value={plain(t.spend)} sub={`${t.deliveryDays} days delivering`} />
+        <Mini label="Chats" value={num(t.convos)} sub={`${plain(avg)} each`} />
+        <Mini label="Engaged" value={<>{t.depth2} <small>{pct(engagedRate, 0)}</small></>} sub="sent a 2nd message" />
+        <Mini label="Reach" value={num(t.reach)}
+          sub={reachChange === null ? undefined : `${reachChange < 0 ? '▼' : '▲'} ${Math.abs(reachChange).toFixed(0)}% on run ${prev!.id}`}
+          subTone={reachChange === null ? undefined : reachChange < 0 ? 'bad' : 'good'} />
       </div>
 
-      {/* ── Daily ────────────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Day by day</p>
-      <CostBars
-        data={S.days.map(d => ({
-          spend: d.spend, convos: d.convos, key: d.d,
-          title: `${d.d} — ${money(d.spend)}, ${d.convos} convos, CTR ${pct(d.ctr)}`,
-        }))}
-        tickLeft="03 Sep" tickMid="11 Sep" tickRight="19 Sep"
-        caption={<>
-          Green under RM 7 per conversation, amber RM 7–14, rust above, grey no results.
-          The two grey columns are 17–18 Sep, when nothing delivered at all — about RM 110 of
-          expected spend and roughly 14 conversations lost. 19 Sep then spent {money(S.days[S.days.length - 1].spend)} catching up.
-        </>}
-      />
+      {/* ── fix this / watch out ──────────────────────────────────── */}
+      {/* Grouped, not one card each: five stacked cards pushed every number off
+          the first screen of a phone. Legal problems stay in their own red card. */}
+      {watch.filter(a => a.level === 'bad').map(a => (
+        <Card key={a.key} eyebrow="Fix this" tone="bad"><p className="ad-alert">{a.text}</p></Card>
+      ))}
+      {watch.some(a => a.level === 'warn') && (
+        <Card eyebrow="Watch out" tone="warn">
+          <ul className="ad-watch">
+            {watch.filter(a => a.level === 'warn').map(a => <li key={a.key}>{a.text}</li>)}
+          </ul>
+        </Card>
+      )}
 
-      {/* ── Placements ───────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Placements — cheapest first</p>
-      <Breakdown rows={byEfficiency(S.placements)} head="Placement" showCtr showDepth />
-      <Note>
-        FB Stories at {money(62.41 / 18)} is your cheapest result on 7% of budget, while FB Feed takes 43% at{' '}
-        {money(386.12 / 41)}. FB Reels carries your deepest conversations — 6 of {t.depth5} depth-5 chats.
-        IG Feed spent {money(67.06)} for 3 conversations at 0.85% CTR.
-      </Note>
+      {/* ── this run vs the last ──────────────────────────────────── */}
+      {prev && (
+        <Card eyebrow={`Run ${cur.id} vs run ${prev.id}`}>
+          <CompareRows rows={all.slice(0, SHOWN)} nowLabel={`Run ${cur.id}`} wasLabel={`Run ${prev.id}`} />
+          <details className="co-more">
+            <summary>Show {all.length - SHOWN} more</summary>
+            <CompareRows rows={all.slice(SHOWN)} nowLabel={`Run ${cur.id}`} wasLabel={`Run ${prev.id}`} />
+          </details>
+          <p className="co-meta">
+            Whole runs, never calendar weeks: run {prev.id} ({prev.label}) delivered {rangeLabel(prev.since, prev.until)}
+            {prev.gapAfter ? `, then nothing for ${prev.gapAfter} days` : ''}.
+          </p>
+        </Card>
+      )}
 
-      <p className="rowlabel" style={{ marginTop: 20 }}>Facebook vs Instagram</p>
-      <Breakdown rows={S.platforms} head="Platform" showDepth />
-      <Note>
-        Instagram costs {pct(((ig.spend / ig.convos) / (fb.spend / fb.convos) - 1) * 100)} more per conversation
-        and converts worse once they arrive — {pct(((ig.depth2 ?? 0) / ig.convos) * 100)} of IG chats reach message two
-        against {pct(((fb.depth2 ?? 0) / fb.convos) * 100)} on Facebook.
-      </Note>
+      {/* ── breakdowns: the four the owner uses ───────────────────── */}
+      <Card eyebrow="Placements · RM per chat">
+        <BarList rows={costBars(d.placements, avg)} />
+        <p className="co-meta">Shorter is cheaper. Green is at or under your average of {plain(avg)}; red is over twice it or no chats at all.</p>
+      </Card>
 
-      {/* ── Hour of day ──────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Hour of day</p>
-      <CostBars
-        data={S.hours.map(h => ({
-          spend: h.spend, convos: h.convos, key: String(h.h),
-          title: `${String(h.h).padStart(2, '0')}:00 — ${money(h.spend)}, ${h.convos} convos`,
-        }))}
-        tickLeft="00:00" tickMid="12:00" tickRight="23:00"
-        caption={<>
-          Evening 17:00–20:00 returns {money(evSpend / evConvos)} per conversation — {evConvos} of {t.convos} results
-          on {pct((evSpend / t.spend) * 100)} of spend. Overnight 01:00–05:00 spent {money(nightSpend)} for{' '}
-          {nightConvos} conversation. 09:00 alone burned {money(48.90)} for 2.
-          Running 10:00–21:00 and stopping overnight is free money.
-        </>}
-      />
+      <Card eyebrow="Hour of day · spend">
+        <Columns cols={hourCols} ticks={['00:00', '12:00', '23:00']} />
+        <p className="co-meta">
+          {evening.cost !== null && <>17:00–20:00 costs {money(evening.cost)} a chat ({evening.c} chats). </>}
+          {night.s > 0 && <>01:00–05:00 spent {money(night.s)} for {night.c} chat{night.c === 1 ? '' : 's'}.</>}
+        </p>
+      </Card>
 
-      {/* ── Devices ──────────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Devices</p>
-      <Breakdown rows={S.devices} head="Device" showCtr showDepth />
-      <Note>
-        Android and iPhone cost within two sen of each other, so there is no device play here —
-        worth knowing so you don&rsquo;t go looking for one.
-      </Note>
+      <div className="co-pair">
+        <Card eyebrow="Age · RM per chat">
+          <BarList rows={costBars(d.ages, avg)} />
+        </Card>
+        <Card eyebrow="Gender and area · RM per chat">
+          <BarList rows={[...costBars(d.genders, avg), ...costBars(d.regions, avg)]} />
+          <p className="co-meta">Areas use Meta&rsquo;s total connections — it doesn&rsquo;t split chats by region.</p>
+        </Card>
+      </div>
 
-      {/* ── Highlights / lowlights ───────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Highlights &amp; lowlights</p>
-      <CardCols left="What is working" right="What is not" leftItems={HIGHLIGHTS} rightItems={LOWLIGHTS} />
+      <Card eyebrow="Facebook vs Instagram, and devices · RM per chat">
+        <BarList rows={[...costBars(d.platforms, avg), ...costBars(d.devices, avg)]} />
+        {fb && ig && fb.convos > 0 && ig.convos > 0 && (
+          <p className="co-meta">
+            Instagram costs {pct(((ig.spend / ig.convos) / (fb.spend / fb.convos) - 1) * 100, 0)}{' '}
+            {ig.spend / ig.convos > fb.spend / fb.convos ? 'more' : 'less'} per chat than Facebook.
+          </p>
+        )}
+      </Card>
 
-      {/* ── Action plan ──────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>Action plan — ranked by what it is worth</p>
-      <table className="tbl">
-        <thead><tr><th>When</th><th>Do this</th><th>Why / how</th><th>Impact</th></tr></thead>
-        <tbody>
-          {ACTIONS.map(a => (
-            <tr key={a.t}>
-              <td data-label="When">
-                <span className={`pill ${a.p === 'Now' ? 'overdue' : a.p === 'This week' ? 'pending' : 'nurture'}`}>{a.p}</span>
-              </td>
-              <td data-label="Do this"><strong>{a.t}</strong></td>
-              <td data-label="Why / how">{a.s}</td>
-              <td data-label="Impact">{a.impact}</td>
-            </tr>
+      {/* ── the run, day by day ───────────────────────────────────── */}
+      <Card eyebrow={`Run ${cur.id}, day by day · spend`}>
+        <Columns cols={dayCols}
+          ticks={[rangeLabel(d.days[0].date, d.days[0].date), '', rangeLabel(d.days.at(-1)!.date, d.days.at(-1)!.date)]} />
+        <div className="co-legend">
+          <span><i className="ad-key ad-col-good" /> cheap</span>
+          <span><i className="ad-key ad-col-mid" /> average</span>
+          <span><i className="ad-key ad-col-bad" /> dear</span>
+          <span><i className="ad-key ad-col-none" /> nothing delivered</span>
+        </div>
+        {zeroDays.length > 0 && (
+          <p className="co-meta">
+            Nothing delivered on {zeroDays.map(z => rangeLabel(z.date, z.date)).join(', ')}.
+          </p>
+        )}
+      </Card>
+
+      {/* ── all runs ──────────────────────────────────────────────── */}
+      <Card eyebrow="Every run · RM per engaged chat">
+        <BarList rows={d.runs.map(r => {
+          const c = costPerEngaged(r)
+          return {
+            label: `${r.id} · ${r.label}`,
+            value: c ?? 0,
+            display: c === null ? '—' : plain(c),
+            sub: rangeLabel(r.since, r.until),
+            tone: r.current ? 'good' : 'neutral',
+          }
+        })} />
+        <div className="ad-pairbars" aria-hidden="true">
+          {d.runs.map(r => (
+            <div key={r.id} className="ad-pairbar" title={`Run ${r.id}: reach ${num(r.reach)}, CPM ${money(r.cpm)}`}>
+              <div className="ad-pairbar-cols">
+                <span style={{ height: `${Math.max(3, (r.reach / reachMax) * 100)}%`, background: 'var(--info-fill)' }} />
+                <span style={{ height: `${Math.max(3, (r.cpm / cpmMax) * 100)}%`, background: 'var(--bad)' }} />
+              </div>
+              <span className="mono">{r.id}</span>
+            </div>
           ))}
-        </tbody>
-      </table>
-
-      {/* ── What is live ─────────────────────────────────── */}
-      <p className="rowlabel" style={{ marginTop: 26 }}>What is live right now</p>
-      <div className="cols">
-        <div className="col">
-          <h3>The ad</h3>
-          <div className="kc">
-            <p className="t"><strong>{S.liveCreative.hook}</strong></p>
-            <p className="s">{S.liveCreative.format} · {S.liveCreative.cta} · created {S.liveCreative.created}</p>
-            <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12, color: 'var(--dim)', lineHeight: 1.7 }}>
-              {S.liveCreative.claims.map(c => <li key={c}>{c}</li>)}
-            </ul>
-          </div>
         </div>
-        <div className="col">
-          <h3>The targeting</h3>
-          <div className="kc">
-            <p className="s" style={{ lineHeight: 1.8 }}>
-              <strong>Ages</strong> {S.targeting.ages} · <strong>Gender</strong> {S.targeting.genders}<br />
-              <strong>Devices</strong> {S.targeting.devices}<br />
-              <strong>Areas</strong> {S.targeting.cities.join(', ')}<br />
-              <strong>Interests</strong> {S.targeting.interests.join(', ')}<br />
-              <strong>Behaviours</strong> {S.targeting.behaviors.join(', ')} · {S.targeting.family.join(', ')}<br />
-              <strong>Advantage Audience</strong> {S.targeting.advantageAudience ? 'ON' : 'off'}<br />
-              <strong>Goal</strong> {S.targeting.optimisation}
-            </p>
+        <p className="co-meta">
+          Grey is reach, red is the cost per 1,000 views. Reach went from {num(d.runs[0].reach)} (run {d.runs[0].id}) to{' '}
+          {num(cur.reach)} while that cost went from {money(d.runs[0].cpm)} to {money(cur.cpm)}.
+        </p>
+      </Card>
+
+      {/* ── the written analysis: dated, folded ────────────────────── */}
+      <Fold title="What's working and what isn't" meta={`${HIGHLIGHTS.length + LOWLIGHTS.length} notes`}>
+        <Written on={S.pulledAt} />
+        <p className="ad-h">Working</p>
+        {HIGHLIGHTS.map(h => <div key={h.t} className="ad-note"><strong>{h.t}</strong><p>{h.s}</p></div>)}
+        <p className="ad-h">Not working</p>
+        {LOWLIGHTS.map(h => <div key={h.t} className="ad-note"><strong>{h.t}</strong><p>{h.s}</p></div>)}
+      </Fold>
+
+      <Fold title="Action plan" meta={`${ACTIONS.length} actions`}>
+        <Written on={S.pulledAt} />
+        {ACTIONS.map(a => (
+          <div key={a.t} className="ad-note">
+            <strong>{a.t}</strong> <span className="co-dim mono">· {a.p} · {a.impact}</span>
+            <p>{a.s}</p>
           </div>
+        ))}
+        <p className="co-meta">These are tracked, with dates and status, in the Playbook tab.</p>
+      </Fold>
+
+      <Fold title="What's live: the ad and its targeting">
+        <Written on={S.pulledAt} />
+        <div className="ad-note">
+          <strong>{S.liveCreative.hook}</strong>
+          <p>{S.liveCreative.format} · {S.liveCreative.cta.replace(/_/g, ' ').toLowerCase()} · created {rangeLabel(S.liveCreative.created, S.liveCreative.created)}</p>
+          <ul className="ad-list">{S.liveCreative.claims.map(c => (
+            <li key={c} className={/halal/i.test(c) ? 'ad-bad' : undefined}>{c}{/halal/i.test(c) && ' — remove (see Fix this above)'}</li>
+          ))}</ul>
         </div>
-      </div>
+        <div className="ad-note">
+          <strong>Targeting</strong>
+          <p>
+            Ages {S.targeting.ages} · {S.targeting.genders} · {S.targeting.devices}<br />
+            Areas: {S.targeting.cities.join(', ')}<br />
+            Interests: {S.targeting.interests.join(', ')}<br />
+            Advantage Audience {S.targeting.advantageAudience ? 'on' : 'off'} · goal: {S.targeting.optimisation}
+          </p>
+        </div>
+      </Fold>
 
-      <div className="banner">
-        <strong>Two things to fix in the live ad.</strong> It quotes the normal price as
-        RM {S.offer.priceInAd.toFixed(2)}, but your normal price is RM {S.offer.normalPrice.toFixed(2)} — and
-        RM {S.offer.normalPrice.toFixed(2)} minus RM {S.offer.price.toFixed(2)} is a
-        RM {(S.offer.normalPrice - S.offer.price).toFixed(2)} saving, not the RM {S.offer.freeItemValue.toFixed(2)} the
-        free tomyam is worth. Pricing the set at RM 79 makes every number agree. Separately, the free{' '}
-        {S.offer.freeItem} — your strongest hook — is buried as a line item rather than leading the ad.
-      </div>
-
-      <p className="hint" style={{ marginTop: 22 }}>
-        Source: Meta Marketing API via Composio, account {S.account.id}, pulled {S.pulledAt}.
-        A snapshot — ask Claude to “refresh the ads snapshot” for current figures.
+      <p className="ad-source mono">
+        {d.source === 'live' ? 'Daily pull' : 'Hand-pulled snapshot'} from Meta via Composio · account {d.accountId}
       </p>
-    </>
+    </div>
   )
 }

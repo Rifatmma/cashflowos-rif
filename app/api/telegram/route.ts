@@ -711,7 +711,8 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
       }
 
       // Run each requested tool on the server; feed results back as UNTRUSTED data.
-      // READ tools (bot-tools) are synchronous over the fetched rows; ACTION tools
+      // READ tools (bot-tools) run over the fetched rows (the ad tool also reads the
+      // daily ads pull, so they are awaited too); ACTION tools
       // (bot-actions) are async and go through the CAS/approval engine. Either way
       // the result is wrapped as untrusted <<<DATA…DATA>>> for the next round.
       messages.push({ role: 'assistant', content: res.content })
@@ -719,7 +720,7 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
         toolUses.map(async t => {
           const out = ACTION_TOOL_NAMES.has(t.name)
             ? await runBotAction(t.name, t.input, { chatId, thresholdRM: threshold(), rows })
-            : runBotTool(t.name, t.input, rows)
+            : await runBotTool(t.name, t.input, rows)
           return {
             type: 'tool_result' as const,
             tool_use_id: t.id,

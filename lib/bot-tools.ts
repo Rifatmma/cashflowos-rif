@@ -6,7 +6,9 @@ import { sameSupplier } from './supplier-rules'
 // file, not in `records` — without this import Jarvis has no way to see a single
 // ad number. readMarketing() is the SAME calculation the Head of Marketing agent
 // uses, shared on purpose so the bot and the agent can never disagree.
-import { SNAPSHOT, RUNS, CURRENT, COMPETITORS } from './ads-snapshot'
+import { SNAPSHOT, COMPETITORS } from './ads-snapshot'
+import { getAds } from './ads-data'
+import { verdict, alerts } from './ads-verdict'
 import { readMarketing } from '@/agents/head-marketing/definition'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -231,7 +233,7 @@ const daysLate = (due: string, today: string) =>
 // compact JSON string (the caller wraps it in <<<DATA…DATA>>> as untrusted data).
 // `escalate` returns a sentinel the loop watches for. Never throws.
 // ------------------------------------------------------------
-export function runBotTool(name: string, input: any, rows: Rec[]): string {
+export async function runBotTool(name: string, input: any, rows: Rec[]): Promise<string> {
   try {
     if (name === 'escalate') {
       return JSON.stringify({ escalated: true, reason: String(input?.reason || 'flagged') })
@@ -547,23 +549,34 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
     }
 
     if (name === 'get_ad_performance') {
-      const t = SNAPSHOT.totals
+      // The SAME numbers the Facebook Ads pages show: the newest good daily pull,
+      // else the hand-pulled snapshot. Jarvis and the pages can never disagree.
+      const { n: d, ageDays, lastError } = await getAds()
+      const t = d.totals
+      const cur = d.runs.at(-1)!
       const focus = ['placements', 'runs', 'competitors'].includes(input?.focus) ? input.focus : 'summary'
-      const r2 = (n: number) => Math.round(n * 100) / 100
+      const r2 = (x: number) => Math.round(x * 100) / 100
       const cpa = (spend: number, convos: number) => (convos > 0 ? r2(spend / convos) : null)
+      const freshness = {
+        pulled_at: d.pulledAt,
+        age_days: ageDays,
+        source: d.source === 'live' ? 'daily pull from Meta' : 'hand-pulled snapshot',
+        ...(lastError ? { last_refresh_failed: lastError } : {}),
+        tell_user: ageDays > 7
+          ? `These numbers are ${ageDays} days old. Say so plainly before quoting any of them.`
+          : 'Mention how recent the numbers are if they ask about "now".',
+      }
 
       if (focus === 'placements') {
         return JSON.stringify({
           note: 'Cost per WhatsApp conversation by placement, cheapest first. Currency MYR.',
-          period: SNAPSHOT.period,
-          placements: [...SNAPSHOT.placements]
-            .sort((a, b) => (cpa(a.spend, a.convos) ?? 1e9) - (cpa(b.spend, b.convos) ?? 1e9))
+          run: `${cur.id} (${cur.since} to ${cur.until})`,
+          freshness,
+          placements: [...d.placements]
+            .sort((x, y) => (cpa(x.spend, x.convos) ?? 1e9) - (cpa(y.spend, y.convos) ?? 1e9))
             .map(p => ({
-              placement: p.label,
-              spend: r2(p.spend),
-              ctr_pct: p.ctr,
-              conversations: p.convos,
-              cost_per_conversation: cpa(p.spend, p.convos),
+              placement: p.label, spend: r2(p.spend), ctr_pct: p.ctr,
+              conversations: p.convos, cost_per_conversation: cpa(p.spend, p.convos),
             })),
         })
       }
@@ -571,22 +584,16 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
       if (focus === 'runs') {
         return JSON.stringify({
           note:
-            'Every campaign run since March. Delivery is stop-start, so compare RUNS not calendar ' +
-            'weeks. cost_per_engaged_chat = spend divided by conversations that reached a 2nd message ' +
+            'Every campaign run. Delivery is stop-start, so compare RUNS not calendar weeks. ' +
+            'cost_per_engaged_chat = spend divided by conversations that reached a 2nd message ' +
             '— the quality-adjusted number. A cheap run with a bad depth rate is NOT a good run.',
-          runs: RUNS.map(r => ({
-            run: r.id,
-            label: r.label,
-            dates: `${r.since} to ${r.until}`,
-            days: r.days,
-            spend: r2(r.spend),
-            reach: r.reach,
-            ctr_pct: r2(r.ctr),
-            cpm: r2(r.cpm),
-            conversations: r.convos,
-            cost_per_conversation: cpa(r.spend, r.convos),
-            reached_msg_2_pct: r2((r.depth2 / r.convos) * 100),
-            cost_per_engaged_chat: r2(r.spend / r.depth2),
+          freshness,
+          runs: d.runs.map(r => ({
+            run: r.id, label: r.label, dates: `${r.since} to ${r.until}`, days: r.days,
+            spend: r2(r.spend), reach: r.reach, ctr_pct: r2(r.ctr), cpm: r2(r.cpm),
+            conversations: r.convos, cost_per_conversation: cpa(r.spend, r.convos),
+            reached_msg_2_pct: r.convos ? r2((r.depth2 / r.convos) * 100) : null,
+            cost_per_engaged_chat: cpa(r.spend, r.depth2),
             current: !!r.current,
           })),
         })
@@ -595,9 +602,9 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
       if (focus === 'competitors') {
         return JSON.stringify({
           note:
-            'From the public Meta Ad Library. It shows what rivals RUN — creative, copy, CTA, and how ' +
-            'long an ad has been live. It does NOT show their spend, CTR or cost per result: that is ' +
-            'private and unobtainable. Never claim to know a competitor’s numbers.',
+            'From the public Meta Ad Library, checked by hand. It shows what rivals RUN — creative, copy, ' +
+            'CTA, and how long an ad has been live. It does NOT show their spend, CTR or cost per result: ' +
+            'that is private and unobtainable. Never claim to know a competitor’s numbers.',
           checked: SNAPSHOT.pulledAt,
           competitors: COMPETITORS.map(c => ({
             name: c.name, where: c.where, advertising: c.status,
@@ -607,33 +614,26 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
         })
       }
 
+      const v = verdict(d)
       return JSON.stringify({
         note:
           'Meta Ads for the CURRENT run only. Delivery is stop-start — this is a campaign run, not a ' +
           'calendar window. Currency MYR. Ask again with focus=runs to compare against past campaigns.',
         account: SNAPSHOT.account.name,
-        campaign: SNAPSHOT.campaign.name,
-        run: CURRENT.id,
-        period: `${SNAPSHOT.period.since} to ${SNAPSHOT.period.until}`,
-        pulled_at: SNAPSHOT.pulledAt,
-        data_freshness: 'A snapshot, not live. Say so if asked how current it is.',
-        spend: r2(t.spend),
-        impressions: t.impressions,
-        reach: t.reach,
-        frequency: r2(t.frequency),
-        clicks: t.clicks,
-        ctr_pct: r2(t.ctr),
-        cpc: r2(t.cpc),
-        cpm: r2(t.cpm),
+        run: `${cur.id} — ${cur.label}`,
+        period: `${cur.since} to ${cur.until}`,
+        freshness,
+        verdict: { status: v.label, sentence: v.sentence },
+        watch_outs: alerts(d, { offer: SNAPSHOT.offer, creative: SNAPSHOT.liveCreative }).map(a => a.text),
+        spend: r2(t.spend), impressions: t.impressions, reach: t.reach, frequency: r2(t.frequency),
+        clicks: t.clicks, ctr_pct: r2(t.ctr), cpc: r2(t.cpc), cpm: r2(t.cpm),
         whatsapp_conversations: t.convos,
         cost_per_conversation: cpa(t.spend, t.convos),
         reached_msg_2: t.depth2,
-        reached_msg_2_pct: r2((t.depth2 / t.convos) * 100),
-        cost_per_engaged_chat: r2(t.spend / t.depth2),
-        break_even_conversion_pct: r2((t.spend / t.convos / SNAPSHOT.offer.price) * 100),
+        reached_msg_2_pct: t.convos ? r2((t.depth2 / t.convos) * 100) : null,
+        cost_per_engaged_chat: cpa(t.spend, t.depth2),
+        break_even_conversion_pct: t.convos ? r2((t.spend / t.convos / SNAPSHOT.offer.price) * 100) : null,
         break_even_note: `That share of conversations must become a ${SNAPSHOT.offer.price} set just to cover ad spend, before food cost.`,
-        biggest_problem: `${r2(100 - (t.depth2 / t.convos) * 100)}% of paid conversations die after one message.`,
-        second_problem: `Reach has fallen from ${RUNS[0].reach} in March to ${t.reach} now, while CPM rose from ${r2(RUNS[0].cpm)} to ${r2(t.cpm)}.`,
       })
     }
 

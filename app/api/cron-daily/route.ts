@@ -6,6 +6,7 @@ import { propose, proposeAndNotify, runAutopilot } from '@/lib/actions'
 import { SCHEDULED, type ProposalDraft } from '@/agents/registry'
 import { mytDate, addDays, dayLabel } from '@/lib/period'
 import { missingSalesDays } from '@/lib/sales'
+import { refreshAds } from '@/lib/ads-refresh'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // THE ONE daily cron (Vercel Hobby allows 2; we ship 1, reserve the other).
@@ -170,12 +171,26 @@ export async function GET(req: Request) {
     }
   }
 
+  // ④ THE FACEBOOK ADS PULL — LAST, on purpose. It makes ~14 calls to Meta and
+  //    Meta can be slow; running it after the brief means a sluggish or blocked
+  //    Meta can never cost you the morning brief. Capped well inside the 60s
+  //    limit; a timeout is recorded like any other failed pull, and the pages
+  //    keep showing the last good numbers with their real age.
+  const ADS_BUDGET_MS = 35_000
+  const adsPull = await Promise.race([
+    refreshAds(),
+    new Promise<{ ok: boolean; message: string }>((resolve) =>
+      setTimeout(() => resolve({ ok: false, message: `ads refresh timed out after ${ADS_BUDGET_MS / 1000}s` }), ADS_BUDGET_MS)),
+  ])
+  if (!adsPull.ok) console.error('[CFO]', adsPull.message)
+
   return Response.json({
     ok: true,
     sent,
     recipients: to.length,
     needs_yes: proposed.length,
     proposals_created: created,
+    ads_pull: adsPull.message,
   })
 }
 

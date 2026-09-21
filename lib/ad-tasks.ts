@@ -42,6 +42,12 @@ export const PROMO_ENDS = '2026-09-30'
 
 export const TASKS: TaskDef[] = [
   // ── Phase 1 ───────────────────────────────────────────────
+  // Priority 0: a legal problem outranks every performance fix. Found on 21 Sep
+  // when the redesign checked the live ad's copy against the brand guideline.
+  { key: 'no-halal-claim', title: 'Remove "Halal" from the live ad', phase: 'now', priority: 0, due: '2026-09-21',
+    impact: 'Highest', effort: 'Minutes', kind: 'Fix',
+    why: 'The live ad says "100% Halal". Jaosamut is not JAKIM certified, and your own brand guideline (section 15) says using that word is an offence under Malaysian law. Replace it with "No pork · No alcohol served".',
+    measure: 'The word is gone from every live ad and post' },
   { key: 'wa-opener', title: 'Fix the WhatsApp opening message', phase: 'now', priority: 1, due: '2026-09-21',
     impact: 'Highest', effort: 'Minutes', kind: 'Fix',
     why: '63% of conversations die after one message. Worth more than every ad change combined — reclaiming half the 74 lost chats is roughly RM 3,000 in sets at no extra ad spend.',
