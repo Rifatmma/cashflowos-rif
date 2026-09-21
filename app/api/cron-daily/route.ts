@@ -4,6 +4,8 @@ import { sendMessage } from '@/lib/telegram'
 import { getRecords, getFunnel, rm, todayISO, type Rec } from '@/lib/records'
 import { propose, proposeAndNotify, runAutopilot } from '@/lib/actions'
 import { SCHEDULED, type ProposalDraft } from '@/agents/registry'
+import { mytDate, addDays, dayLabel } from '@/lib/period'
+import { missingSalesDays } from '@/lib/sales'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // THE ONE daily cron (Vercel Hobby allows 2; we ship 1, reserve the other).
@@ -104,7 +106,13 @@ export async function GET(req: Request) {
       ),
   }
 
-  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team)
+  // ③ SALES — the morning follow-up to last night's reminder. Any recent business
+  //    day with no POS report, in MALAYSIA dates. Silent until the import has been
+  //    used at all, and never reaches back before the first day ever imported.
+  const yesterday = addDays(mytDate(), -1)
+  const salesMissing = missingSalesDays(rows, yesterday)
+
+  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team, salesMissing, yesterday)
 
   // ② Optional Jarvis-Oyen narrative — a warm chief-of-staff paragraph. Only when a
   //    key is set; its absence NEVER blocks the mandated brief above.
@@ -179,6 +187,8 @@ function buildBrief(
   proposed: { agent_key: string; payload: any }[],
   ads: { overdue: number; dueToday: number; open: number; next: string[] },
   team: { count: number; total: number; lines: string[] },
+  salesMissing: string[] = [],
+  yesterday = '',
 ): string {
   const p = (i: number) => (f.pct[i] != null ? `${f.pct[i]}%` : '—')
   const funnelLine =
@@ -235,6 +245,13 @@ function buildBrief(
     `<b>The money</b>\n${moneyLine}\n\n` +
     `<b>Needs you</b>\n${ask}` +
     teamBlock +
+    (salesMissing.length
+      ? `\n\n<b>Sales missing</b>\n` +
+        (salesMissing.length === 1
+          ? `No POS report for ${dayLabel(salesMissing[0], addDays(yesterday, 1))}, ${salesMissing[0]}.`
+          : `No POS reports for ${salesMissing.length} days: ${salesMissing.join(', ')}.`) +
+        ` Send me the CSV and I'll file it — food cost reads high until it's in.`
+      : '') +
     adsBlock
   )
 }

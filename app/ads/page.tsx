@@ -159,8 +159,8 @@ export default async function Performance() {
               <div key={r.id} style={{ flex: 1, textAlign: 'center' }}
                 title={`Run ${r.id}: reach ${num(r.reach)}, CPM ${money(r.cpm)}`}>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80, justifyContent: 'center' }}>
-                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.reach / maxReach) * 78)), background: 'rgba(90,140,190,.55)', borderRadius: 3 }} />
-                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.cpm / maxCpm) * 78)), background: 'rgba(169,83,63,.55)', borderRadius: 3 }} />
+                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.reach / maxReach) * 78)), background: 'var(--info-fill)', borderRadius: 3 }} />
+                  <div style={{ width: '42%', height: Math.max(2, Math.round((r.cpm / maxCpm) * 78)), background: 'var(--bad)', borderRadius: 3 }} />
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 4 }}>{r.id}</div>
               </div>
@@ -168,8 +168,8 @@ export default async function Performance() {
           })}
         </div>
         <p className="s" style={{ marginTop: 8 }}>
-          <span style={{ color: '#2C5E8A', fontWeight: 600 }}>▉ Reach</span>{' · '}
-          <span style={{ color: '#8A3E2D', fontWeight: 600 }}>▉ CPM</span>{' — '}
+          <span style={{ color: 'var(--ink-soft)', fontWeight: 600 }}>▉ Reach</span>{' · '}
+          <span style={{ color: 'var(--bad)', fontWeight: 600 }}>▉ CPM</span>{' — '}
           reach fell from {num(RUNS[0].reach)} to {num(CURRENT.reach)} ({pct((1 - CURRENT.reach / RUNS[0].reach) * 100)} down)
           while CPM rose from {money(RUNS[0].cpm)} to {money(CURRENT.cpm)}, a {(CURRENT.cpm / RUNS[0].cpm).toFixed(1)}× increase.
           You are paying much more to reach a much smaller pool. This is the real long-term threat.

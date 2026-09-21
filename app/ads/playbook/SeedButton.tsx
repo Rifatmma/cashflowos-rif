@@ -32,7 +32,7 @@ export default function SeedButton({ count }: { count: number }) {
         {pending ? 'Setting up…' : `✅ Turn on tracking — add ${count} tasks`}
       </button>
       {msg && (
-        <p className="decided" style={{ marginTop: 8, color: ok ? undefined : '#8A3E2D' }}>
+        <p className="decided" style={{ marginTop: 8, color: ok ? undefined : 'var(--bad)' }}>
           {msg}
         </p>
       )}

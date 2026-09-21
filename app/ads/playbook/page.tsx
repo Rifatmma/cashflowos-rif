@@ -100,8 +100,8 @@ export default async function Playbook() {
           <span style={{ color: 'var(--dim)' }}>{pct(((done + declined) / live.length) * 100)} resolved</span>
         </div>
         <div style={{ height: 10, borderRadius: 5, background: 'var(--paper-2)', overflow: 'hidden', display: 'flex' }}>
-          <div style={{ width: pct((done / live.length) * 100), background: 'rgba(75,122,90,.75)' }} />
-          <div style={{ width: pct((declined / live.length) * 100), background: 'rgba(169,83,63,.45)' }} />
+          <div style={{ width: pct((done / live.length) * 100), background: 'var(--green)' }} />
+          <div style={{ width: pct((declined / live.length) * 100), background: 'var(--bad-line)' }} />
         </div>
       </div>
 
@@ -118,7 +118,7 @@ export default async function Playbook() {
             <p style={{ fontSize: 12, color: 'var(--dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{ph.blurb}</p>
 
             {items.map(x => (
-              <div className="kc" key={x.key} style={x.overdue ? { borderColor: 'rgba(169,83,63,.45)' } : undefined}>
+              <div className="kc" key={x.key} style={x.overdue ? { borderColor: 'var(--bad-line)' } : undefined}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                   <span style={{
                     fontSize: 12, fontWeight: 700, color: 'var(--ink-faint)',
@@ -153,7 +153,7 @@ export default async function Playbook() {
                     )}
                     {x.reason && (
                       <p style={{
-                        fontSize: 12, color: '#8A3E2D', background: 'rgba(169,83,63,.08)',
+                        fontSize: 12, color: 'var(--bad)', background: 'var(--bad-tint)',
                         borderRadius: 8, padding: '7px 9px', margin: '8px 0 0', lineHeight: 1.55,
                         whiteSpace: 'pre-wrap',
                       }}>

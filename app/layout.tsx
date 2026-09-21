@@ -1,5 +1,12 @@
 import './globals.css'
 import type { Metadata, Viewport } from 'next'
+import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
+
+// Jaosamut brand type (guideline section 06). next/font downloads these at
+// BUILD time and serves them from this site, so no page load calls Google.
+// Two faces only -- the guideline's own limit.
+const plexSans = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-sans', display: 'swap' })
+const plexMono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono', display: 'swap' })
 import Nav from './_components/Nav'
 import BottomNav from './_components/BottomNav'
 import ConnStatus from './_components/ConnStatus'
@@ -23,7 +30,11 @@ export const metadata: Metadata = {
 
 // theme-color drives the phone status-bar tint when installed to the home screen.
 export const viewport: Viewport = {
-  themeColor: '#FAF7F2',
+  // The phone's status bar matches the page: Rice Paper by day, Kaffir Ink at night.
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#F1F4EC' },
+    { media: '(prefers-color-scheme: dark)', color: '#0C2B18' },
+  ],
   width: 'device-width',
   initialScale: 1,
 }
@@ -31,7 +42,7 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const pending = await getPendingCount()
   return (
-    <html lang="en">
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
       <body>
         <div className="app">
           {/* Desktop sidebar — hidden on phones (BottomNav takes over ≤768px). */}

@@ -49,7 +49,7 @@ export function SubNav({ here }: { here: string }) {
               fontSize: 13, fontWeight: 600, padding: '6px 13px', borderRadius: 999,
               textDecoration: 'none',
               background: on ? 'var(--clay)' : 'var(--paper-2)',
-              color: on ? '#FFFDF9' : 'var(--ink-soft)',
+              color: on ? 'var(--on-accent)' : 'var(--ink-soft)',
               border: '1px solid ' + (on ? 'var(--clay)' : 'var(--line-2)'),
             }}
           >
@@ -135,10 +135,10 @@ export function CostBars({
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 96 }}>
         {data.map(d => {
           const v = d.convos > 0 ? d.spend / d.convos : null
-          const fill = v === null ? 'rgba(33,28,22,.14)'
-            : v < 7 ? 'rgba(75,122,90,.60)'
-            : v < 14 ? 'rgba(182,128,42,.60)'
-            : 'rgba(169,83,63,.60)'
+          const fill = v === null ? 'var(--mid-tint)'
+            : v < 7 ? 'var(--green)'
+            : v < 14 ? 'var(--info-fill)'
+            : 'var(--bad)'
           return (
             <div key={d.key} style={{ flex: 1, textAlign: 'center' }} title={d.title}>
               <div style={{

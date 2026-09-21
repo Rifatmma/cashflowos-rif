@@ -1,19 +1,34 @@
-// 👉 This is your Cash Out tab — money going OUT, including receipts your robot
-// files for you. Safe to edit the columns/labels. It reads the ONE `records`
-// table, filtered to category='cash_out'. Rows with meta.auto_filed = the Vault
-// agent filed them on autopilot (🟢) — we badge those so you can spot them.
+// 👉 This is your Cash Out tab — money going OUT. It reads the ONE `records`
+// table, filtered to category='cash_out'.
 //
-// ONE RECEIPT STAYS ONE ROW. The line items from a photographed receipt live in
-// `meta.items[]` on that row, not as child rows — so the money totals on this tab,
-// the Dashboard and the daily brief all stay correct while the detail sits
-// underneath. See lib/vision.ts for how those items are read and validated.
-import { getRecords, rm, m, todayISO, type Rec } from '@/lib/records'
+// DESIGNED FOR A PHONE, AROUND SERVICE. The owner's brief: open it standing up,
+// see how much has gone out this month, glance at whether that's fast or slow,
+// check the latest receipts. So the page is one column that reads top to bottom
+// in that order, and everything slower -- per-unit prices, supplier notes -- is
+// folded away at the bottom. On a laptop the middle cards sit side by side.
+//
+// Colours and type follow the Jaosamut brand guideline (see app/globals.css).
+//
+// ONE RECEIPT STAYS ONE ROW. Line items live in `meta.items[]`, the per-line
+// expense split in `meta.type_split`, so money totals on every tab stay correct
+// while the detail sits underneath. See lib/vision.ts for how they are read.
+import Link from 'next/link'
+import { getRecords, rm, type Rec } from '@/lib/records'
+import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { supplierKey } from '@/lib/supplier-rules'
-import Empty from '@/app/_components/Empty'
-import Stat from '@/app/_components/Stat'
+import {
+  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, shortDate,
+  type PeriodWindows,
+} from '@/lib/period'
+import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
 
 export const dynamic = 'force-dynamic'
+
+// The owner's target (agreed 21 Sep 2026). A seafood-led menu runs dearer than a
+// general restaurant's; 35% is where the card's target line sits and where it
+// turns red.
+const FOOD_COST_TARGET_PCT = 35
 
 type Item = {
   name: string; key?: string; qty: number; unit: string
@@ -23,11 +38,9 @@ type Item = {
   expense_type?: string
 }
 
-// What the money was FOR. COGS = the cost of what you sell; everything else is
-// overhead. Keeping them apart is what makes food cost % computable at all.
 const TYPE_LABEL: Record<string, string> = {
   cogs_food: 'Food',
-  cogs_beverage: 'Beverage',
+  cogs_beverage: 'Drinks',
   cogs_packaging: 'Packaging',
   supplies_cleaning: 'Cleaning & supplies',
   owner_drawings: "Owner's drawings",
@@ -41,14 +54,18 @@ const TYPE_LABEL: Record<string, string> = {
 }
 const IS_COGS = (t?: string) => !!t && t.startsWith('cogs_')
 
-// How ONE receipt's money divides across expense types.
-//
-// meta.type_split is the per-line allocation and always wins when present: a
-// grocery run is rarely one category, and collapsing it to its biggest one put
-// RM 8.75 of bin bags inside food cost. Older rows have only a single
-// expense_type, so they fall back to putting the whole amount in that bucket.
-// Rows with neither are 'unclassified' -- deliberately NOT folded into overhead,
-// because an unknown is not a zero.
+const money2 = (n: number) => 'RM ' + Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const plain2 = (n: number) => Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const itemsOf = (r: Rec): Item[] => (Array.isArray(r.meta?.items) ? (r.meta.items as Item[]) : [])
+
+// The day the money was spent: the date printed on the receipt, else the day it
+// was filed -- in Malaysia time, never UTC.
+const dateOf = (r: Rec) => r.due_date || mytDate(r.created_at)
+
+// How ONE receipt's money divides across expense types. The per-line split wins
+// when present (a grocery run is rarely one category); older rows fall back to
+// their single type; rows with neither are 'unclassified' -- an unknown is not a
+// zero, and it is never quietly folded into overhead.
 function spendByType(r: Rec): Record<string, number> {
   const split = r.meta?.type_split as Record<string, number> | undefined
   if (split && typeof split === 'object') {
@@ -59,61 +76,194 @@ function spendByType(r: Rec): Record<string, number> {
     }
     if (Object.keys(clean).length) return clean
   }
-  const t = (r.meta?.expense_type as string) || 'unclassified'
-  return { [t]: Number(r.amount || 0) }
+  return { [(r.meta?.expense_type as string) || 'unclassified']: Number(r.amount || 0) }
+}
+// Owner's drawings are real money out but not business spending, so every
+// headline figure on this page is BUSINESS spending with drawings taken off.
+const drawingsOf = (r: Rec) => spendByType(r).owner_drawings ?? 0
+const businessOf = (r: Rec) => Number(r.amount || 0) - drawingsOf(r)
+
+// Suppliers print their legal names in capitals: "99 SPEED MART SDN. BHD.".
+// On a phone that is noise. Strip the suffixes and tidy the case for display;
+// the stored name is never changed.
+function displayMerchant(raw: string): string {
+  const s = String(raw || '')
+    // Order matters: a legal name in brackets goes WHOLE first, or stripping its
+    // "SDN BHD" leaves "(Pelita Hijrah )" behind.
+    .replace(/\(\s*[^)]*\b(sdn|bhd|berhad)\b[^)]*\)/gi, '')
+    .replace(/\(\s*m\s*\)/gi, '')
+    .replace(/\b(sdn\.?\s*bhd\.?|s\/b|berhad|bhd|pte\.?\s*ltd\.?)(?=\s|$|[.,)])/gi, '')
+    .replace(/\([^)]*$/, '')                 // a bracket the receipt printer clipped: "(M"
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[\s.,-]+$/, '')
+    .trim()
+  if (!s) return raw
+  const shouting = s === s.toUpperCase() && /[A-Z]{3}/.test(s)
+  if (!shouting) return s
+  // Title-case it, but leave initials alone: "TH", "NSK" have no vowels and are
+  // abbreviations, not words -- "Th Supermart" reads as a typo.
+  return s.toLowerCase().replace(/[a-z0-9]+/g, w =>
+    w.length <= 3 && !/[aeiou]/.test(w) && /[a-z]/.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))
+}
+const merchantOf = (r: Rec) => displayMerchant(String(r.meta?.merchant || r.title.split(' — ')[0] || r.title))
+
+function typeOf(r: Rec): string {
+  const parts = Object.keys(spendByType(r))
+  if (parts.length > 1) return 'Mixed'
+  return TYPE_LABEL[parts[0]] ?? 'Unclassified'
 }
 
-const money2 = (n: number) => 'RM ' + Number(n || 0).toFixed(2)
-const itemsOf = (r: Rec): Item[] => (Array.isArray(r.meta?.items) ? (r.meta.items as Item[]) : [])
+// ---------------------------------------------------------------------------
+// The pace chart. Plain SVG, drawn on the server: no chart library, nothing to
+// download on a phone. This month builds up as a solid Pandan line; the same
+// period last time sits behind it as a dashed line, so "am I spending faster
+// than usual?" is answered by which line is higher -- no reading required.
+// ---------------------------------------------------------------------------
+function PaceChart({ cur, cmp, W, hasCmp }: { cur: number[]; cmp: number[]; W: PeriodWindows; hasCmp: boolean }) {
+  // The SVG is stretched to the card's width (preserveAspectRatio="none") so the
+  // lines always span it -- but stretching distorts anything round or written.
+  // So the SVG draws ONLY lines (with non-scaling strokes), and the end dot and
+  // day labels sit on top as ordinary HTML, positioned by percentage. Crisp at
+  // any width, on any phone.
+  const w = 600, h = 150, top = 10, bottom = 3
+  const n = Math.max(W.axisDays, 2)
+  const maxY = Math.max(cur.at(-1) ?? 0, hasCmp ? (cmp.at(-1) ?? 0) : 0, 1) * 1.12
+  const xPct = (i: number) => (i / (n - 1)) * 100
+  const yPct = (v: number) => ((top + (1 - v / maxY) * (h - top - bottom)) / h) * 100
+  const pts = (a: number[]) =>
+    a.map((v, i) => `${((xPct(i) / 100) * w).toFixed(1)},${((yPct(v) / 100) * h).toFixed(1)}`).join(' ')
+  const last = cur.length - 1
 
-export default async function CashOut() {
+  const tick = (i: number) => {
+    if (W.key === '3m') return shortDate(new Date(Date.parse(W.current.start + 'T12:00:00Z') + i * 86_400_000).toISOString().slice(0, 10))
+    if (W.key === 'week') return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]
+    return String(i + 1)
+  }
+  const ticks = W.key === 'week' ? [0, 3, 6] : [0, Math.round((n - 1) / 2), n - 1]
+
+  const summary =
+    `Running total of business spending: ${money2(cur.at(-1) ?? 0)} so far` +
+    (hasCmp ? `, against ${money2(cmp.at(-1) ?? 0)} for the whole comparison period.` : '.')
+
+  return (
+    <div className="co-chart-wrap" role="img" aria-label={summary}>
+      <div className="co-plot">
+        <svg className="co-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" x2={w} y1={h - bottom} y2={h - bottom} stroke="var(--line-2)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          {hasCmp && cmp.length > 1 && (
+            <polyline points={pts(cmp)} fill="none" stroke="var(--ink-faint)" strokeWidth="1.5"
+              strokeDasharray="4 5" vectorEffect="non-scaling-stroke" />
+          )}
+          {cur.length > 1 && (
+            <polyline points={pts(cur)} fill="none" stroke="var(--green)" strokeWidth="2.75"
+              strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          )}
+        </svg>
+        {cur.length > 0 && (
+          <span className="co-dot" style={{ left: `${xPct(last)}%`, top: `${yPct(cur[last])}%` }} aria-hidden="true" />
+        )}
+      </div>
+      <div className="co-ticks mono" aria-hidden="true">
+        {ticks.map((i, k) => (
+          <span key={i} style={{ left: `${xPct(i)}%` }}
+            className={k === 0 ? 'first' : k === ticks.length - 1 ? 'last' : undefined}>{tick(i)}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
+  const { p } = await searchParams
+  const today = mytDate()
+  const W = periodWindows(isPeriodKey(p) ? p : 'month', today)
+
   const all = await getRecords()
   const rows = all.filter(r => r.category === 'cash_out')
+  const cur = rows.filter(r => inWin(dateOf(r), W.current))
+  const cmpToDate = rows.filter(r => inWin(dateOf(r), W.compareToDate))
 
-  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0)
-  const monthPrefix = todayISO().slice(0, 7) // YYYY-MM
-  const monthRows = rows.filter(r => (r.due_date || '').slice(0, 7) === monthPrefix)
-  const thisMonth = monthRows.reduce((s, r) => s + Number(r.amount || 0), 0)
-  const autoFiled = rows.filter(r => r.meta?.auto_filed).length
+  // ---- the headline ---------------------------------------------------------
+  const spent = cur.reduce((t, r) => t + businessOf(r), 0)
+  const spentBefore = cmpToDate.reduce((t, r) => t + businessOf(r), 0)
+  const drawings = cur.reduce((t, r) => t + drawingsOf(r), 0)
+  const delta = spentBefore > 0 ? ((spent - spentBefore) / spentBefore) * 100 : null
 
-  // COGS vs overhead. Rows with no expense_type yet are counted as unclassified
-  // rather than quietly folded into overhead — an unknown is not a zero.
-  // Built once, from the per-line split where we have it, so COGS, the
-  // unclassified banner and the "where it goes" table can never disagree.
-  const byType = new Map<string, number>()
-  for (const r of rows) {
-    for (const [t, v] of Object.entries(spendByType(r))) {
-      byType.set(t, (byType.get(t) ?? 0) + v)
+  // ---- the pace chart -------------------------------------------------------
+  const perDay = (win: { start: string; end: string }) => {
+    const m = new Map<string, number>()
+    for (const r of rows) {
+      const d = dateOf(r)
+      if (inWin(d, win)) m.set(d, (m.get(d) ?? 0) + businessOf(r))
     }
+    return m
   }
-  // Owner drawings are real money out, but not business spending -- so they are
-  // held OUT of the spend that COGS is measured against, the same way unclassified
-  // is. Counting them in would make the food look cheaper than it is.
-  const drawings = byType.get('owner_drawings') ?? 0
-  let cogs = 0
-  let classified = 0
-  for (const [t, v] of byType) {
-    if (t === 'unclassified' || t === 'owner_drawings') continue
-    classified += v
-    if (IS_COGS(t)) cogs += v
-  }
-  const unclassified = byType.get('unclassified') ?? 0
-  const cogsPctOfSpend = classified > 0 ? (cogs / classified) * 100 : null
-  const typeRows = [...byType.entries()].sort((a, b) => b[1] - a[1])
+  const curLine = cumulative(perDay(W.current), W.current, W.live ? W.elapsedDays : undefined)
+  const cmpLine = cumulative(perDay(W.compareFull), W.compareFull)
+  // No spending on record for the comparison period is NOT "spent nothing" --
+  // it usually means the app wasn't in use yet. Don't draw it as a flat zero.
+  const hasCmp = (cmpLine.at(-1) ?? 0) > 0
+  const cmpNoun =
+    W.key === 'month' ? 'last month'
+    : W.key === 'week' ? 'last week'
+    : W.key === 'last' ? W.compareLabel
+    : 'the 3 months before'
 
-  // ---- What you are paying per unit -----------------------------------------
-  // Every line item across every receipt, grouped by its normalised `key`. This
-  // is the whole point of itemising: RM 25 for 2kg of chicken is RM 12.50/kg, and
-  // seeing that move from 12.50 to 15.80 is how you catch a supplier price rise
-  // before it quietly eats the margin.
-  //
-  // Two tracks per ingredient, and the difference between them matters:
-  //   PRINTED  — RM per pack, exactly as the receipt says. Honest, but a 100g pack
-  //              and a 250g pack are not comparable, so a price DROP can look like
-  //              a rise.
-  //   COMPARABLE — RM per kg / per litre, derived only when a weight was printed.
-  // We show the comparable price whenever we have one, and say so when some
-  // purchases had no weight on the label and therefore sit outside the comparison.
+  // ---- where it goes --------------------------------------------------------
+  const byType = new Map<string, number>()
+  for (const r of cur) for (const [t, v] of Object.entries(spendByType(r))) byType.set(t, (byType.get(t) ?? 0) + v)
+  const unclassified = byType.get('unclassified') ?? 0
+  const typeRows = [...byType.entries()]
+    .filter(([t]) => t !== 'owner_drawings' && t !== 'unclassified')
+    .sort((a, b) => b[1] - a[1])
+  const maxType = Math.max(...typeRows.map(([, v]) => v), 1)
+  const cogs = typeRows.filter(([t]) => IS_COGS(t)).reduce((t, [, v]) => t + v, 0)
+
+  // ---- food cost --------------------------------------------------------------
+  // Real food cost % = cost of goods ÷ SALES. Sales arrive as one cash_in row per
+  // day from the POS import (meta.kind 'daily_sales'). Where days are missing the
+  // card says so, rather than showing a percentage inflated by absent sales.
+  const salesRows = all.filter(r => isSalesRow(r) && inWin(salesDayOf(r), W.current))
+  const sales = salesRows.reduce((t, r) => t + Number(r.amount || 0), 0)
+  const salesDays = new Set(salesRows.map(salesDayOf)).size
+  const foodCostPct = sales > 0 ? (cogs / sales) * 100 : null
+  const over = foodCostPct !== null && foodCostPct > FOOD_COST_TARGET_PCT
+
+  // ---- needs you ------------------------------------------------------------
+  let waiting: { id: number; payload: any; proposed_at: string }[] = []
+  if (supabaseConfigured) {
+    const { data } = await supabase
+      .from('agent_actions')
+      .select('id, payload, proposed_at')
+      .eq('status', 'proposed')
+      .eq('agent_key', 'expense')
+      .gt('expires_at', new Date().toISOString())
+      .order('proposed_at', { ascending: false })
+    waiting = (data ?? []) as any[]
+  }
+  const unreadable = cur.filter(r => r.meta?.items_note).length
+  const needs = [
+    waiting.length && { href: '/approvals', text: `${waiting.length} waiting for approval` },
+    unreadable && { href: '#receipts', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
+    unclassified > 0 && { href: '#receipts', text: `${money2(unclassified)} not yet categorised` },
+  ].filter(Boolean) as { href: string; text: string }[]
+
+  // ---- latest receipts, grouped by day ------------------------------------------
+  const sorted = [...cur].sort((a, b) =>
+    dateOf(b).localeCompare(dateOf(a)) || b.created_at.localeCompare(a.created_at))
+  const SHOW = 8
+  const groupByDay = (rs: Rec[]) => {
+    const g: { day: string; rows: Rec[] }[] = []
+    for (const r of rs) {
+      const d = dateOf(r)
+      const last = g.at(-1)
+      if (last && last.day === d) last.rows.push(r)
+      else g.push({ day: d, rows: [r] })
+    }
+    return g
+  }
+
+  // ---- per-unit prices: ALL time (price history is the point) -------------------
   type Price = {
     key: string; name: string; unit: string
     buys: number; qty: number; spend: number
@@ -123,30 +273,27 @@ export default async function CashOut() {
   }
   const prices = new Map<string, Price>()
   for (const r of rows) {
-    // Personal purchases are not the kitchen's cost base; keep them out of the
-    // ingredient price history so they cannot skew "what you pay per unit".
+    // Personal purchases are not the kitchen's cost base.
     if (r.meta?.expense_type === 'owner_drawings') continue
     for (const it of itemsOf(r)) {
       if (!it || typeof it.unit_price !== 'number') continue
       const k = (it.key || it.name || '').toLowerCase()
       if (!k) continue
-      const date = r.due_date || r.created_at.slice(0, 10)
+      const date = dateOf(r)
       const per = typeof it.price_per_base === 'number' ? it.price_per_base : null
       const p = prices.get(k)
       if (!p) {
         prices.set(k, {
           key: k, name: it.name, unit: it.unit, buys: 1, qty: it.qty, spend: it.line_total,
           lo: it.unit_price, hi: it.unit_price, latest: it.unit_price, latestDate: date,
-          base: per !== null ? it.base_unit : undefined,
-          bBuys: per !== null ? 1 : 0,
+          base: per !== null ? it.base_unit : undefined, bBuys: per !== null ? 1 : 0,
           bLo: per ?? 0, bHi: per ?? 0, bLatest: per ?? 0, bDate: date,
         })
       } else {
         p.buys++; p.qty += it.qty; p.spend += it.line_total
         p.lo = Math.min(p.lo, it.unit_price); p.hi = Math.max(p.hi, it.unit_price)
         if (date >= p.latestDate) { p.latest = it.unit_price; p.latestDate = date }
-        // Only fold in a comparable price measured in the SAME base unit — never
-        // average a per-kg figure together with a per-litre one.
+        // Never average a per-kg figure with a per-litre one.
         if (per !== null && (!p.base || p.base === it.base_unit)) {
           if (!p.base) { p.base = it.base_unit; p.bLo = per; p.bHi = per; p.bLatest = per; p.bDate = date }
           else { p.bLo = Math.min(p.bLo, per); p.bHi = Math.max(p.bHi, per) }
@@ -157,17 +304,8 @@ export default async function CashOut() {
     }
   }
   const priceRows = [...prices.values()].sort((a, b) => b.spend - a.spend)
-  const anyItems = priceRows.length > 0
 
-  // What the owner has TAUGHT the robot about specific shops' receipt layouts.
-  // A model does not learn from being corrected -- nothing said to it today changes
-  // tomorrow's read. These notes are re-injected into the prompt on every single
-  // receipt instead, which is why they live here where they can be switched off:
-  // a note applies to EVERY future read of that shop, so a wrong one is expensive.
-  //
-  // Grouped by supplier, because notes ACCUMULATE: one shop can hold several and
-  // they all apply together. Showing them as a flat list would imply each shop has
-  // one rule, and hide the fact that teaching a new thing kept the old one.
+  // ---- supplier notes, grouped by shop (notes ACCUMULATE; see lib/supplier-rules)
   const ruleGroups = (() => {
     const g = new Map<string, { supplier: string; notes: Rec[] }>()
     for (const r of all.filter(x => x.category === 'supplier_rule')) {
@@ -182,309 +320,321 @@ export default async function CashOut() {
     }
     return [...g.values()].sort((a, b) => a.supplier.localeCompare(b.supplier))
   })()
-  const ruleCount = ruleGroups.reduce((n, g) => n + g.notes.length, 0)
+  const activeNotes = ruleGroups.reduce((t, g) => t + g.notes.filter(n => n.status !== 'off').length, 0)
 
-  const sorted = [...rows].sort((a, b) => (b.due_date || '').localeCompare(a.due_date || ''))
+  // ---------------------------------------------------------------------------
+  const Receipt = ({ r }: { r: Rec }) => {
+    const items = itemsOf(r)
+    const split = r.meta?.type_split as Record<string, number> | undefined
+    const bits = [typeOf(r), items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : null, r.meta?.filed_by]
+      .filter(Boolean).join(' · ')
+    return (
+      <details className="co-rx">
+        <summary>
+          <span className="co-rx-main">
+            <span className="co-rx-name">{merchantOf(r)}</span>
+            <span className="co-rx-sub">
+              {bits}
+              {r.meta?.items_note && <span className="co-flag"> · check</span>}
+            </span>
+          </span>
+          <span className="co-rx-amt num">{plain2(Number(r.amount))}</span>
+        </summary>
+        <div className="co-rx-body">
+          {items.length > 0 ? (
+            <ul className="co-lines">
+              {items.map((it, i) => (
+                <li key={i}>
+                  <span>
+                    {it.name}
+                    <span className="co-dim">
+                      {' '}· {it.qty} {it.unit !== 'unit' ? it.unit : ''} × {plain2(it.unit_price)}
+                      {typeof it.price_per_base === 'number' && ` = ${money2(it.price_per_base)}/${it.base_unit}`}
+                      {it.expense_type && split && Object.keys(split).length > 1 && ` · ${TYPE_LABEL[it.expense_type] ?? it.expense_type}`}
+                    </span>
+                  </span>
+                  <span className="num">{plain2(it.line_total)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="co-dim" style={{ margin: 0 }}>No line items on this one.</p>
+          )}
+          {split && Object.keys(split).length > 1 && (
+            <p className="co-meta">
+              Split: {Object.entries(split).sort((a, b) => b[1] - a[1])
+                .map(([t, v]) => `${TYPE_LABEL[t] ?? t} ${money2(v)}`).join(' · ')}
+            </p>
+          )}
+          {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
+          {r.meta?.items_note && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
+          <p className="co-meta">
+            {shortDate(dateOf(r))}
+            {r.meta?.receipt_no ? ` · #${r.meta.receipt_no}` : ''}
+            {r.meta?.auto_filed ? ' · filed automatically' : ''}
+          </p>
+        </div>
+      </details>
+    )
+  }
+
+  const Day = ({ g }: { g: { day: string; rows: Rec[] } }) => (
+    <div className="co-day">
+      <div className="eyebrow co-day-label">
+        <span>{dayLabel(g.day, today)}</span>
+        <span className="num">{plain2(g.rows.reduce((t, r) => t + Number(r.amount || 0), 0))}</span>
+      </div>
+      {g.rows.map(r => <Receipt key={r.id} r={r} />)}
+    </div>
+  )
 
   return (
-    <>
-      <h1 className="ph">Cash Out 🧾</h1>
-      <p className="cap">Money going out — including receipts your robot files for you, line by line.</p>
-
-      <div className="grid">
-        <Stat label="Total out" value={rm(total)} />
-        <Stat label="This month" value={rm(thisMonth)} />
-        <Stat label="Cost of goods" value={rm(cogs)} />
-        <Stat label="COGS share of spend" value={cogsPctOfSpend === null ? '—' : cogsPctOfSpend.toFixed(0) + '%'} />
-        <Stat label="🤖 Auto-filed" value={autoFiled} />
-        {drawings > 0 && <Stat label="👤 Owner's drawings" value={rm(drawings)} />}
+    <div className="co">
+      {/* ── header + period ───────────────────────────────────────────── */}
+      <div className="co-head">
+        <h1 className="ph">Cash out</h1>
+        <details className="co-period">
+          <summary className="mono">{W.label} <span aria-hidden="true">▾</span></summary>
+          <div className="co-period-menu">
+            {PERIODS.map(opt => (
+              <Link key={opt.key} href={`/cash-out?p=${opt.key}`}
+                className={opt.key === W.key ? 'on' : undefined}>{opt.label}</Link>
+            ))}
+          </div>
+        </details>
       </div>
 
-      {unclassified > 0 && (
-        <div className="banner warn" style={{ marginTop: 14 }}>
-          <strong>{rm(unclassified)} is unclassified.</strong> Those rows have no expense type, so they are
-          left out of the cost-of-goods figure rather than guessed at. New receipts photographed into the
-          Vault get typed automatically; older rows need it added by hand.
+      {/* ── needs you (only when something does) ──────────────────────── */}
+      {needs.length > 0 && (
+        <div className="co-needs" role="status">
+          <span aria-hidden="true">●</span>
+          {needs.map((n, i) => (
+            <Link key={i} href={n.href}>{n.text}</Link>
+          ))}
         </div>
       )}
 
-      {all.length === 0 ? (
-        <Empty />
-      ) : rows.length === 0 ? (
-        <Empty label="money-out" />
-      ) : (
-        <>
-          {/* ── Where the money goes ─────────────────────── */}
-          <p className="rowlabel" style={{ marginTop: 22 }}>Where it goes</p>
-          <table className="tbl">
-            <thead><tr><th>Type</th><th>Spend</th><th>Share</th></tr></thead>
-            <tbody>
-              {typeRows.map(([t, v]) => (
-                <tr key={t}>
-                  <td data-label="Type">
-                    {TYPE_LABEL[t] ?? 'Unclassified'}
-                    {IS_COGS(t) && <> <span className="pill won">COGS</span></>}
-                    {t === 'owner_drawings' && <> <span className="pill">not an expense</span></>}
-                  </td>
-                  <td data-label="Spend">{rm(v)}</td>
-                  <td data-label="Share">
-                    {total > 0 ? ((v / total) * 100).toFixed(0) + '%' : '—'}
-                    <div aria-hidden="true" style={{
-                      height: 3, marginTop: 4, borderRadius: 2,
-                      background: IS_COGS(t) ? 'rgba(75,122,90,.55)' : 'var(--clay-tint)',
-                      width: total > 0 ? Math.max(2, Math.round((v / total) * 100)) + '%' : '2%',
-                    }} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* ── Unit cost tracking ───────────────────────── */}
-          <p className="rowlabel" style={{ marginTop: 26 }}>What you pay per unit</p>
-          {!anyItems ? (
-            <div className="empty">
-              No itemised receipts yet.<br />
-              Photograph a receipt into Telegram and the Vault reads every line — item, quantity, unit
-              and price — so this table fills itself.
-            </div>
+      {/* ── the headline ────────────────────────────────────────────────── */}
+      <section className="co-card co-hero">
+        <div className="eyebrow">Spent {W.key === 'month' ? 'this month' : W.key === 'week' ? 'this week' : W.key === 'last' ? `in ${W.label}` : 'in the last 3 months'}</div>
+        <div className="co-big num">{money2(spent)}</div>
+        <p className="co-sub">
+          {delta === null ? (
+            <>No spending on record for {cmpNoun} yet, so there&rsquo;s nothing to compare with.</>
           ) : (
             <>
-              <table className="tbl">
-                <thead>
-                  <tr><th>Item</th><th>Comparable price</th><th>Range seen</th><th>On the receipt</th><th>Bought</th><th>Total spend</th></tr>
-                </thead>
-                <tbody>
-                  {priceRows.map(p => {
-                    // Judge "highest yet" on the comparable price when we have one —
-                    // a per-pack price says nothing once the pack size changes.
-                    const cmp = !!p.base && p.bBuys > 0
-                    const rising = cmp
-                      ? p.bHi > p.bLo && p.bLatest >= p.bHi && p.bBuys > 1
-                      : p.hi > p.lo && p.latest >= p.hi && p.buys > 1
-                    const partial = cmp && p.bBuys < p.buys
-                    return (
-                      <tr key={p.key}>
-                        <td data-label="Item">
-                          {p.name}
-                          <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {p.key}</span>
-                        </td>
-                        <td data-label="Comparable price">
-                          {cmp ? (
-                            <>
-                              <strong>{money2(p.bLatest)}</strong>
-                              <span style={{ color: 'var(--dim)', fontSize: 12 }}>/{p.base}</span>
-                              {rising && <> <span className="pill overdue">highest yet</span></>}
-                              {partial && (
-                                <div style={{ color: 'var(--dim)', fontSize: 11 }}>
-                                  {p.bBuys} of {p.buys} buys had a weight printed
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <span style={{ color: 'var(--dim)' }} title="No weight or volume printed on the label, so there is nothing to compare across pack sizes.">
-                              no weight printed
-                            </span>
-                          )}
-                        </td>
-                        <td data-label="Range seen">
-                          {cmp
-                            ? (p.bLo === p.bHi ? '—' : `${money2(p.bLo)} – ${money2(p.bHi)}/${p.base}`)
-                            : (p.lo === p.hi ? '—' : `${money2(p.lo)} – ${money2(p.hi)}`)}
-                        </td>
-                        <td data-label="On the receipt">
-                          {money2(p.latest)}
-                          <span style={{ color: 'var(--dim)', fontSize: 12 }}>/{p.unit}</span>
-                          {!cmp && rising && <> <span className="pill overdue">highest yet</span></>}
-                        </td>
-                        <td data-label="Bought">
-                          {p.qty.toLocaleString('en-MY')} {p.unit}
-                          <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {p.buys}×</span>
-                        </td>
-                        <td data-label="Total spend">{rm(p.spend)}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-              <p style={{ fontSize: 12, color: 'var(--dim)', margin: '8px 0 0', lineHeight: 1.6 }}>
-                <strong>Comparable price</strong> is RM per kg or per litre, worked out from the weight
-                printed on the label — so a 100g pack and a 1kg bag can finally be compared. Where no weight
-                was printed, only the per-pack price exists and no comparison is possible.
-                &ldquo;Highest yet&rdquo; means the most recent purchase sat at the top of the range you have
-                paid — worth a look before the next order.
-              </p>
+              <span className={delta > 0 ? 'co-up' : 'co-down'}>
+                {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(0)}%
+              </span>{' '}
+              vs <span className="num">{money2(spentBefore)}</span> {W.compareLabel}
             </>
           )}
-
-
-          {/* -- What you have taught the robot ----------------- */}
-          <p className="rowlabel" style={{ marginTop: 26 }}>What you have taught the robot</p>
-          {ruleCount === 0 ? (
-            <div className="empty">
-              Nothing taught yet. When a receipt is read wrong, tell Jarvis what it should have
-              said &mdash; &ldquo;for 99 Speed Mart the first number is a shelf code, not the
-              quantity&rdquo; &mdash; and he&rsquo;ll store it here and apply it to every future
-              photo from that shop.
-            </div>
+        </p>
+        {/* Its own line: tacked onto the sentence above it wrapped to a line starting "·". */}
+        {drawings > 0 && (
+          <p className="co-sub" style={{ marginTop: 2 }}>
+            Plus <span className="num">{money2(drawings)}</span>{' '}owner&rsquo;s drawings, not counted as spending.
+          </p>
+        )}
+        <PaceChart cur={curLine} cmp={cmpLine} W={W} hasCmp={hasCmp} />
+        <div className="co-legend">
+          <span><i className="co-key co-key-cur" /> {W.live ? 'so far' : W.label}</span>
+          {hasCmp ? (
+            <span><i className="co-key co-key-cmp" /> {cmpNoun}</span>
           ) : (
-            <>
-              <table className="tbl">
-                <thead>
-                  <tr><th>Supplier</th><th>What I apply when reading their receipts</th><th>Taught</th><th></th></tr>
-                </thead>
-                <tbody>
-                  {ruleGroups.flatMap(g =>
-                    g.notes.map((r, i) => {
-                      const on = r.status !== 'off'
-                      const live = g.notes.filter(n => n.status !== 'off').length
-                      return (
-                        <tr key={r.id} style={on ? undefined : { opacity: 0.55 }}>
-                          {/* The supplier name is written once per group, so several
-                              notes visibly belong to ONE shop and all apply together. */}
-                          <td data-label="Supplier">
-                            {i === 0 ? (
-                              <>
-                                <strong>{g.supplier}</strong>
-                                {live > 1 && (
-                                  <div style={{ color: 'var(--dim)', fontSize: 12 }}>
-                                    {live} notes, all applied
-                                  </div>
-                                )}
-                              </>
-                            ) : (
-                              <span style={{ color: 'var(--dim)' }}>&#8942;</span>
-                            )}
-                          </td>
-                          <td data-label="Rule">
-                            {r.notes}
-                            {!on && <> <span className="pill">off</span></>}
-                            {r.meta?.example && (
-                              <div style={{ color: 'var(--dim)', fontSize: 12, marginTop: 4 }}>
-                                From: {String(r.meta.example)}
-                              </div>
-                            )}
-                          </td>
-                          <td data-label="Taught">{String(r.meta?.taught_at ?? '--')}</td>
-                          <td data-label=""><RuleToggle id={r.id} active={on} /></td>
-                        </tr>
-                      )
-                    }),
-                  )}
-                </tbody>
-              </table>
-              <p style={{ fontSize: 12, color: 'var(--dim)', margin: '8px 0 0', lineHeight: 1.6 }}>
-                Teaching <strong>adds</strong> &mdash; a shop can hold several notes and they all apply
-                together, so telling Jarvis something new never wipes what you told him before. Notes apply
-                to every <em>future</em> photo of that supplier and never re-read a receipt already filed.
-                If one is wrong it will quietly affect every receipt from that shop, so switch it off the
-                moment you doubt it.
-              </p>
-            </>
+            // A dashed line flat along zero would read as "spent nothing last month".
+            // Having no record is not the same as spending nothing -- so say so instead.
+            <span>{cmpNoun[0].toUpperCase() + cmpNoun.slice(1)}&rsquo;s line appears once it&rsquo;s on record</span>
           )}
+        </div>
+      </section>
 
-          {/* ── The receipts ─────────────────────────────── */}
-          <p className="rowlabel" style={{ marginTop: 26 }}>Every payment</p>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>What</th><th>Type</th><th>Supplier</th><th>Status</th><th>Date</th><th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map(r => {
-                const items = itemsOf(r)
-                const type = r.meta?.expense_type as string | undefined
+      <div className="co-pair">
+        {/* ── food cost ─────────────────────────────────────────────────── */}
+        <section className="co-card">
+          <div className="co-row">
+            <span className="eyebrow">Food cost</span>
+            {foodCostPct !== null && (
+              <span className={`co-mid num ${over ? 'co-up' : ''}`}>{foodCostPct.toFixed(0)}%</span>
+            )}
+          </div>
+          {foodCostPct !== null ? (
+            <>
+              <div className="co-track" aria-hidden="true">
+                <div className="co-fill" style={{ width: `${Math.min(foodCostPct, 100)}%`, background: over ? 'var(--bad)' : 'var(--green)' }} />
+                <div className="co-target" style={{ left: `${FOOD_COST_TARGET_PCT}%` }} />
+              </div>
+              <p className="co-sub">
+                Target {FOOD_COST_TARGET_PCT}% · cost of goods <span className="num">{money2(cogs)}</span>{' '}on sales <span className="num">{money2(sales)}</span>
+              </p>
+              {W.live && salesDays < W.elapsedDays && (
+                <p className="co-sub co-flag">
+                  Sales are in for {salesDays} of {W.elapsedDays} days, so this reads high until the rest arrive.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="co-sub">
+              Needs your sales. Send tonight&rsquo;s POS report to Jarvis on Telegram and this shows
+              your real food cost against your {FOOD_COST_TARGET_PCT}% target.
+            </p>
+          )}
+        </section>
+
+        {/* ── where it goes ──────────────────────────────────────────────── */}
+        <section className="co-card">
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Where it goes</div>
+          {typeRows.length === 0 ? (
+            <p className="co-sub">Nothing categorised in this period yet.</p>
+          ) : (
+            typeRows.map(([t, v]) => (
+              <div key={t} className="co-bar">
+                <div className="co-row">
+                  <span>{TYPE_LABEL[t] ?? t}{IS_COGS(t) && <span className="co-tag">COGS</span>}</span>
+                  <span className="num">{money2(v)}</span>
+                </div>
+                <div className="co-track" aria-hidden="true">
+                  <div className="co-fill" style={{ width: `${Math.max(2, (v / maxType) * 100)}%`, background: IS_COGS(t) ? 'var(--green)' : 'var(--info-fill)' }} />
+                </div>
+              </div>
+            ))
+          )}
+          {drawings > 0 && (
+            <p className="co-sub">Owner&rsquo;s drawings <span className="num">{money2(drawings)}</span>{' '}· not an expense, kept out of the above</p>
+          )}
+          {unclassified > 0 && (
+            <p className="co-sub co-flag">
+              <span className="num">{money2(unclassified)}</span>{' '}not yet categorised, so not counted above.
+            </p>
+          )}
+        </section>
+      </div>
+
+      {/* ── latest receipts ─────────────────────────────────────────────── */}
+      <section className="co-card" id="receipts">
+        <div className="co-row" style={{ marginBottom: 4 }}>
+          <span className="eyebrow">Receipts</span>
+          <span className="co-dim num">{cur.length} in {W.label.toLowerCase().startsWith('this') || W.key === '3m' ? W.label.toLowerCase() : W.label}</span>
+        </div>
+
+        {waiting.length > 0 && (
+          <div className="co-day">
+            <div className="eyebrow co-day-label co-flag"><span>Waiting for you</span></div>
+            {waiting.map(a => (
+              <Link key={a.id} href="/approvals" className="co-rx co-rx-wait">
+                <span className="co-rx-main">
+                  <span className="co-rx-name">{displayMerchant(String(a.payload?.merchant || 'Receipt'))}</span>
+                  <span className="co-rx-sub co-flag">
+                    {a.payload?.payment_proof ? 'E-wallet payment' : 'Needs your approval'} · tap to decide
+                  </span>
+                </span>
+                <span className="co-rx-amt num">{plain2(Number(a.payload?.amount || 0))}</span>
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {sorted.length === 0 && waiting.length === 0 ? (
+          <p className="co-sub">
+            No receipts in {W.label} yet. Photograph one into Telegram and Jarvis files it here, line by line.
+          </p>
+        ) : (
+          <>
+            {groupByDay(sorted.slice(0, SHOW)).map(g => <Day key={g.day} g={g} />)}
+            {sorted.length > SHOW && (
+              <details className="co-more">
+                <summary>Show {sorted.length - SHOW} more</summary>
+                {/* Re-group the remainder so a day split across the fold still reads as one day. */}
+                {groupByDay(sorted.slice(SHOW)).map(g => <Day key={'more-' + g.day} g={g} />)}
+              </details>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* ── folded away: slower, laptop-shaped reading ───────────────────── */}
+      <details className="co-card co-fold">
+        <summary>
+          <span>What you pay per unit</span>
+          <span className="co-dim num">{priceRows.length} item{priceRows.length === 1 ? '' : 's'}</span>
+        </summary>
+        {priceRows.length === 0 ? (
+          <p className="co-sub">Fills itself as receipts are read line by line.</p>
+        ) : (
+          <>
+            <ul className="co-prices">
+              {priceRows.map(p => {
+                const cmp = !!p.base && p.bBuys > 0
+                const rising = cmp
+                  ? p.bHi > p.bLo && p.bLatest >= p.bHi && p.bBuys > 1
+                  : p.hi > p.lo && p.latest >= p.hi && p.buys > 1
+                const [lo, hi, latest, unit] = cmp
+                  ? [p.bLo, p.bHi, p.bLatest, p.base!]
+                  : [p.lo, p.hi, p.latest, p.unit]
                 return (
-                  <tr key={r.id}>
-                    <td data-label="What">
-                      {r.title}
-                      {r.meta?.auto_filed ? (
-                        <span className="pill filed" style={{ marginLeft: 8 }}>🤖 auto-filed</span>
-                      ) : null}
-                      {r.meta?.receipt_no ? (
-                        <span style={{ color: 'var(--dim)', fontSize: 12 }}> · #{r.meta.receipt_no}</span>
-                      ) : null}
-                      {/* Who sent it, when a team member filed it from the group.
-                          Under the limit it files without review, so this is the
-                          only place the "who" survives. */}
-                      {r.meta?.filed_by ? (
-                        <span className="pill" style={{ marginLeft: 8 }}>
-                          👤 {String(r.meta.filed_by)}
-                        </span>
-                      ) : null}
-
-                      {items.length > 0 && (
-                        <details style={{ marginTop: 6 }}>
-                          <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--clay)' }}>
-                            {items.length} item{items.length === 1 ? '' : 's'}
-                          </summary>
-                          <table className="tbl" style={{ marginTop: 6 }}>
-                            <thead>
-                              <tr><th>Item</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr>
-                            </thead>
-                            <tbody>
-                              {items.map((it, i) => (
-                                <tr key={`${r.id}-${i}`}>
-                                  <td data-label="Item">
-                                    {it.name}
-                                    {it.group && <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {it.group}</span>}
-                                  </td>
-                                  <td data-label="Qty">{it.qty} {it.unit}</td>
-                                  <td data-label="Unit price">
-                                    {money2(it.unit_price)}/{it.unit}
-                                    {typeof it.price_per_base === 'number' && (
-                                      <span style={{ color: 'var(--dim)', fontSize: 12 }}>
-                                        {' '}= {money2(it.price_per_base)}/{it.base_unit}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td data-label="Line total">{money2(it.line_total)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          {(r.meta?.subtotal != null || r.meta?.tax != null) && (
-                            <p style={{ fontSize: 12, color: 'var(--dim)', margin: '6px 0 0' }}>
-                              {r.meta?.subtotal != null && <>Subtotal {money2(r.meta.subtotal)} · </>}
-                              {r.meta?.tax != null && <>Tax {money2(r.meta.tax)} · </>}
-                              Total {money2(Number(r.amount || 0))}
-                            </p>
-                          )}
-                          {r.meta?.items_note && (
-                            <p style={{ fontSize: 12, color: '#8A3E2D', margin: '6px 0 0', lineHeight: 1.5 }}>
-                              ⚠️ {r.meta.items_note}
-                            </p>
-                          )}
-                        </details>
-                      )}
-                    </td>
-                    <td data-label="Type">
-                      {type ? (
-                        <span className={`pill ${IS_COGS(type) ? 'won' : 'nurture'}`}>{TYPE_LABEL[type] ?? type}</span>
-                      ) : (
-                        <span style={{ color: 'var(--dim)', fontSize: 13 }}>—</span>
-                      )}
-                    </td>
-                    <td data-label="Supplier">{m(r, 'merchant')}</td>
-                    <td data-label="Status">
-                      <span className={`pill ${r.status || '—'}`}>{r.status || '—'}</span>
-                    </td>
-                    <td data-label="Date">{r.due_date || '—'}</td>
-                    <td data-label="Amount">{rm(r.amount)}</td>
-                  </tr>
+                  <li key={p.key}>
+                    <div className="co-row">
+                      <span className="co-rx-name">{p.name}</span>
+                      <span className="num">{money2(latest)}<span className="co-dim">/{unit}</span></span>
+                    </div>
+                    <div className="co-row co-dim">
+                      <span>
+                        {lo === hi ? 'one price so far' : `range ${plain2(lo)}–${plain2(hi)}`}
+                        {' · '}bought {p.buys}×{!cmp && ' · no weight on label'}
+                      </span>
+                      {rising && <span className="co-flag">highest yet</span>}
+                    </div>
+                  </li>
                 )
               })}
-            </tbody>
-          </table>
-        </>
-      )}
+            </ul>
+            <p className="co-sub">
+              Prices are per kg or litre wherever the label printed a weight, so a 100 g pack and a 1 kg bag
+              compare fairly. &ldquo;Highest yet&rdquo; means your latest buy was the dearest so far.
+            </p>
+          </>
+        )}
+      </details>
 
-      <p className="hint" style={{ marginTop: 20 }}>
-        Photograph a receipt into Telegram and the Vault reads every line, checks the items add up to the
-        printed total, and files it here. Anything it cannot read cleanly is left out and flagged rather
-        than guessed — a wrong unit price is worse than a missing one.
-      </p>
-    </>
+      <details className="co-card co-fold">
+        <summary>
+          <span>Supplier notes</span>
+          <span className="co-dim num">{activeNotes} active</span>
+        </summary>
+        {ruleGroups.length === 0 ? (
+          <p className="co-sub">
+            When a receipt is read wrong, tell Jarvis what it should have said, like &ldquo;for 99 Speed Mart
+            the first number is a shelf code&rdquo;, and it&rsquo;s applied to every future photo from that shop.
+          </p>
+        ) : (
+          <>
+            {ruleGroups.map(g => (
+              <div key={g.supplier} className="co-note-group">
+                <div className="co-rx-name">{displayMerchant(g.supplier)}</div>
+                {g.notes.map(r => {
+                  const on = r.status !== 'off'
+                  return (
+                    <div key={r.id} className={`co-note ${on ? '' : 'co-off'}`}>
+                      <div>
+                        <p style={{ margin: 0 }}>{r.notes}</p>
+                        <p className="co-meta">
+                          {on ? 'Applied' : 'Switched off'} · taught {String(r.meta?.taught_at ?? '—')}
+                          {r.meta?.example ? ` · from: ${String(r.meta.example)}` : ''}
+                        </p>
+                      </div>
+                      <RuleToggle id={r.id} active={on} />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            <p className="co-sub">
+              Notes add up: telling Jarvis something new never wipes what you told him before. They apply to
+              future photos only, so switch one off the moment you doubt it.
+            </p>
+          </>
+        )}
+      </details>
+    </div>
   )
 }

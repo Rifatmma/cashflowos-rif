@@ -1,6 +1,7 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { rulesPromptBlock, type SupplierRule } from './supplier-rules'
+import { mytDate, addDays } from './period'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // ONE vision call. A photo/PDF comes in (base64) and we ask claude-haiku-4-5 to
@@ -327,6 +328,50 @@ export function splitByType(
   return out
 }
 
+// ------------------------------------------------------------
+// sanitiseReceiptDate -- catch a misread receipt date before it hides the receipt.
+//
+// Malaysian receipts print the day FIRST: "21/09/26" is 21 September 2026. The
+// model sometimes reads that year-first and returns 2021-09-26, or drops a digit
+// and returns 2006. Either way the receipt is filed under a month years away and
+// quietly disappears from this month's spending -- nothing errors.
+//
+// A receipt is almost always photographed within days of the purchase, so a date
+// in the future or months back is treated as a misread, and repaired in order of
+// likelihood: the day/year swap, then the same day this year, then the filing day.
+// Every repair comes back with a note saying what was read and what was used.
+// ------------------------------------------------------------
+export const RECEIPT_DATE_MAX_AGE_DAYS = 120
+
+export function sanitiseReceiptDate(raw: unknown, today: string): { date?: string; note?: string } {
+  const m = String(raw ?? '').match(/(\d{4})-(\d{2})-(\d{2})/)
+  if (!m) return {}
+  const iso = `${m[1]}-${m[2]}-${m[3]}`
+
+  const real = (d: string) => {
+    const t = new Date(d + 'T12:00:00Z')
+    return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d
+  }
+  const plausible = (d: string) =>
+    real(d) && d <= addDays(today, 1) && d >= addDays(today, -RECEIPT_DATE_MAX_AGE_DAYS)
+
+  if (plausible(iso)) return { date: iso }
+
+  // "21/09/26" read year-first as 2021-09-26: swap the two-digit year and the day.
+  const swapped = `20${m[3]}-${m[2]}-${m[1].slice(2)}`
+  if (plausible(swapped)) {
+    return { date: swapped, note: `Receipt date read as ${iso}; corrected to ${swapped} (day-first date).` }
+  }
+
+  // Wrong year only (2006 for 2026): same month and day, this year.
+  const thisYear = `${today.slice(0, 4)}-${m[2]}-${m[3]}`
+  if (plausible(thisYear)) {
+    return { date: thisYear, note: `Receipt year read as ${m[1]}; assumed ${today.slice(0, 4)}.` }
+  }
+
+  return { date: today, note: `Receipt date read as ${iso}, which can't be right; used the day it was filed.` }
+}
+
 export async function readImage(
   base64: string,
   mime: string,
@@ -348,7 +393,9 @@ export async function readImage(
     `You are a receipt/invoice reader for a RESTAURANT in Malaysia. Look at the image and return ONLY ` +
     `a JSON object (no prose, no markdown) with these keys:\n` +
     `kind ("receipt" | "invoice" | "doc"), merchant (string, the supplier/shop name), ` +
-    `amount (number, the TOTAL in RM, digits only), date ("YYYY-MM-DD"), ` +
+    `amount (number, the TOTAL in RM, digits only), date ("YYYY-MM-DD" — Malaysian receipts print ` +
+    `the DAY FIRST: "21/09/26" and "21-09-2026" both mean 21 September 2026, so return 2026-09-21; ` +
+    `the year always starts with 20), ` +
     `category (short expense category e.g. "Groceries","Meat","Seafood","Utilities"), ` +
     `receipt_no (string, the receipt/invoice number if printed), ` +
     `subtotal (number, before tax, if shown), tax (number, SST/GST if shown), ` +
@@ -457,11 +504,11 @@ export async function readImage(
     if (!missing.includes('amount')) missing.push('amount')
   }
 
-  // Date: keep only a clean YYYY-MM-DD.
-  let date: string | undefined
-  const d = String(parsed.date ?? '').match(/\d{4}-\d{2}-\d{2}/)
-  if (d) date = d[0]
-  else if (!missing.includes('date')) missing.push('date')
+  // Date: clean it, then sanity-check it against today -- a misread year makes a
+  // receipt silently vanish from the month it belongs to.
+  const dateCheck = sanitiseReceiptDate(parsed.date, mytDate())
+  const date: string | undefined = dateCheck.date
+  if (!date && !missing.includes('date')) missing.push('date')
 
   const merchant = typeof parsed.merchant === 'string' && parsed.merchant.trim()
     ? parsed.merchant.trim().slice(0, 120)
@@ -511,8 +558,15 @@ export async function readImage(
   const type_split = splitByType(items, amount, itemsReconcile)
   const payment_proof = parsed.payment_proof === true
 
+  // A corrected date rides along in items_note, so it shows in the Telegram
+  // read-back and flags the receipt as "to check" on Cash Out -- the owner sees
+  // that the date was changed, and from what.
+  const notes = [items_note, dateCheck.note].filter(Boolean).join(' ')
+
   return {
     kind, merchant, amount, date, category, confidence, missing,
-    items, expense_type, receipt_no, subtotal, tax, items_note, type_split, payment_proof,
+    items, expense_type, receipt_no, subtotal, tax,
+    items_note: notes || undefined,
+    type_split, payment_proof,
   }
 }

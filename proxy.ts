@@ -25,12 +25,15 @@ export function proxy(req: NextRequest) {
 //   • /login, /api/login      — you can't log in through a locked login page
 //   • /api/telegram           — Telegram's webhook (has its own secret-header guard)
 //   • /api/cron-daily         — the daily cron (has its own fail-closed Bearer guard)
+//   • /api/cron-sales-reminder — the 11 pm sales nudge (same fail-closed Bearer guard).
+//     Leave it out of this list and Vercel's call is bounced to /login, and the
+//     reminder silently never runs -- nothing errors, it just never arrives.
 //   • /manifest.webmanifest   — the REAL PWA manifest (app/manifest.ts serves HERE);
 //     /manifest.json          — belt-and-braces extra so install never silently breaks
 //   • /icons/*, /favicon.ico, /_next/* — static assets the install/render needs
 // A single missed exclusion here = a locked webhook on class day, so this list is tested.
 export const config = {
   matcher: [
-    '/((?!login|api/login|api/telegram|api/cron-daily|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
+    '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
   ],
 }

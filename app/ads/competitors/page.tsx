@@ -139,7 +139,7 @@ export default async function Competitors() {
         <p className="t"><strong>Malaysian click-to-WhatsApp band</strong></p>
         <div style={{
           position: 'relative', height: 8, borderRadius: 999, margin: '12px 0 6px',
-          background: 'linear-gradient(90deg, rgba(75,122,90,.35), rgba(182,128,42,.35), rgba(169,83,63,.35))',
+          background: 'linear-gradient(90deg, var(--good-tint), var(--mid-tint), var(--bad-tint))',
         }}>
           <div aria-hidden="true" style={{
             position: 'absolute', top: -4, left: `calc(${bandPos}% - 8px)`,
