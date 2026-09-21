@@ -73,6 +73,10 @@ export type VisionResult = {
   // from when present, so a mixed shop trip no longer lands entirely in one
   // bucket.
   type_split?: Record<string, number>
+  // True for an e-wallet / QR / bank-transfer confirmation screen rather than a
+  // shop's receipt (Touch 'n Go, GrabPay, DuitNow QR, online banking). It proves
+  // money moved but not what was bought, so the caller never auto-files these.
+  payment_proof?: boolean
 }
 
 // Telegram/photo MIME types Claude vision accepts. Anything else → treat as a doc.
@@ -363,6 +367,13 @@ export async function readImage(
     `the receipt-level answer down onto all of them, ` +
     `group (one of: protein, seafood, vegetable, dry_goods, ` +
     `dairy, packaging, beverage, other).\n` +
+    `payment_proof (true/false): true when the image is an E-WALLET, QR or BANK-TRANSFER ` +
+    `CONFIRMATION SCREEN rather than a shop receipt — Touch 'n Go eWallet, GrabPay, Boost, ` +
+    `ShopeePay, DuitNow QR, MAE / online banking "Successful" or "Transfer" screens. For these: ` +
+    `kind "receipt", merchant = the PAYEE / recipient name, amount = the amount paid, receipt_no = ` +
+    `the transaction / reference ID, items = [] because no line items exist, and set confidence ` +
+    `"high" when payee, amount and date are all clearly shown — a missing item list is normal ` +
+    `for these and is NOT a reason for low confidence.\n` +
     `RULES: read every line, do not summarise or merge lines. Numbers only, no currency ` +
     `symbols. If it is not a receipt or invoice, use kind "doc" and omit items.\n` +
     `NEVER DERIVE A UNIT PRICE. unit_price must be a number PRINTED on the receipt. Do not get ` +
@@ -489,9 +500,10 @@ export async function readImage(
   // Divide the money across types using the lines. Returns undefined whenever it
   // cannot do so honestly, and the single `expense_type` above is then the answer.
   const type_split = splitByType(items, amount, itemsReconcile)
+  const payment_proof = parsed.payment_proof === true
 
   return {
     kind, merchant, amount, date, category, confidence, missing,
-    items, expense_type, receipt_no, subtotal, tax, items_note, type_split,
+    items, expense_type, receipt_no, subtotal, tax, items_note, type_split, payment_proof,
   }
 }
