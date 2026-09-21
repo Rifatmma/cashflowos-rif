@@ -365,6 +365,14 @@ export default async function CashOut() {
                       {r.meta?.receipt_no ? (
                         <span style={{ color: 'var(--dim)', fontSize: 12 }}> · #{r.meta.receipt_no}</span>
                       ) : null}
+                      {/* Who sent it, when a team member filed it from the group.
+                          Under the limit it files without review, so this is the
+                          only place the "who" survives. */}
+                      {r.meta?.filed_by ? (
+                        <span className="pill" style={{ marginLeft: 8 }}>
+                          👤 {String(r.meta.filed_by)}
+                        </span>
+                      ) : null}
 
                       {items.length > 0 && (
                         <details style={{ marginTop: 6 }}>

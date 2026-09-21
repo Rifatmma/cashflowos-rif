@@ -85,7 +85,26 @@ export async function GET(req: Request) {
       .map((r) => `• ${r.title}${r.due_date ? ` (${r.due_date})` : ''}`),
   }
 
-  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads)
+  // ② TEAM FILINGS — receipts staff dropped in the group since yesterday. Under the
+  //    auto-file limit these land WITHOUT anyone approving them, so this line is
+  //    the review: it happens the next morning instead of at the moment of filing.
+  //    Silent when the team filed nothing, so a solo day adds no noise.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const teamRows = rows.filter(
+    (r) => r.category === 'cash_out' && r.meta?.filed_by && r.created_at >= since,
+  )
+  const team = {
+    count: teamRows.length,
+    total: teamRows.reduce((sum, r) => sum + Number(r.amount || 0), 0),
+    lines: teamRows
+      .slice(0, 5)
+      .map(
+        (r) =>
+          `• ${rm(Number(r.amount || 0))} · ${r.meta?.merchant || r.title} — ${r.meta?.filed_by}`,
+      ),
+  }
+
+  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team)
 
   // ② Optional Jarvis-Oyen narrative — a warm chief-of-staff paragraph. Only when a
   //    key is set; its absence NEVER blocks the mandated brief above.
@@ -159,6 +178,7 @@ function buildBrief(
   money: { cashIn: number; cashOut: number; owed: number },
   proposed: { agent_key: string; payload: any }[],
   ads: { overdue: number; dueToday: number; open: number; next: string[] },
+  team: { count: number; total: number; lines: string[] },
 ): string {
   const p = (i: number) => (f.pct[i] != null ? `${f.pct[i]}%` : '—')
   const funnelLine =
@@ -201,11 +221,20 @@ function buildBrief(
       `${ads.open} open\n${ads.next.join('\n')}`
     : ''
 
+  // Filed by the team while you weren't looking. Appears only when there were any.
+  const teamBlock = team.count
+    ? `\n\n<b>Filed by the team</b>\n` +
+      `${team.count} receipt${team.count === 1 ? '' : 's'} \u00b7 <b>${rm(team.total)}</b>\n` +
+      team.lines.join('\n') +
+      (team.count > 5 ? `\n\u2026and ${team.count - 5} more` : '')
+    : ''
+
   return (
     `☀️ <b>CashFlowOS — morning brief</b>\n\n` +
     `<b>The river</b>\n${funnelLine}\n\n` +
     `<b>The money</b>\n${moneyLine}\n\n` +
     `<b>Needs you</b>\n${ask}` +
+    teamBlock +
     adsBlock
   )
 }

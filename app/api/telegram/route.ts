@@ -40,6 +40,31 @@ const ALLOWED = (process.env.TELEGRAM_ALLOWED_USER_IDS || '')
 
 const isAllowed = (id: unknown) => ALLOWED.length > 0 && ALLOWED.includes(String(id))
 
+// THE SECOND DOOR. Staff drop receipt photos into ONE named group; filing a
+// receipt is all they can do there. Asking Jarvis anything -- cash, profit, leads,
+// ads, the action tools -- still needs ALLOWED above, so a kitchen hand can
+// photograph a supplier invoice without being able to read the books.
+//
+// Group membership IS the permission: the owner controls who is in the group, so
+// adding a new hire grants it and removing them revokes it, with no redeploy.
+// Scoped to specific chat ids on purpose -- Jarvis being added to some other group
+// must never turn that group into a filing channel.
+const RECEIPT_CHATS = (process.env.TELEGRAM_RECEIPT_CHAT_IDS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+
+const isReceiptChat = (id: unknown) => RECEIPT_CHATS.length > 0 && RECEIPT_CHATS.includes(String(id))
+
+// Who sent this one, for the audit trail. A receipt filed by staff must be
+// attributable -- unreviewed at the moment of filing is fine, invisible is not.
+function filedBy(msg: any): { id: string; name: string } {
+  const f = msg?.from || {}
+  const name = [f.first_name, f.last_name].filter(Boolean).join(' ').trim() ||
+    (f.username ? '@' + f.username : '') || 'someone'
+  return { id: String(f.id ?? ''), name }
+}
+
 // The owner (for /undo). If OWNER_CHAT_ID is set, only they may undo; otherwise any
 // allowed user can. Either way the caller is already through the allowlist.
 const OWNER = (process.env.OWNER_CHAT_ID || '').trim()
@@ -259,12 +284,19 @@ async function handleMessage(msg: any): Promise<Response> {
 
   // Gate. Groups: only when addressed, and outsiders are ignored in silence.
   // Private: unchanged — fail closed and echo the id so you can add yourself.
+  const staffFiling = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!(msg.photo || msg.document)
+
   if (isGroupChat(msg.chat)) {
-    if (!(await isAddressedToBot(msg))) {
-      return Response.json({ ok: true, ignored: 'group: not addressed' })
-    }
-    if (!isAllowed(msg.from?.id)) {
-      return Response.json({ ok: true, ignored: 'group: sender not allowed' })
+    // A receipt dropped in the designated group needs no @mention and no
+    // allowlist -- that is the whole point. Everything ELSE in a group keeps the
+    // old gate, so this opens a letterbox, not a door.
+    if (!staffFiling) {
+      if (!(await isAddressedToBot(msg))) {
+        return Response.json({ ok: true, ignored: 'group: not addressed' })
+      }
+      if (!isAllowed(msg.from?.id)) {
+        return Response.json({ ok: true, ignored: 'group: sender not allowed' })
+      }
     }
   } else if (!isAllowed(msg.from?.id)) {
     await sendMessage(
@@ -283,7 +315,7 @@ async function handleMessage(msg: any): Promise<Response> {
   // `next dev` and prod (waitUntil from @vercel/functions does not).
   if (msg.photo || msg.document) {
     after(() =>
-      runVaultPipeline(msg).catch(e => console.error('[CFO] vault pipeline threw:', e)),
+      runVaultPipeline(msg, staffFiling).catch(e => console.error('[CFO] vault pipeline threw:', e)),
     )
     return Response.json({ ok: true })
   }
@@ -293,6 +325,23 @@ async function handleMessage(msg: any): Promise<Response> {
 
   if (text.toLowerCase() === '/start' || text.toLowerCase() === '/help') {
     await sendMessage(chatId, HELP_CARD)
+    return Response.json({ ok: true })
+  }
+
+  // /chatid — setup helper. Telegram never shows a group's numeric id in the app,
+  // and you need it to name the receipts group in TELEGRAM_RECEIPT_CHAT_IDS. Only
+  // an allowed user gets an answer (the gate above already ensured that in groups),
+  // so this can't be used to enumerate anything.
+  if (text.toLowerCase().split('@')[0] === '/chatid') {
+    const already = isReceiptChat(chatId)
+    await sendMessage(
+      chatId,
+      `This chat's id is <code>${chatId}</code>.\n` +
+        (already
+          ? '✅ Already set up as a receipts group — photos dropped here get filed.'
+          : 'To make this the receipts group, add that number to ' +
+            '<code>TELEGRAM_RECEIPT_CHAT_IDS</code> and redeploy.'),
+    )
     return Response.json({ ok: true })
   }
 
@@ -523,8 +572,13 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
 // hang, never a throw that surfaces to the user. LATAR mapping: see
 // agents/vault/README.md.
 // ============================================================
-async function runVaultPipeline(msg: any): Promise<void> {
+async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   const chatId = msg.chat?.id
+  const filer = filedBy(msg)
+  // Where an APPROVAL request goes. Never into the staff group: a 'this needs your
+  // sign-off' card in front of the team is a public comment on a colleague, and
+  // only the owner can answer it anyway.
+  const approvalChatId = staffFiling ? (OWNER ? Number(OWNER) : chatId) : chatId
 
   // Pick the file: a photo (take the LARGEST size) or a document. Photos are JPEG.
   let fileId: string | undefined
@@ -658,6 +712,12 @@ async function runVaultPipeline(msg: any): Promise<void> {
     mime,
     size_bytes: bytes.length,
     uploaded_by_chat_id: chatId,
+    // The audit trail. Auto-filing under the limit means nobody reviews it at the
+    // moment it lands -- so it must at least be obvious afterwards WHO filed it,
+    // on the Cash Out tab and in the next morning's brief.
+    filed_by: staffFiling ? filer.name : undefined,
+    filed_by_id: staffFiling ? filer.id : undefined,
+    filed_in_group: staffFiling || undefined,
     idempotencyKey: `photo:${sha256}`,
   }
 
@@ -668,11 +728,27 @@ async function runVaultPipeline(msg: any): Promise<void> {
   if (autopilot) {
     const done = await runAutopilot('expense', { ...payload, auto: true })
     if (done) {
-      await sendMessage(
-        chatId,
-        `✅ Filed ${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
-          `${payload.merchant ? ` · ${payload.merchant}` : ''} — reply <code>/undo-${done.row.id}</code> within 24h to reverse.`,
-      )
+      const what =
+        `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
+        `${payload.merchant ? ` · ${payload.merchant}` : ''}`
+      // In the staff group: confirm briefly so they know it landed, and do NOT
+      // hand out /undo -- reversing a filed row is the owner's call, not the
+      // sender's. The owner still gets the id privately.
+      if (staffFiling) {
+        await sendMessage(chatId, `✅ Got it — ${what}. Thanks ${filer.name}.`)
+        if (OWNER) {
+          await sendMessage(
+            Number(OWNER),
+            `🧾 ${filer.name} filed <b>${what}</b> from the receipts group — ` +
+              `reply <code>/undo-${done.row.id}</code> within 24h to reverse.`,
+          )
+        }
+      } else {
+        await sendMessage(
+          chatId,
+          `✅ Filed ${what} — reply <code>/undo-${done.row.id}</code> within 24h to reverse.`,
+        )
+      }
     } else {
       // Duplicate event or a failed executor (already recorded in Activity).
       await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.')
@@ -681,16 +757,24 @@ async function runVaultPipeline(msg: any): Promise<void> {
   }
 
   // ---- 🟡 ASK-FIRST: propose + Approve/Reject buttons. ----
+  // The buttons go to the OWNER, never into the staff group: a "this needs your
+  // sign-off" card in front of the team is a public comment on a colleague, and
+  // only the owner can answer it anyway.
   const key = isExpense ? 'expense' : 'vault'
-  const text = buildProposalText(v, threshold())
+  const text = buildProposalText(v, threshold()) +
+    (staffFiling ? `\n\nSent by ${filer.name} in the receipts group.` : '')
   const row = await proposeAndNotify({
     agentKey: key,
     idempotencyKey: payload.idempotencyKey,
     payload,
-    chatId,
+    chatId: approvalChatId,
     text,
   })
-  if (!row) {
+  if (staffFiling) {
+    // Tell the sender it arrived, without saying it is "pending the boss" -- they
+    // do not need to know the amount tripped a limit.
+    await sendMessage(chatId, `📸 Got it, thanks ${filer.name} — passed to ${jarvisName()} for filing.`)
+  } else if (!row) {
     // A proposal with this exact file already exists — don't send a second card.
     await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
   }

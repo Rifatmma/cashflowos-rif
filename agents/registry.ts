@@ -154,6 +154,13 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         subtotal: typeof payload?.subtotal === 'number' ? payload.subtotal : undefined,
         tax: typeof payload?.tax === 'number' ? payload.tax : undefined,
         items_note: payload?.items_note || undefined,
+        // Who sent it, when it came from the staff receipts group. Auto-filing
+        // under the limit means nobody reviews it as it lands, so the trail has to
+        // survive on the row itself -- the Cash Out tab and the daily brief both
+        // read this back.
+        filed_by: payload?.filed_by || undefined,
+        filed_by_id: payload?.filed_by_id || undefined,
+        filed_in_group: payload?.filed_in_group || undefined,
       },
     })
     .select()
