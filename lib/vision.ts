@@ -17,7 +17,22 @@ export type VisionItem = {
   unit_price: number
   line_total: number
   group?: string
+  // ---- the comparable layer ----
+  // A receipt prices a PACK ("CHILI PADI 100G ... 2.20"), but you buy value by
+  // weight. Without this, 100g @ RM2.20 and 250g @ RM4.50 both read as "1 pcs"
+  // and a 18% price DROP looks like a doubling. pack_size/pack_unit are what the
+  // label printed; base_* are DERIVED IN CODE, never taken from the model.
+  pack_size?: number
+  pack_unit?: string
+  base_qty?: number          // total weight/volume bought, in base_unit
+  base_unit?: BaseUnit
+  price_per_base?: number    // RM per kg / per litre — the only comparable price
 }
+
+// We normalise to exactly two base units. Counts (pcs, tray, set) have no weight
+// basis and simply don't get one — an unknown is left unknown, not guessed at.
+export const BASE_UNITS = ['kg', 'l'] as const
+export type BaseUnit = (typeof BASE_UNITS)[number]
 
 // What the money was FOR. The split that matters in a restaurant is COGS vs
 // everything else: food cost % is the number the business lives or dies by, and
@@ -74,6 +89,42 @@ function unsure(kind: VisionResult['kind'] = 'doc', missing: string[] = ['amount
   return { kind, confidence: 'low', missing }
 }
 
+// How much one `n <unit>` is in kg or litres. Returns null for counting units
+// (pcs, tray, dozen) — those have no weight basis and must NOT be invented.
+const BASE_OF: Record<string, { unit: BaseUnit; factor: number }> = {
+  kg: { unit: 'kg', factor: 1 },    kgs: { unit: 'kg', factor: 1 },
+  g:  { unit: 'kg', factor: 0.001 }, gm: { unit: 'kg', factor: 0.001 },
+  gms: { unit: 'kg', factor: 0.001 }, gram: { unit: 'kg', factor: 0.001 },
+  grams: { unit: 'kg', factor: 0.001 },
+  l:  { unit: 'l', factor: 1 },     ltr: { unit: 'l', factor: 1 },
+  ltrs: { unit: 'l', factor: 1 },   litre: { unit: 'l', factor: 1 },
+  litres: { unit: 'l', factor: 1 }, liter: { unit: 'l', factor: 1 },
+  ml: { unit: 'l', factor: 0.001 }, mls: { unit: 'l', factor: 0.001 },
+}
+function toBase(n: number, unit: string): { qty: number; unit: BaseUnit } | null {
+  const hit = BASE_OF[(unit || '').trim().toLowerCase()]
+  return hit ? { qty: n * hit.factor, unit: hit.unit } : null
+}
+
+// A pack can't sensibly be bigger than this, and a per-kg price beyond the cap is
+// a misread decimal — in that case we drop the NORMALISATION only, not the line.
+const PACK_SIZE_MAX = 100_000
+const PRICE_PER_BASE_MAX = 100_000
+
+// Last resort: read the pack size out of the printed name — "CHILI PADI 100G",
+// "MILK 1.5L". Deterministic and free, so it also double-checks the model.
+//
+// The lookbehind is the whole safety story: it refuses a number glued to letters,
+// so "LPG381" and "(IHA)P40" are NOT read as 381 grams or 40 litres.
+const PACK_RE = /(?<![A-Za-z0-9.])(\d+(?:\.\d+)?)\s*(kgs?|gms?|grams?|g|mls?|ml|ltrs?|litres?|liters?|l)(?![A-Za-z0-9])/i
+export function packFromName(name: string): { size: number; unit: string } | null {
+  const m = PACK_RE.exec(name || '')
+  if (!m) return null
+  const size = parseFloat(m[1])
+  if (!Number.isFinite(size) || size <= 0 || size > PACK_SIZE_MAX) return null
+  return { size, unit: m[2].toLowerCase() }
+}
+
 // ------------------------------------------------------------
 // sanitiseItems — the money-critical validator, exported so it can be TESTED.
 //
@@ -118,6 +169,40 @@ export function sanitiseItems(
     if (lineTotal > AMOUNT_MAX) { dropped++; continue }
 
     const unit = (clean(line?.unit, 12) || 'unit').toLowerCase()
+
+    // ---- normalise to RM per kg / per litre ----
+    // Two routes to a weight basis, in order of trust:
+    //   1. the unit IS a weight/volume  — "2 kg chicken"      → 2 kg
+    //   2. a counting unit + a pack size — "1 pcs CHILI 100G" → 0.1 kg
+    // The pack size comes from the model if it gave one, otherwise from the
+    // printed name. Route 2 is skipped for counting units with no pack size:
+    // "1 tray of eggs" has no honest weight and we refuse to invent one.
+    let packSize = num(line?.pack_size)
+    let packUnit = clean(line?.pack_unit, 12)?.toLowerCase()
+    if (packSize === null || packSize <= 0 || packSize > PACK_SIZE_MAX || !packUnit || !BASE_OF[packUnit]) {
+      const fromName = packFromName(name)
+      packSize = fromName?.size ?? null
+      packUnit = fromName?.unit
+    }
+
+    const direct = toBase(qty, unit)
+    const viaPack = packSize !== null && packUnit ? toBase(packSize * qty, packUnit) : null
+    const basis = direct ?? viaPack
+
+    let base_qty: number | undefined
+    let base_unit: BaseUnit | undefined
+    let price_per_base: number | undefined
+    if (basis && basis.qty > 0) {
+      const per = lineTotal / basis.qty
+      // An absurd per-kg price means a misread decimal somewhere. Drop only the
+      // NORMALISATION — the printed line itself is still what they were charged.
+      if (Number.isFinite(per) && per > 0 && per <= PRICE_PER_BASE_MAX) {
+        base_qty = Math.round(basis.qty * 10000) / 10000
+        base_unit = basis.unit
+        price_per_base = Math.round(per * 100) / 100
+      }
+    }
+
     out.push({
       name,
       key: clean(line?.key, 40)?.toLowerCase(),
@@ -128,6 +213,9 @@ export function sanitiseItems(
       unit_price: Math.round(unitPrice * 100) / 100,
       line_total: Math.round(lineTotal * 100) / 100,
       group: clean(line?.group, 24)?.toLowerCase(),
+      ...(base_qty !== undefined
+        ? { pack_size: packSize ?? undefined, pack_unit: packUnit, base_qty, base_unit, price_per_base }
+        : {}),
     })
   }
 
@@ -174,14 +262,19 @@ export async function readImage(base64: string, mime: string): Promise<VisionRes
     `receipt_no (string, the receipt/invoice number if printed), ` +
     `subtotal (number, before tax, if shown), tax (number, SST/GST if shown), ` +
     `expense_type (ONE of: cogs_food, cogs_beverage, cogs_packaging, labour, rent, utilities, ` +
-    `marketing, equipment, services, other — use cogs_food for ingredients, cogs_beverage for drinks ` +
-    `stock, cogs_packaging for containers/bags/cutlery), ` +
+    `marketing, equipment, services, other — judge this from the ITEMS BOUGHT, never from the ` +
+    `shop's name: cogs_food for ingredients, cogs_beverage for drinks stock, cogs_packaging ONLY when ` +
+    `the thing bought IS a container (bags, boxes, cutlery, cups) — rice in a bag is cogs_food. ` +
+    `If the lines are mixed, pick the type holding the largest share of the total), ` +
     `confidence ("high" | "low"), missing (array of any of "merchant","amount","date" you could NOT read), ` +
     `items (array of EVERY line on the receipt).\n` +
     `Each item: name (exactly as printed), key (a NORMALISED lowercase english ingredient name — ` +
     `"Ayam bersih" and "chicken whole" both become "chicken"; siakap/sea bass -> "seabass"; ` +
     `udang -> "prawn"; sotong -> "squid"), qty (number), unit ("kg","g","l","ml","pcs","pkt","box", ` +
     `"carton","tray","dozen","bottle","can","bag" — lowercase), unit_price (number, RM per ONE unit), ` +
+    `pack_size + pack_unit WHENEVER the label prints a weight or volume ("CHILI PADI 100G" -> ` +
+    `pack_size 100, pack_unit "g"; "MILK 1.5L" -> 1.5 and "l"), so price per kg can be compared ` +
+    `across pack sizes — omit both if no weight is printed, never guess one, ` +
     `line_total (number, RM for that line), group (one of: protein, seafood, vegetable, dry_goods, ` +
     `dairy, packaging, beverage, other).\n` +
     `RULES: read every line, do not summarise or merge lines. If a line shows only a total and no ` +

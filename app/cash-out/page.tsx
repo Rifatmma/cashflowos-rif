@@ -16,6 +16,8 @@ export const dynamic = 'force-dynamic'
 type Item = {
   name: string; key?: string; qty: number; unit: string
   unit_price: number; line_total: number; group?: string
+  pack_size?: number; pack_unit?: string
+  base_qty?: number; base_unit?: string; price_per_base?: number
 }
 
 // What the money was FOR. COGS = the cost of what you sell; everything else is
@@ -67,7 +69,21 @@ export default async function CashOut() {
   // is the whole point of itemising: RM 25 for 2kg of chicken is RM 12.50/kg, and
   // seeing that move from 12.50 to 15.80 is how you catch a supplier price rise
   // before it quietly eats the margin.
-  type Price = { key: string; name: string; unit: string; buys: number; qty: number; spend: number; lo: number; hi: number; latest: number; latestDate: string }
+  //
+  // Two tracks per ingredient, and the difference between them matters:
+  //   PRINTED  — RM per pack, exactly as the receipt says. Honest, but a 100g pack
+  //              and a 250g pack are not comparable, so a price DROP can look like
+  //              a rise.
+  //   COMPARABLE — RM per kg / per litre, derived only when a weight was printed.
+  // We show the comparable price whenever we have one, and say so when some
+  // purchases had no weight on the label and therefore sit outside the comparison.
+  type Price = {
+    key: string; name: string; unit: string
+    buys: number; qty: number; spend: number
+    lo: number; hi: number; latest: number; latestDate: string
+    base?: string; bBuys: number
+    bLo: number; bHi: number; bLatest: number; bDate: string
+  }
   const prices = new Map<string, Price>()
   for (const r of rows) {
     for (const it of itemsOf(r)) {
@@ -75,16 +91,28 @@ export default async function CashOut() {
       const k = (it.key || it.name || '').toLowerCase()
       if (!k) continue
       const date = r.due_date || r.created_at.slice(0, 10)
+      const per = typeof it.price_per_base === 'number' ? it.price_per_base : null
       const p = prices.get(k)
       if (!p) {
         prices.set(k, {
           key: k, name: it.name, unit: it.unit, buys: 1, qty: it.qty, spend: it.line_total,
           lo: it.unit_price, hi: it.unit_price, latest: it.unit_price, latestDate: date,
+          base: per !== null ? it.base_unit : undefined,
+          bBuys: per !== null ? 1 : 0,
+          bLo: per ?? 0, bHi: per ?? 0, bLatest: per ?? 0, bDate: date,
         })
       } else {
         p.buys++; p.qty += it.qty; p.spend += it.line_total
         p.lo = Math.min(p.lo, it.unit_price); p.hi = Math.max(p.hi, it.unit_price)
         if (date >= p.latestDate) { p.latest = it.unit_price; p.latestDate = date }
+        // Only fold in a comparable price measured in the SAME base unit — never
+        // average a per-kg figure together with a per-litre one.
+        if (per !== null && (!p.base || p.base === it.base_unit)) {
+          if (!p.base) { p.base = it.base_unit; p.bLo = per; p.bHi = per; p.bLatest = per; p.bDate = date }
+          else { p.bLo = Math.min(p.bLo, per); p.bHi = Math.max(p.bHi, per) }
+          p.bBuys++
+          if (date >= p.bDate) { p.bLatest = per; p.bDate = date }
+        }
       }
     }
   }
@@ -157,24 +185,50 @@ export default async function CashOut() {
             <>
               <table className="tbl">
                 <thead>
-                  <tr><th>Item</th><th>Latest price</th><th>Range seen</th><th>Bought</th><th>Total spend</th></tr>
+                  <tr><th>Item</th><th>Comparable price</th><th>Range seen</th><th>On the receipt</th><th>Bought</th><th>Total spend</th></tr>
                 </thead>
                 <tbody>
                   {priceRows.map(p => {
-                    const rising = p.hi > p.lo && p.latest >= p.hi
+                    // Judge "highest yet" on the comparable price when we have one —
+                    // a per-pack price says nothing once the pack size changes.
+                    const cmp = !!p.base && p.bBuys > 0
+                    const rising = cmp
+                      ? p.bHi > p.bLo && p.bLatest >= p.bHi && p.bBuys > 1
+                      : p.hi > p.lo && p.latest >= p.hi && p.buys > 1
+                    const partial = cmp && p.bBuys < p.buys
                     return (
                       <tr key={p.key}>
                         <td data-label="Item">
                           {p.name}
                           <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {p.key}</span>
                         </td>
-                        <td data-label="Latest price">
-                          <strong>{money2(p.latest)}</strong>
-                          <span style={{ color: 'var(--dim)', fontSize: 12 }}>/{p.unit}</span>
-                          {rising && p.buys > 1 && <> <span className="pill overdue">highest yet</span></>}
+                        <td data-label="Comparable price">
+                          {cmp ? (
+                            <>
+                              <strong>{money2(p.bLatest)}</strong>
+                              <span style={{ color: 'var(--dim)', fontSize: 12 }}>/{p.base}</span>
+                              {rising && <> <span className="pill overdue">highest yet</span></>}
+                              {partial && (
+                                <div style={{ color: 'var(--dim)', fontSize: 11 }}>
+                                  {p.bBuys} of {p.buys} buys had a weight printed
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{ color: 'var(--dim)' }} title="No weight or volume printed on the label, so there is nothing to compare across pack sizes.">
+                              no weight printed
+                            </span>
+                          )}
                         </td>
                         <td data-label="Range seen">
-                          {p.lo === p.hi ? '—' : `${money2(p.lo)} – ${money2(p.hi)}`}
+                          {cmp
+                            ? (p.bLo === p.bHi ? '—' : `${money2(p.bLo)} – ${money2(p.bHi)}/${p.base}`)
+                            : (p.lo === p.hi ? '—' : `${money2(p.lo)} – ${money2(p.hi)}`)}
+                        </td>
+                        <td data-label="On the receipt">
+                          {money2(p.latest)}
+                          <span style={{ color: 'var(--dim)', fontSize: 12 }}>/{p.unit}</span>
+                          {!cmp && rising && <> <span className="pill overdue">highest yet</span></>}
                         </td>
                         <td data-label="Bought">
                           {p.qty.toLocaleString('en-MY')} {p.unit}
@@ -187,8 +241,11 @@ export default async function CashOut() {
                 </tbody>
               </table>
               <p style={{ fontSize: 12, color: 'var(--dim)', margin: '8px 0 0', lineHeight: 1.6 }}>
-                Prices are per unit as printed on the receipt. &ldquo;Highest yet&rdquo; means the most
-                recent purchase was at the top of the range you have paid — worth a look before the next order.
+                <strong>Comparable price</strong> is RM per kg or per litre, worked out from the weight
+                printed on the label — so a 100g pack and a 1kg bag can finally be compared. Where no weight
+                was printed, only the per-pack price exists and no comparison is possible.
+                &ldquo;Highest yet&rdquo; means the most recent purchase sat at the top of the range you have
+                paid — worth a look before the next order.
               </p>
             </>
           )}
@@ -233,7 +290,14 @@ export default async function CashOut() {
                                     {it.group && <span style={{ color: 'var(--dim)', fontSize: 12 }}> · {it.group}</span>}
                                   </td>
                                   <td data-label="Qty">{it.qty} {it.unit}</td>
-                                  <td data-label="Unit price">{money2(it.unit_price)}/{it.unit}</td>
+                                  <td data-label="Unit price">
+                                    {money2(it.unit_price)}/{it.unit}
+                                    {typeof it.price_per_base === 'number' && (
+                                      <span style={{ color: 'var(--dim)', fontSize: 12 }}>
+                                        {' '}= {money2(it.price_per_base)}/{it.base_unit}
+                                      </span>
+                                    )}
+                                  </td>
                                   <td data-label="Line total">{money2(it.line_total)}</td>
                                 </tr>
                               ))}
