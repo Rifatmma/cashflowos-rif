@@ -20,6 +20,7 @@ type Item = {
   unit_price: number; line_total: number; group?: string
   pack_size?: number; pack_unit?: string
   base_qty?: number; base_unit?: string; price_per_base?: number
+  expense_type?: string
 }
 
 // What the money was FOR. COGS = the cost of what you sell; everything else is
@@ -28,6 +29,7 @@ const TYPE_LABEL: Record<string, string> = {
   cogs_food: 'Food',
   cogs_beverage: 'Beverage',
   cogs_packaging: 'Packaging',
+  supplies_cleaning: 'Cleaning & supplies',
   labour: 'Labour',
   rent: 'Rent',
   utilities: 'Utilities',
@@ -37,6 +39,28 @@ const TYPE_LABEL: Record<string, string> = {
   other: 'Other',
 }
 const IS_COGS = (t?: string) => !!t && t.startsWith('cogs_')
+
+// How ONE receipt's money divides across expense types.
+//
+// meta.type_split is the per-line allocation and always wins when present: a
+// grocery run is rarely one category, and collapsing it to its biggest one put
+// RM 8.75 of bin bags inside food cost. Older rows have only a single
+// expense_type, so they fall back to putting the whole amount in that bucket.
+// Rows with neither are 'unclassified' -- deliberately NOT folded into overhead,
+// because an unknown is not a zero.
+function spendByType(r: Rec): Record<string, number> {
+  const split = r.meta?.type_split as Record<string, number> | undefined
+  if (split && typeof split === 'object') {
+    const clean: Record<string, number> = {}
+    for (const [k, v] of Object.entries(split)) {
+      const n = Number(v)
+      if (Number.isFinite(n) && n > 0) clean[k] = n
+    }
+    if (Object.keys(clean).length) return clean
+  }
+  const t = (r.meta?.expense_type as string) || 'unclassified'
+  return { [t]: Number(r.amount || 0) }
+}
 
 const money2 = (n: number) => 'RM ' + Number(n || 0).toFixed(2)
 const itemsOf = (r: Rec): Item[] => (Array.isArray(r.meta?.items) ? (r.meta.items as Item[]) : [])
@@ -53,17 +77,23 @@ export default async function CashOut() {
 
   // COGS vs overhead. Rows with no expense_type yet are counted as unclassified
   // rather than quietly folded into overhead — an unknown is not a zero.
-  const cogs = rows.filter(r => IS_COGS(r.meta?.expense_type)).reduce((s, r) => s + Number(r.amount || 0), 0)
-  const classified = rows.filter(r => r.meta?.expense_type).reduce((s, r) => s + Number(r.amount || 0), 0)
-  const unclassified = total - classified
-  const cogsPctOfSpend = classified > 0 ? (cogs / classified) * 100 : null
-
-  // Spend by expense type, biggest first.
+  // Built once, from the per-line split where we have it, so COGS, the
+  // unclassified banner and the "where it goes" table can never disagree.
   const byType = new Map<string, number>()
   for (const r of rows) {
-    const t = (r.meta?.expense_type as string) || 'unclassified'
-    byType.set(t, (byType.get(t) ?? 0) + Number(r.amount || 0))
+    for (const [t, v] of Object.entries(spendByType(r))) {
+      byType.set(t, (byType.get(t) ?? 0) + v)
+    }
   }
+  let cogs = 0
+  let classified = 0
+  for (const [t, v] of byType) {
+    if (t === 'unclassified') continue
+    classified += v
+    if (IS_COGS(t)) cogs += v
+  }
+  const unclassified = byType.get('unclassified') ?? 0
+  const cogsPctOfSpend = classified > 0 ? (cogs / classified) * 100 : null
   const typeRows = [...byType.entries()].sort((a, b) => b[1] - a[1])
 
   // ---- What you are paying per unit -----------------------------------------

@@ -28,6 +28,10 @@ export type VisionItem = {
   base_qty?: number          // total weight/volume bought, in base_unit
   base_unit?: BaseUnit
   price_per_base?: number    // RM per kg / per litre — the only comparable price
+  // What THIS line was for. A supermarket run is rarely one category: rice and
+  // bin bags come off the same till roll, and labelling the whole receipt by
+  // its biggest category buries the rest inside it.
+  expense_type?: ExpenseType
 }
 
 // We normalise to exactly two base units. Counts (pcs, tray, set) have no weight
@@ -40,6 +44,10 @@ export type BaseUnit = (typeof BASE_UNITS)[number]
 // you cannot compute it if chicken and Facebook ads sit in the same bucket.
 export const EXPENSE_TYPES = [
   'cogs_food', 'cogs_beverage', 'cogs_packaging',
+  // Consumed BY the kitchen, not sold WITH the food: bin liners, detergent,
+  // gloves, foil. The distinction is not pedantry -- putting these in COGS
+  // overstates cost of sale and quietly inflates food cost %.
+  'supplies_cleaning',
   'labour', 'rent', 'utilities', 'marketing', 'equipment', 'services', 'other',
 ] as const
 export type ExpenseType = (typeof EXPENSE_TYPES)[number]
@@ -60,6 +68,11 @@ export type VisionResult = {
   subtotal?: number
   tax?: number
   items_note?: string      // why the lines were dropped / don't reconcile, if so
+  // How the receipt's money divides across expense types, derived from the
+  // lines. This, not the single `expense_type` above, is what Cash Out reports
+  // from when present, so a mixed shop trip no longer lands entirely in one
+  // bucket.
+  type_split?: Record<string, number>
 }
 
 // Telegram/photo MIME types Claude vision accepts. Anything else → treat as a doc.
@@ -169,6 +182,11 @@ export function sanitiseItems(
     }
     if (lineTotal > AMOUNT_MAX) { dropped++; continue }
 
+    const rawType = clean(line?.expense_type, 24)?.toLowerCase()
+    const itemType = (EXPENSE_TYPES as readonly string[]).includes(rawType ?? '')
+      ? (rawType as ExpenseType)
+      : undefined
+
     const unit = (clean(line?.unit, 12) || 'unit').toLowerCase()
 
     // ---- normalise to RM per kg / per litre ----
@@ -214,6 +232,7 @@ export function sanitiseItems(
       unit_price: Math.round(unitPrice * 100) / 100,
       line_total: Math.round(lineTotal * 100) / 100,
       group: clean(line?.group, 24)?.toLowerCase(),
+      expense_type: itemType,
       ...(base_qty !== undefined
         ? { pack_size: packSize ?? undefined, pack_unit: packUnit, base_qty, base_unit, price_per_base }
         : {}),
@@ -243,6 +262,57 @@ export function sanitiseItems(
   return { items, items_note, reconciles }
 }
 
+// ------------------------------------------------------------
+// splitByType -- divide a receipt's money across expense types, using its lines.
+//
+// WHY: "pick the category holding the largest share" put RM 8.75 of bin bags
+// inside food cost on a RM 71.95 grocery run. Food cost % is the number the
+// business is run on, so a 12% contamination on every mixed shop trip is not a
+// rounding detail.
+//
+// It refuses to guess in three cases, all deliberate:
+//   * the lines don't reconcile with the printed total -> a misread itemisation
+//     must never be trusted to allocate money. Fall back to the single label.
+//   * no line carries a type -> nothing to split by.
+//   * only one type in play -> a split would say nothing the label doesn't.
+// Lines the model could not classify land in 'unclassified', which Cash Out
+// already keeps OUT of COGS rather than guessing at.
+//
+// Scales proportionally so the split always sums to the printed total exactly:
+// the receipt's own total is the truth, the lines only say how to divide it.
+// ------------------------------------------------------------
+export function splitByType(
+  items: VisionItem[] | undefined,
+  amount: number | undefined,
+  reconciles: boolean,
+): Record<string, number> | undefined {
+  if (!items?.length || typeof amount !== 'number' || amount <= 0 || !reconciles) return undefined
+  if (!items.some(i => i.expense_type)) return undefined
+
+  const byType = new Map<string, number>()
+  let summed = 0
+  for (const i of items) {
+    const key = i.expense_type ?? 'unclassified'
+    byType.set(key, (byType.get(key) ?? 0) + i.line_total)
+    summed += i.line_total
+  }
+  if (summed <= 0 || byType.size === 1) return undefined
+
+  const factor = amount / summed
+  const out: Record<string, number> = {}
+  for (const [k, v] of byType) out[k] = Math.round(v * factor * 100) / 100
+
+  // Rounding drift lands on the biggest bucket, so the parts always add back to
+  // the whole -- a split that doesn't sum to the receipt total is worse than none.
+  const keys = Object.keys(out)
+  const drift = Math.round((amount - keys.reduce((t, k) => t + out[k], 0)) * 100) / 100
+  if (drift !== 0) {
+    const biggest = keys.reduce((a, b) => (out[a] >= out[b] ? a : b))
+    out[biggest] = Math.round((out[biggest] + drift) * 100) / 100
+  }
+  return out
+}
+
 export async function readImage(
   base64: string,
   mime: string,
@@ -268,11 +338,16 @@ export async function readImage(
     `category (short expense category e.g. "Groceries","Meat","Seafood","Utilities"), ` +
     `receipt_no (string, the receipt/invoice number if printed), ` +
     `subtotal (number, before tax, if shown), tax (number, SST/GST if shown), ` +
-    `expense_type (ONE of: cogs_food, cogs_beverage, cogs_packaging, labour, rent, utilities, ` +
-    `marketing, equipment, services, other — judge this from the ITEMS BOUGHT, never from the ` +
-    `shop's name: cogs_food for ingredients, cogs_beverage for drinks stock, cogs_packaging ONLY when ` +
-    `the thing bought IS a container (bags, boxes, cutlery, cups) — rice in a bag is cogs_food. ` +
-    `If the lines are mixed, pick the type holding the largest share of the total), ` +
+    `expense_type (the SINGLE type best describing the whole receipt, ONE of: cogs_food, cogs_beverage, cogs_packaging, supplies_cleaning, labour, rent, utilities, marketing, equipment, services, other), ` +
+    `judged from the ITEMS BOUGHT and never from the shop name. What each type means:` +
+    `cogs_food = ingredients you cook with. cogs_beverage = drinks you resell. ` +
+    `cogs_packaging = ONLY containers that LEAVE WITH THE FOOD (takeaway boxes, cups, ` +
+    `carrier bags for customers, cutlery given to customers). supplies_cleaning = things ` +
+    `the KITCHEN consumes and the customer never sees: RUBBISH BAGS / BEG SAMPAH / bin ` +
+    `liners, detergent, dishwash, bleach, gloves, cling film, foil, mops, sponges. ` +
+    `A rubbish bag is supplies_cleaning, NOT cogs_packaging — it is not sold with the ` +
+    `food. Rice in a bag is cogs_food — the rice is the purchase, not the bag. ` +
+    `equipment = things you keep and reuse (a gas regulator, a pot, a fridge). ` +
     `confidence ("high" | "low"), missing (array of any of "merchant","amount","date" you could NOT read), ` +
     `items (array of EVERY line on the receipt).\n` +
     `Each item: name (exactly as printed), key (a NORMALISED lowercase english ingredient name — ` +
@@ -282,7 +357,11 @@ export async function readImage(
     `pack_size + pack_unit WHENEVER the label prints a weight or volume ("CHILI PADI 100G" -> ` +
     `pack_size 100, pack_unit "g"; "MILK 1.5L" -> 1.5 and "l"), so price per kg can be compared ` +
     `across pack sizes — omit both if no weight is printed, never guess one, ` +
-    `line_total (number, RM for that line), group (one of: protein, seafood, vegetable, dry_goods, ` +
+    `line_total (number, RM for that line), ` +
+    `expense_type for THAT LINE using the same list and meanings above — a supermarket ` +
+    `receipt legitimately mixes them, so classify EVERY line on its own and do not copy ` +
+    `the receipt-level answer down onto all of them, ` +
+    `group (one of: protein, seafood, vegetable, dry_goods, ` +
     `dairy, packaging, beverage, other).\n` +
     `RULES: read every line, do not summarise or merge lines. Numbers only, no currency ` +
     `symbols. If it is not a receipt or invoice, use kind "doc" and omit items.\n` +
@@ -407,8 +486,12 @@ export async function readImage(
   if (amount === undefined || date === undefined) confidence = 'low'
   if (!itemsReconcile) confidence = 'low'
 
+  // Divide the money across types using the lines. Returns undefined whenever it
+  // cannot do so honestly, and the single `expense_type` above is then the answer.
+  const type_split = splitByType(items, amount, itemsReconcile)
+
   return {
     kind, merchant, amount, date, category, confidence, missing,
-    items, expense_type, receipt_no, subtotal, tax, items_note,
+    items, expense_type, receipt_no, subtotal, tax, items_note, type_split,
   }
 }

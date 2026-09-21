@@ -154,6 +154,12 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         subtotal: typeof payload?.subtotal === 'number' ? payload.subtotal : undefined,
         tax: typeof payload?.tax === 'number' ? payload.tax : undefined,
         items_note: payload?.items_note || undefined,
+        // The per-line allocation. Cash Out reports COGS from THIS when present,
+        // so a grocery run mixing food and bin bags no longer lands wholly in one.
+        type_split:
+          payload?.type_split && typeof payload.type_split === 'object'
+            ? payload.type_split
+            : undefined,
         // Who sent it, when it came from the staff receipts group. Auto-filing
         // under the limit means nobody reviews it as it lands, so the trail has to
         // survive on the row itself -- the Cash Out tab and the daily brief both

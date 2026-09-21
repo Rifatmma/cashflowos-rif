@@ -707,6 +707,9 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     subtotal: v.subtotal,
     tax: v.tax,
     items_note: v.items_note,
+    // How the money divides across expense types, from the lines. Undefined when
+    // the receipt is single-category or the lines could not be trusted.
+    type_split: v.type_split,
     sha256,
     storage_path: storagePath,
     mime,
@@ -789,6 +792,7 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
 // What the money was FOR, in words the owner uses rather than column names.
 const TYPE_WORD: Record<string, string> = {
   cogs_food: 'food', cogs_beverage: 'drinks', cogs_packaging: 'packaging',
+  supplies_cleaning: 'cleaning & supplies',
   labour: 'labour', rent: 'rent', utilities: 'utilities', marketing: 'marketing',
   equipment: 'equipment', services: 'services', other: 'other',
 }
@@ -812,7 +816,18 @@ function receiptSummary(v: VisionResult): string {
   const items = v.items ?? []
   const bits: string[] = []
 
-  if (v.expense_type) bits.push(`Booked as <b>${esc(TYPE_WORD[v.expense_type] ?? v.expense_type)}</b>`)
+  // A mixed receipt shows the SPLIT, not one label -- the whole reason the split
+  // exists is that "RM 71.95 food" hid RM 8.75 of bin bags. If it is only ever
+  // shown on a tab the owner has to go looking for, the error stays invisible.
+  const split = v.type_split
+  if (split && Object.keys(split).length > 1) {
+    const parts = Object.entries(split)
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, amt]) => `${esc(TYPE_WORD[t] ?? t)} ${rm(amt)}`)
+    bits.push(`Split: <b>${parts.join(' · ')}</b>`)
+  } else if (v.expense_type) {
+    bits.push(`Booked as <b>${esc(TYPE_WORD[v.expense_type] ?? v.expense_type)}</b>`)
+  }
   if (v.receipt_no) bits.push(`#${esc(v.receipt_no)}`)
   const head = bits.length ? `\n${bits.join(' · ')}` : ''
 
@@ -830,7 +845,13 @@ function receiptSummary(v: VisionResult): string {
       typeof i.price_per_base === 'number'
         ? `  <i>(${rm(i.price_per_base)}/${esc(i.base_unit)})</i>`
         : ''
-    return `• ${i.qty}${unit} ${esc(i.name)} — ${rm(i.unit_price)} ea${per}`
+    // Flag a line whose category differs from the receipt's headline one -- that
+    // is exactly where a misallocation hides, e.g. bin bags on a grocery run.
+    const odd =
+      i.expense_type && i.expense_type !== v.expense_type
+        ? `  <i>[${esc(TYPE_WORD[i.expense_type] ?? i.expense_type)}]</i>`
+        : ''
+    return `• ${i.qty}${unit} ${esc(i.name)} — ${rm(i.unit_price)} ea${per}${odd}`
   })
   const more = items.length > MAX_SHOWN ? `\n…and ${items.length - MAX_SHOWN} more` : ''
 
