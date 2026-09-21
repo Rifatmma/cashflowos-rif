@@ -246,18 +246,32 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
         !Number.isFinite(days) || new Date(r.created_at).getTime() >= since
 
       const cashIn = sum(rows.filter(r => r.category === 'cash_in' && inWindow(r)))
-      const cashOut = sum(rows.filter(r => r.category === 'cash_out' && inWindow(r)))
+      const outRows = rows.filter(r => r.category === 'cash_out' && inWindow(r))
+      const cashOut = sum(outRows)
+      // Owner drawings leave the bank, so they stay in cash_out and in `net` (which
+      // is CASH). But they are not business spending, so they are split out --
+      // otherwise "how much did the business spend?" quietly includes the owner's
+      // own purchases.
+      const drawings = outRows.reduce((t, r) => {
+        const split = r.meta?.type_split as Record<string, number> | undefined
+        if (split && typeof split.owner_drawings === 'number') return t + split.owner_drawings
+        return r.meta?.expense_type === 'owner_drawings' ? t + Number(r.amount || 0) : t
+      }, 0)
       // "Who owes me" = cash_in still unpaid — outstanding regardless of the window.
       const owed = sum(rows.filter(r => r.category === 'cash_in' && !PAID.has((r.status || '').toLowerCase())))
       return JSON.stringify({
         period,
         cash_in: cashIn,
         cash_out: cashOut,
+        business_spending: cashOut - drawings,
+        owner_drawings: drawings,
         net: cashIn - cashOut,
         owed_to_you: owed,
         display: {
           cash_in: rm(cashIn),
           cash_out: rm(cashOut),
+          business_spending: rm(cashOut - drawings),
+          owner_drawings: rm(drawings),
           net: rm(cashIn - cashOut),
           owed_to_you: rm(owed),
         },

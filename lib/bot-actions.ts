@@ -4,6 +4,10 @@ import type { Rec } from './records'
 import { rm } from './records'
 import { runAutopilot, proposeAndNotify } from './actions'
 import { normaliseRule, sameSupplier, sameRuleText } from './supplier-rules'
+// The ONE list of expense types. Jarvis's correction tool used to carry its own
+// hand-typed copy, which silently fell behind when supplies_cleaning was added
+// -- so the owner could not correct anything TO it. Derived, it cannot drift.
+import { EXPENSE_TYPES } from './vision'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's WRITE hands (V2). Where lib/bot-tools.ts only READS, these
@@ -35,6 +39,22 @@ export const BOT_ACTION_TOOLS = [
         category: { type: 'string', description: 'Optional label (Meals, Software, Ads…).' },
       },
       required: ['merchant', 'amount'],
+    },
+  },
+  {
+    name: 'log_drawing',
+    description:
+      'Record business money the owner took or spent for THEMSELVES, with no receipt to photograph ' +
+      '- "took RM200 from the till", "paid RM50 for my own dinner from the shop account". It is ' +
+      'recorded as owner drawings: money out of the business, but NOT a business expense and never ' +
+      'counted against profit. Only use when the owner says it was personal.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        amount: { type: 'number', description: 'Amount in RM.' },
+        description: { type: 'string', description: 'What it was, in the owner\'s words (e.g. "cash from till").' },
+      },
+      required: ['amount'],
     },
   },
   {
@@ -149,8 +169,10 @@ export const BOT_ACTION_TOOLS = [
         },
         expense_type: {
           type: 'string',
-          enum: ['cogs_food', 'cogs_beverage', 'cogs_packaging', 'labour', 'rent', 'utilities', 'marketing', 'equipment', 'services', 'other'],
-          description: 'Optional corrected expense type.',
+          enum: [...EXPENSE_TYPES],
+          description:
+            'Optional corrected expense type. Use owner_drawings when the owner says it was ' +
+            'personal - it stays recorded as money out but is not a business expense.',
         },
         new_total: { type: 'number', description: 'Only if the TOTAL itself was read wrong. This asks for approval.' },
       },
@@ -258,6 +280,41 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       return JSON.stringify(
         row
           ? { status: 'proposed', zone: 'yellow', sent_buttons: true, tell_user: `Proposed a ${rm(amount)} expense — Approve/Reject buttons sent. Tell them to tap ✅.` }
+          : { status: 'noop', message: 'Already waiting on your YES for this one.' },
+      )
+    }
+
+    // ---- log_drawing — the same dial as log_expense, filed as owner drawings. ----
+    // Same threshold on purpose: drawings are still real money leaving the business,
+    // so a large one gets the same second look as a large expense.
+    if (name === 'log_drawing') {
+      const amount = Number(input?.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return JSON.stringify({ status: 'error', message: 'I need a positive amount.' })
+      const what = String(input?.description || '').trim().slice(0, 80) || 'Owner drawings'
+      const payload = {
+        kind: 'receipt', amount, merchant: what,
+        category: "Owner's drawings",
+        expense_type: 'owner_drawings',
+        note: 'Owner drawings, logged via Jarvis (no receipt)',
+        idempotencyKey: randomUUID(),
+      }
+      if (amount <= thresholdRM) {
+        const done = await runAutopilot('expense', { ...payload, auto: true })
+        if (!done) return JSON.stringify({ status: 'noop', message: 'Already recorded.' })
+        return JSON.stringify({
+          status: 'filed', zone: 'green', record_id: done.row.id,
+          filed: `${rm(amount)} · owner drawings · ${what}`,
+          undo: `/undo-${done.row.id}`,
+          tell_user: 'Say it is recorded as owner drawings - money out, but not a business expense and not counted against profit. Offer the /undo id.',
+        })
+      }
+      const row = await proposeAndNotify({
+        agentKey: 'expense', idempotencyKey: payload.idempotencyKey, payload, chatId,
+        text: `👤 Record <b>${rm(amount)}</b> as owner drawings (${what})? Over your RM${thresholdRM} limit, so I'm asking.`,
+      })
+      return JSON.stringify(
+        row
+          ? { status: 'proposed', zone: 'yellow', sent_buttons: true, tell_user: 'Over the limit, so buttons were sent. Tell them to tap Approve.' }
           : { status: 'noop', message: 'Already waiting on your YES for this one.' },
       )
     }

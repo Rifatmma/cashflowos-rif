@@ -272,6 +272,12 @@ export async function proposeAndNotify(args: {
       { text: '❌ Reject', callback_data: `rej:${row.id}` },
     ],
   ]
+  // Money cards get a third answer: "yes, but it was personal". Without it the
+  // owner's only honest option for a personal purchase is Reject -- which leaves
+  // real money leaving the business unrecorded.
+  if (args.agentKey === 'expense') {
+    keyboard.push([{ text: '👤 Personal (owner drawings)', callback_data: `drw:${row.id}` }])
+  }
   const messageId = await sendWithButtons(args.chatId, args.text, keyboard)
   if (messageId != null) await attachNotify(row.id, args.chatId, messageId)
   return row

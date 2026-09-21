@@ -30,6 +30,7 @@ const TYPE_LABEL: Record<string, string> = {
   cogs_beverage: 'Beverage',
   cogs_packaging: 'Packaging',
   supplies_cleaning: 'Cleaning & supplies',
+  owner_drawings: "Owner's drawings",
   labour: 'Labour',
   rent: 'Rent',
   utilities: 'Utilities',
@@ -85,10 +86,14 @@ export default async function CashOut() {
       byType.set(t, (byType.get(t) ?? 0) + v)
     }
   }
+  // Owner drawings are real money out, but not business spending -- so they are
+  // held OUT of the spend that COGS is measured against, the same way unclassified
+  // is. Counting them in would make the food look cheaper than it is.
+  const drawings = byType.get('owner_drawings') ?? 0
   let cogs = 0
   let classified = 0
   for (const [t, v] of byType) {
-    if (t === 'unclassified') continue
+    if (t === 'unclassified' || t === 'owner_drawings') continue
     classified += v
     if (IS_COGS(t)) cogs += v
   }
@@ -118,6 +123,9 @@ export default async function CashOut() {
   }
   const prices = new Map<string, Price>()
   for (const r of rows) {
+    // Personal purchases are not the kitchen's cost base; keep them out of the
+    // ingredient price history so they cannot skew "what you pay per unit".
+    if (r.meta?.expense_type === 'owner_drawings') continue
     for (const it of itemsOf(r)) {
       if (!it || typeof it.unit_price !== 'number') continue
       const k = (it.key || it.name || '').toLowerCase()
@@ -189,6 +197,7 @@ export default async function CashOut() {
         <Stat label="Cost of goods" value={rm(cogs)} />
         <Stat label="COGS share of spend" value={cogsPctOfSpend === null ? '—' : cogsPctOfSpend.toFixed(0) + '%'} />
         <Stat label="🤖 Auto-filed" value={autoFiled} />
+        {drawings > 0 && <Stat label="👤 Owner's drawings" value={rm(drawings)} />}
       </div>
 
       {unclassified > 0 && (
@@ -215,6 +224,7 @@ export default async function CashOut() {
                   <td data-label="Type">
                     {TYPE_LABEL[t] ?? 'Unclassified'}
                     {IS_COGS(t) && <> <span className="pill won">COGS</span></>}
+                    {t === 'owner_drawings' && <> <span className="pill">not an expense</span></>}
                   </td>
                   <td data-label="Spend">{rm(v)}</td>
                   <td data-label="Share">

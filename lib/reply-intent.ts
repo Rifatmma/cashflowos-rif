@@ -9,7 +9,9 @@
 // It only ever runs on a message that is a DIRECT REPLY to an approval card. The
 // caller matches the card by message id; this function never sees anything else.
 
-export type ReplyIntent = 'approve' | 'reject' | null
+// 'drawings' = "yes it happened, but it was personal" -- file it as owner's
+// drawings rather than a business expense.
+export type ReplyIntent = 'approve' | 'reject' | 'drawings' | null
 
 // English, Malay and the usual chat shorthand. Kept to words that mean yes/no on
 // their own -- "sure" and "go" are in; "fine" is out, it is too often sarcastic.
@@ -22,6 +24,9 @@ const NO = new Set([
   'no', 'n', 'nope', 'nah', 'reject', 'rejected', 'cancel', 'cancelled', 'stop',
   'dont', 'decline', 'declined', 'tak', 'tidak', 'jangan', 'batal', 'bukan',
 ])
+
+// "It was for me" -- in English and Malay. Only honoured on a money card.
+const PERSONAL = new Set(['personal', 'peribadi', 'drawing', 'drawings', 'sendiri', 'private'])
 
 // Words that turn a "yes" into "yes, BUT..." -- the owner is correcting something,
 // so filing as-is would file the wrong thing.
@@ -57,8 +62,12 @@ export function replyIntent(text: string): ReplyIntent {
   const joined = ' ' + words.join(' ') + ' '
   if (TWISTED.some(p => joined.includes(' ' + p + ' '))) return null
 
+  // "personal" wins over a bare yes ("yes personal") but not over a no.
+  const personal = words.some(w => PERSONAL.has(w))
   const yes = words.some(w => YES.has(w))
   const no = words.some(w => NO.has(w))
+  if (personal && no) return null
+  if (personal) return 'drawings'
   // Both at once ("no ok") is exactly the case to leave to a human.
   if (yes && no) return null
   if (yes) return 'approve'

@@ -49,7 +49,19 @@ export const EXPENSE_TYPES = [
   // overstates cost of sale and quietly inflates food cost %.
   'supplies_cleaning',
   'labour', 'rent', 'utilities', 'marketing', 'equipment', 'services', 'other',
+  // Business money the owner spent on themselves. NOT an expense: it leaves the
+  // bank (so cash totals include it) but never reduces profit, and it is kept out
+  // of every spending and food-cost figure. This is the honest home for personal
+  // purchases -- nothing needs disguising as a business cost.
+  'owner_drawings',
 ] as const
+
+// Types only the OWNER may assign. Whether a purchase was personal is their
+// judgement; a model guessing it is how personal spending slips into, or out of,
+// the books unnoticed. Anything the model returns from this set is discarded.
+export const OWNER_ONLY_TYPES: ReadonlySet<string> = new Set(['owner_drawings'])
+const modelMayAssign = (t: string | undefined) =>
+  !!t && (EXPENSE_TYPES as readonly string[]).includes(t) && !OWNER_ONLY_TYPES.has(t)
 export type ExpenseType = (typeof EXPENSE_TYPES)[number]
 
 // The structured shape the rest of the app relies on. "fill the form, not an essay."
@@ -187,9 +199,7 @@ export function sanitiseItems(
     if (lineTotal > AMOUNT_MAX) { dropped++; continue }
 
     const rawType = clean(line?.expense_type, 24)?.toLowerCase()
-    const itemType = (EXPENSE_TYPES as readonly string[]).includes(rawType ?? '')
-      ? (rawType as ExpenseType)
-      : undefined
+    const itemType = modelMayAssign(rawType) ? (rawType as ExpenseType) : undefined
 
     const unit = (clean(line?.unit, 12) || 'unit').toLowerCase()
 
@@ -475,8 +485,7 @@ export async function readImage(
     typeof x === 'string' && x.trim() ? x.trim().slice(0, max) : undefined
 
   const expense_type: ExpenseType | undefined =
-    typeof parsed.expense_type === 'string' &&
-    (EXPENSE_TYPES as readonly string[]).includes(parsed.expense_type)
+    typeof parsed.expense_type === 'string' && modelMayAssign(parsed.expense_type)
       ? (parsed.expense_type as ExpenseType)
       : undefined
 
