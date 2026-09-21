@@ -17,7 +17,7 @@ import { type SupplierRule } from '@/lib/supplier-rules'
 import { BOT_TOOLS, runBotTool } from '@/lib/bot-tools'
 import { BOT_ACTION_TOOLS, ACTION_TOOL_NAMES, runBotAction } from '@/lib/bot-actions'
 import { SCHEDULED } from '@/agents/registry'
-import { jarvisIdentity, jarvisName } from '@/jarvis/config'
+import { jarvisIdentity, jarvisName, ownerName } from '@/jarvis/config'
 import { logRun } from '@/lib/runs'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -730,23 +730,28 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     if (done) {
       const what =
         `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
-        `${payload.merchant ? ` · ${payload.merchant}` : ''}`
+        `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
+      const detail = receiptSummary(v)
       // In the staff group: confirm briefly so they know it landed, and do NOT
       // hand out /undo -- reversing a filed row is the owner's call, not the
       // sender's. The owner still gets the id privately.
       if (staffFiling) {
-        await sendMessage(chatId, `✅ Got it — ${what}. Thanks ${filer.name}.`)
+        await sendMessage(
+          chatId,
+          `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${FIX_HINT_STAFF}`,
+        )
         if (OWNER) {
           await sendMessage(
             Number(OWNER),
-            `🧾 ${filer.name} filed <b>${what}</b> from the receipts group — ` +
-              `reply <code>/undo-${done.row.id}</code> within 24h to reverse.`,
+            `🧾 ${esc(filer.name)} filed <b>${what}</b> from the receipts group.${detail}\n\n` +
+              `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`,
           )
         }
       } else {
         await sendMessage(
           chatId,
-          `✅ Filed ${what} — reply <code>/undo-${done.row.id}</code> within 24h to reverse.`,
+          `✅ Filed <b>${what}</b>.${detail}\n\n` +
+            `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`,
         )
       }
     } else {
@@ -762,7 +767,8 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // only the owner can answer it anyway.
   const key = isExpense ? 'expense' : 'vault'
   const text = buildProposalText(v, threshold()) +
-    (staffFiling ? `\n\nSent by ${filer.name} in the receipts group.` : '')
+    receiptSummary(v) +
+    (staffFiling ? `\n\nSent by ${esc(filer.name)} in the receipts group.` : '')
   const row = await proposeAndNotify({
     agentKey: key,
     idempotencyKey: payload.idempotencyKey,
@@ -779,6 +785,69 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
   }
 }
+
+// What the money was FOR, in words the owner uses rather than column names.
+const TYPE_WORD: Record<string, string> = {
+  cogs_food: 'food', cogs_beverage: 'drinks', cogs_packaging: 'packaging',
+  labour: 'labour', rent: 'rent', utilities: 'utilities', marketing: 'marketing',
+  equipment: 'equipment', services: 'services', other: 'other',
+}
+
+// Item names come from OCR of an UNTRUSTED photo and go out with parse_mode HTML.
+// A receipt line containing "&" or "<" would break Telegram's parser and the whole
+// message would fail to send -- so a bad read would show up as silence, which is
+// the worst possible failure here. Escape before embedding.
+const esc = (t: unknown) =>
+  String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// The itemised read-back. WHY THIS EXISTS: a bare total tells the owner nothing
+// about whether the robot understood the receipt. They cannot correct what they
+// cannot see, so every filing now shows its lines -- which is also what makes
+// correct_receipt and teach_supplier usable at all.
+//
+// Capped at MAX_SHOWN lines: Telegram rejects messages over ~4096 characters, and
+// a long grocery receipt would otherwise send nothing.
+const MAX_SHOWN = 8
+function receiptSummary(v: VisionResult): string {
+  const items = v.items ?? []
+  const bits: string[] = []
+
+  if (v.expense_type) bits.push(`Booked as <b>${esc(TYPE_WORD[v.expense_type] ?? v.expense_type)}</b>`)
+  if (v.receipt_no) bits.push(`#${esc(v.receipt_no)}`)
+  const head = bits.length ? `\n${bits.join(' · ')}` : ''
+
+  if (!items.length) {
+    // Say so plainly rather than letting a total stand in for a read receipt.
+    return head + `\n\n<i>I couldn't read the individual lines on this one.</i>` +
+      (v.items_note ? `\n⚠️ ${esc(v.items_note)}` : '')
+  }
+
+  const shown = items.slice(0, MAX_SHOWN).map((i) => {
+    const unit = i.unit && i.unit !== 'unit' ? ` ${esc(i.unit)}` : ''
+    // The comparable price, where a weight was printed -- this is the number that
+    // tells them whether a supplier has quietly moved their price.
+    const per =
+      typeof i.price_per_base === 'number'
+        ? `  <i>(${rm(i.price_per_base)}/${esc(i.base_unit)})</i>`
+        : ''
+    return `• ${i.qty}${unit} ${esc(i.name)} — ${rm(i.unit_price)} ea${per}`
+  })
+  const more = items.length > MAX_SHOWN ? `\n…and ${items.length - MAX_SHOWN} more` : ''
+
+  const tax = typeof v.tax === 'number' && v.tax > 0 ? `\nTax ${rm(v.tax)}` : ''
+  const warn = v.items_note ? `\n⚠️ ${esc(v.items_note)}` : ''
+
+  return head + `\n\n${shown.join('\n')}${more}${tax}${warn}`
+}
+
+// The nudge that turns a read-back into a correction. Without this the owner sees
+// a mistake and has nowhere obvious to put it.
+//
+// Two versions on purpose: only the OWNER can correct a receipt. A staff message
+// that isn't a photo is ignored by the group gate, so telling the team to "just
+// tell me" would invite them to type into a void and assume it had been handled.
+const FIX_HINT = `\n\n<i>Wrong? Just tell me — e.g. "the rice was 2 at 45.90".</i>`
+const FIX_HINT_STAFF = `\n\n<i>If that looks wrong, tell ${ownerName()} — only they can correct it.</i>`
 
 // The 🟡 proposal wording. Low confidence gets the "robot unsure" flag so the human
 // double-checks the amount (the evaluation-loop teach); a clear over-threshold

@@ -79,3 +79,8 @@ export function jarvisIdentity(): string {
 
 /** The business name for greetings/cards, with a safe fallback. */
 export const jarvisName = () => JARVIS.businessName || 'CashFlowOS AI Agents'
+
+// What to call the owner in front of the TEAM -- e.g. "tell Rifat, only they can
+// correct it". Falls back to a neutral phrase when ownerName is left blank, so a
+// staff message never reads "tell  -- only they can correct it".
+export const ownerName = () => JARVIS.ownerName || 'the owner'
