@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Rec } from './records'
 import { rm, todayISO, getFunnel } from './records'
+import { sameSupplier } from './supplier-rules'
 // The Facebook Ads lens. SNAPSHOT/RUNS are a point-in-time pull that lives in a
 // file, not in `records` — without this import Jarvis has no way to see a single
 // ad number. readMarketing() is the SAME calculation the Head of Marketing agent
@@ -172,6 +173,19 @@ export const BOT_TOOLS = [
     input_schema: { type: 'object' as const, properties: {} },
   },
   {
+    name: 'list_supplier_rules',
+    description:
+      'List what the owner has taught the robot about how specific shops lay out their receipts. ' +
+      'Use for "what do you know about 99 speed mart?", "what have I taught you?", or before ' +
+      'teaching something, to check whether a note already exists for that supplier.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        supplier: { type: 'string', description: 'Optional: only the note for this shop.' },
+      },
+    },
+  },
+  {
     name: 'search_records',
     description:
       'Find records whose title, notes, or details match a search word. Optionally filter to one ' +
@@ -262,6 +276,35 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
           status: r.status,
         }))
       return JSON.stringify({ count: overdue.length, overdue })
+    }
+
+    if (name === 'list_supplier_rules') {
+      const who = String(input?.supplier || '').trim()
+      const all = rows.filter(r => r.category === 'supplier_rule')
+      const hits = who ? all.filter(r => sameSupplier(r.title, who)) : all
+      if (hits.length === 0) {
+        return JSON.stringify({
+          count: 0,
+          message: who ? `Nothing taught yet for "${who}".` : 'Nothing taught yet.',
+          tell_user: 'Say nothing is stored for that shop, and that they can teach one by describing the quirk.',
+        })
+      }
+      return JSON.stringify({
+        count: hits.length,
+        // `id` matters: it is how teach_supplier names a note to replace and how
+        // forget_supplier_rule names one to switch off. A supplier can have several.
+        rules: hits.map(r => ({
+          id: r.id,
+          supplier: r.title,
+          rule: r.notes,
+          applies: r.status !== 'off',
+          taught: r.meta?.taught_at ?? null,
+        })),
+        tell_user:
+          'Anything marked applies:false is switched off and is NOT used when reading receipts. ' +
+          'A supplier can have SEVERAL notes and they all apply together — list them all, do not ' +
+          'present one as "the" rule.',
+      })
     }
 
     if (name === 'search_records') {

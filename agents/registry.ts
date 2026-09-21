@@ -216,6 +216,14 @@ async function writeRecord(agentKey: string, payload: any): Promise<any> {
     const patch: Record<string, any> = {}
     if (payload?.status != null) patch.status = String(payload.status)
     if (payload?.meta && typeof payload.meta === 'object') patch.meta = payload.meta
+    if (payload?.note != null) patch.notes = String(payload.note)
+    // A corrected TOTAL. Only ever set from the yellow (approved) path, and still
+    // bounded here -- an executor never trusts its payload.
+    if (payload?.amount != null) {
+      const amt = Number(payload.amount)
+      if (!Number.isFinite(amt) || amt < 0) throw new Error('that corrected amount is not a usable number')
+      patch.amount = amt
+    }
     if (Object.keys(patch).length === 0) throw new Error('nothing to update')
     const { data, error } = await supabase.from('records').update(patch).eq('id', recordId).select()
     if (error) throw new Error(`could not update the record: ${error.message}`)
@@ -283,6 +291,10 @@ export const EXECUTORS: Record<string, Executor> = {
   'log-cash-in': (p) => writeRecord('log-cash-in', p),
   'mark-paid': (p) => writeRecord('mark-paid', p),
   'lead-status': (p) => writeRecord('lead-status', p),
+  // Teaching the robot how a shop lays out its receipts, and fixing a receipt it
+  // read wrong. Both are ordinary record writes through the same funnel.
+  'teach-supplier': (p) => writeRecord('teach-supplier', p),
+  'correct-receipt': (p) => writeRecord('correct-receipt', p),
   // The department heads — DRAFT-only. A head recommends; you decide.
   'head-marketing': (p) => draftOnly('head-marketing', p),
   // The gallery agents — all DRAFT-only (a human sends).

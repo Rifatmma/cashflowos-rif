@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto'
 import type { Rec } from './records'
 import { rm } from './records'
 import { runAutopilot, proposeAndNotify } from './actions'
+import { normaliseRule, sameSupplier, sameRuleText } from './supplier-rules'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's WRITE hands (V2). Where lib/bot-tools.ts only READS, these
@@ -116,6 +117,91 @@ export const BOT_ACTION_TOOLS = [
         },
       },
       required: ['lead', 'stage'],
+    },
+  },
+  {
+    name: 'correct_receipt',
+    description:
+      'Fix what was read off a receipt that is ALREADY filed - wrong quantity, wrong unit price, ' +
+      'wrong expense type. Use when the owner says something like "the rice was 2 at 45.90 not 6 at ' +
+      '15.30" or "that Speed Mart one is food not packaging". Changing only the items or the expense ' +
+      'type leaves the money untouched, so it just does it; changing the TOTAL asks first. ' +
+      'AFTER a successful correction you MUST ask whether to remember it as a standing rule for that ' +
+      'supplier, and only call teach_supplier if they say yes.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        receipt: { type: 'string', description: 'Supplier name or what to match the filed receipt on (e.g. "99 speed mart", "the rice one").' },
+        amount: { type: 'number', description: 'Optional: the receipt total, to pick the right one when several match.' },
+        items: {
+          type: 'array',
+          description: 'The corrected lines. Give ALL lines for the receipt, not just the changed one.',
+          items: {
+            type: 'object' as const,
+            properties: {
+              name: { type: 'string', description: 'Item name as printed.' },
+              qty: { type: 'number', description: 'How many units.' },
+              unit: { type: 'string', description: 'kg, g, l, ml, pcs, pkt, bottle...' },
+              unit_price: { type: 'number', description: 'RM for ONE unit, as printed.' },
+            },
+            required: ['name', 'qty', 'unit_price'],
+          },
+        },
+        expense_type: {
+          type: 'string',
+          enum: ['cogs_food', 'cogs_beverage', 'cogs_packaging', 'labour', 'rent', 'utilities', 'marketing', 'equipment', 'services', 'other'],
+          description: 'Optional corrected expense type.',
+        },
+        new_total: { type: 'number', description: 'Only if the TOTAL itself was read wrong. This asks for approval.' },
+      },
+      required: ['receipt'],
+    },
+  },
+  {
+    name: 'teach_supplier',
+    description:
+      'Remember how a specific shop lays out its receipts, so every FUTURE photo from them is read ' +
+      'correctly. Use for "for 99 speed mart the first number is a shelf code not the quantity". ' +
+      'Only call this once the owner has said yes to remembering it - never straight off the back of ' +
+      'a one-off correction. ' +
+      'This ADDS a note. A supplier can have several and they all apply together; teaching a new one ' +
+      'NEVER erases an older one. If the new note looks like it contradicts one already stored, do ' +
+      'NOT decide for the owner: show them the existing note, ask whether to keep both or replace, ' +
+      'and only then call this with replaces set.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        supplier: { type: 'string', description: 'The shop name as printed on its receipts.' },
+        rule: { type: 'string', description: 'Plain English, one or two sentences, describing the layout quirk and what to do about it.' },
+        replaces: {
+          type: 'number',
+          description:
+            'ONLY when the owner has explicitly said the new note should replace an existing one: the ' +
+            'id of the note to switch off (from list_supplier_rules). Omit to add alongside, which is ' +
+            'the default and the right answer unless they said otherwise.',
+        },
+        example: { type: 'string', description: 'Optional: the correction that prompted this, kept for the record.' },
+      },
+      required: ['supplier', 'rule'],
+    },
+  },
+  {
+    name: 'forget_supplier_rule',
+    description:
+      'Stop applying a supplier note that turned out to be wrong. Use for "forget what I told you ' +
+      'about 99 speed mart". The note stops affecting future reads immediately.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        supplier: { type: 'string', description: 'The shop whose note should stop applying.' },
+        note_id: {
+          type: 'number',
+          description:
+            'Which note, when the supplier has more than one (from list_supplier_rules). Required ' +
+            'once the tool has told you it is ambiguous — never pick one yourself.',
+        },
+      },
+      required: ['supplier'],
     },
   },
 ]
@@ -278,6 +364,227 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
           ? { status: 'proposed', zone: 'yellow', sent_buttons: true, record_id: lead.id, tell_user: `Proposed moving "${lead.meta?.customer || lead.title}" to ${stage} — buttons sent. Tell them to tap ✅.` }
           : { status: 'noop', message: 'Already proposed.' },
       )
+    }
+
+    // ---- correct_receipt -----------------------------------------------------
+    // The owner is ground truth about their own receipt, so a correction that
+    // leaves the TOTAL alone is metadata, not money: it just runs. A correction
+    // that changes the total IS money truth and asks first.
+    //
+    // There is deliberately no /undo offered here: /undo posts a reversing ROW,
+    // which is right for "you filed something you shouldn't have" and wrong for
+    // "you read the lines wrong". The previous lines are kept in meta.prev_items
+    // instead, so the change stays recoverable.
+    if (name === 'correct_receipt') {
+      const q = String(input?.receipt || '').trim()
+      if (!q) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
+
+      const wanted = Number(input?.amount)
+      const candidates = rows.filter(r => {
+        if (r.category !== 'cash_out') return false
+        if (Number.isFinite(wanted) && Math.abs(Number(r.amount) - wanted) > 0.01) return false
+        const hay = `${r.title} ${r.meta?.merchant || ''}`.toLowerCase()
+        return sameSupplier(q, String(r.meta?.merchant || r.title)) || hay.includes(q.toLowerCase())
+      })
+      if (candidates.length === 0) return JSON.stringify({ status: 'not_found', message: `No filed receipt matching "${q}".` })
+      if (candidates.length > 1) {
+        return JSON.stringify({
+          status: 'ambiguous',
+          message: 'Which one?',
+          candidates: candidates.slice(0, 5).map(r => ({ id: r.id, what: r.title, amount: rm(Number(r.amount)), date: r.due_date })),
+          tell_user: 'Ask which receipt they mean, then call correct_receipt again with the amount.',
+        })
+      }
+      const target = candidates[0]
+
+      // Rebuild the lines from what the owner said. qty x unit_price is the truth
+      // here, so we compute the line total rather than asking for one they never
+      // mentioned -- the same rule the photo path uses.
+      const rawItems = Array.isArray(input?.items) ? input.items : null
+      const items = rawItems
+        ? (rawItems.map((i: any) => {
+            const qty = Number(i?.qty)
+            const price = Number(i?.unit_price)
+            if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) return null
+            return {
+              name: String(i?.name || '').trim().slice(0, 80) || 'Item',
+              qty: Math.round(qty * 1000) / 1000,
+              unit: String(i?.unit || 'unit').toLowerCase().slice(0, 12),
+              unit_price: Math.round(price * 100) / 100,
+              line_total: Math.round(qty * price * 100) / 100,
+            }
+          }).filter(Boolean) as any[])
+        : undefined
+
+      const newTotal = Number(input?.new_total)
+      const totalChanges =
+        Number.isFinite(newTotal) && newTotal > 0 && Math.abs(newTotal - Number(target.amount)) > 0.01
+      const expenseType = typeof input?.expense_type === 'string' ? input.expense_type : undefined
+      if (!items?.length && !expenseType && !totalChanges) {
+        return JSON.stringify({ status: 'error', message: 'Nothing to correct -- tell me the lines, the expense type, or the total.' })
+      }
+
+      const meta: any = {
+        ...(target.meta || {}),
+        corrected_by: 'owner',
+        corrected_at: new Date().toISOString().slice(0, 10),
+      }
+      if (items?.length) {
+        if (target.meta?.items) meta.prev_items = target.meta.items
+        meta.items = items
+        delete meta.items_note
+      }
+      if (expenseType) meta.expense_type = expenseType
+
+      // The total moved -- money truth, so it goes to the buttons.
+      if (totalChanges) {
+        const row = await proposeAndNotify({
+          agentKey: 'correct-receipt',
+          idempotencyKey: randomUUID(),
+          payload: { op: 'update', record_id: target.id, meta, amount: newTotal },
+          chatId,
+          text: `\u270f\ufe0f Change <b>${target.title}</b> from <b>${rm(Number(target.amount))}</b> to <b>${rm(newTotal)}</b>? That moves the money, so I am asking first.`,
+        })
+        return JSON.stringify(
+          row
+            ? { status: 'proposed', zone: 'yellow', sent_buttons: true, tell_user: 'The total changes, so I sent Approve/Reject buttons. Tell them to tap the tick.' }
+            : { status: 'noop', message: 'Already waiting on your YES for that one.' },
+        )
+      }
+
+      // Lines / type only -- the money is untouched, so just do it.
+      const done = await runAutopilot('correct-receipt', {
+        op: 'update', record_id: target.id, meta, idempotencyKey: randomUUID(),
+      })
+      if (!done) return JSON.stringify({ status: 'noop', message: 'Already corrected.' })
+      return JSON.stringify({
+        status: 'corrected',
+        zone: 'green',
+        record_id: target.id,
+        receipt: target.title,
+        total_unchanged: rm(Number(target.amount)),
+        items: items?.map(i => `${i.qty} ${i.unit} ${i.name} @ ${rm(i.unit_price)}`),
+        expense_type: expenseType ?? target.meta?.expense_type,
+        tell_user:
+          'Confirm what it now says. Then ASK whether to remember this as a standing rule for this ' +
+          'supplier so future receipts read correctly, and only call teach_supplier if they say yes. ' +
+          'Do not mention /undo -- say they can just tell you if it is still wrong.',
+      })
+    }
+
+    // ---- teach_supplier ------------------------------------------------------
+    // Reversible, visible on the Cash Out tab, and Jarvis has already asked in the
+    // conversation -- so this runs rather than sending a second set of buttons.
+    //
+    // It ADDS. A supplier accumulates notes and they all apply together, because
+    // the owner may have told us several true things about the same shop. An older
+    // note is only ever switched off when they have explicitly said to replace it
+    // (`replaces`), never because this code guessed the two were in conflict --
+    // guessing that is how you silently throw away something they said.
+    if (name === 'teach_supplier') {
+      const rule = normaliseRule(String(input?.supplier || ''), String(input?.rule || ''))
+      if (!rule) return JSON.stringify({ status: 'error', message: 'I need both a supplier and what to remember about their receipts.' })
+
+      const forSupplier = rows.filter(r => r.category === 'supplier_rule' && sameSupplier(r.title, rule.supplier))
+      const active = forSupplier.filter(r => r.status !== 'off')
+
+      // An exact repeat of something already stored is a no-op, not a second copy.
+      const dupe = active.find(r => sameRuleText(String(r.notes || ''), rule.rule))
+      if (dupe) {
+        return JSON.stringify({
+          status: 'already_known', supplier: rule.supplier, rule: rule.rule,
+          tell_user: 'Say you already have that exact note for them, so nothing changed.',
+        })
+      }
+
+      // Only switch an old note off when the owner named it.
+      const replaceId = Number(input?.replaces)
+      let replaced: string | null = null
+      if (Number.isFinite(replaceId)) {
+        const victim = forSupplier.find(r => r.id === replaceId)
+        if (!victim) {
+          return JSON.stringify({
+            status: 'error',
+            message: `I have no note #${replaceId} for ${rule.supplier} to replace.`,
+            tell_user: 'Ask them which existing note they meant, using list_supplier_rules.',
+          })
+        }
+        await runAutopilot('teach-supplier', {
+          op: 'update', record_id: victim.id, status: 'off',
+          meta: { ...(victim.meta || {}), replaced_at: new Date().toISOString().slice(0, 10) },
+          idempotencyKey: randomUUID(),
+        })
+        replaced = String(victim.notes || '')
+      }
+
+      const done = await runAutopilot('teach-supplier', {
+        op: 'insert',
+        category: 'supplier_rule',
+        title: rule.supplier,
+        status: 'active',
+        note: rule.rule,
+        meta: {
+          supplier_key: rule.key,
+          taught_at: new Date().toISOString().slice(0, 10),
+          taught_via: 'jarvis',
+          example: String(input?.example || '').trim().slice(0, 200) || undefined,
+        },
+        idempotencyKey: randomUUID(),
+      })
+      if (!done) return JSON.stringify({ status: 'noop', message: 'Already saved that one.' })
+
+      return JSON.stringify({
+        status: replaced ? 'rule_replaced' : 'rule_added',
+        zone: 'green',
+        supplier: rule.supplier,
+        rule: rule.rule,
+        replaced,
+        now_applying: active.filter(r => r.id !== replaceId).map(r => r.notes).concat(rule.rule),
+        tell_user:
+          'Confirm it is saved and say it applies from the NEXT photo of that supplier onwards, not ' +
+          'to receipts already filed. If now_applying has more than one entry, say plainly that this ' +
+          'was ADDED to what they told you before and list what is now applied, so they can see ' +
+          'nothing was lost. Mention they can see and switch off any of them on the Cash Out tab.',
+      })
+    }
+
+    // ---- forget_supplier_rule ------------------------------------------------
+    // Switched off, not deleted: the owner should still be able to see what was
+    // once being applied, and when it stopped.
+    if (name === 'forget_supplier_rule') {
+      const who = String(input?.supplier || '').trim()
+      const noteId = Number(input?.note_id)
+      if (!who && !Number.isFinite(noteId)) return JSON.stringify({ status: 'error', message: 'Forget the note for which supplier?' })
+
+      const live = rows.filter(r => r.category === 'supplier_rule' && r.status !== 'off' &&
+        (Number.isFinite(noteId) ? r.id === noteId : sameSupplier(r.title, who)))
+      if (live.length === 0) return JSON.stringify({ status: 'not_found', message: `I have no active note for "${who}".` })
+      // A supplier can have several notes. Forgetting the wrong one loses something
+      // they told us, so when it is not obvious we ask instead of picking.
+      if (live.length > 1) {
+        return JSON.stringify({
+          status: 'ambiguous',
+          message: `${live.length} notes are stored for ${live[0].title}.`,
+          candidates: live.map(r => ({ id: r.id, rule: r.notes })),
+          tell_user: 'List them and ask WHICH note to forget, then call again with note_id. Do not guess.',
+        })
+      }
+      const hit = live[0]
+      const done = await runAutopilot('teach-supplier', {
+        op: 'update',
+        record_id: hit.id,
+        status: 'off',
+        meta: { ...(hit.meta || {}), forgotten_at: new Date().toISOString().slice(0, 10) },
+        idempotencyKey: randomUUID(),
+      })
+      if (!done) return JSON.stringify({ status: 'noop', message: 'Already forgotten.' })
+      return JSON.stringify({
+        status: 'rule_off',
+        zone: 'green',
+        supplier: hit.title,
+        was: hit.notes,
+        tell_user: 'Say it will no longer be applied, and that it is still listed (switched off) on the Cash Out tab.',
+      })
     }
 
     return JSON.stringify({ status: 'error', message: `unknown action "${name}"` })

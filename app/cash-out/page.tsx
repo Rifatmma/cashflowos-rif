@@ -8,8 +8,10 @@
 // the Dashboard and the daily brief all stay correct while the detail sits
 // underneath. See lib/vision.ts for how those items are read and validated.
 import { getRecords, rm, m, todayISO, type Rec } from '@/lib/records'
+import { supplierKey } from '@/lib/supplier-rules'
 import Empty from '@/app/_components/Empty'
 import Stat from '@/app/_components/Stat'
+import RuleToggle from './RuleToggle'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,6 +120,31 @@ export default async function CashOut() {
   }
   const priceRows = [...prices.values()].sort((a, b) => b.spend - a.spend)
   const anyItems = priceRows.length > 0
+
+  // What the owner has TAUGHT the robot about specific shops' receipt layouts.
+  // A model does not learn from being corrected -- nothing said to it today changes
+  // tomorrow's read. These notes are re-injected into the prompt on every single
+  // receipt instead, which is why they live here where they can be switched off:
+  // a note applies to EVERY future read of that shop, so a wrong one is expensive.
+  //
+  // Grouped by supplier, because notes ACCUMULATE: one shop can hold several and
+  // they all apply together. Showing them as a flat list would imply each shop has
+  // one rule, and hide the fact that teaching a new thing kept the old one.
+  const ruleGroups = (() => {
+    const g = new Map<string, { supplier: string; notes: Rec[] }>()
+    for (const r of all.filter(x => x.category === 'supplier_rule')) {
+      const k = supplierKey(r.title)
+      const hit = g.get(k)
+      if (hit) hit.notes.push(r)
+      else g.set(k, { supplier: r.title, notes: [r] })
+    }
+    for (const v of g.values()) {
+      v.notes.sort((a, b) => Number(b.status !== 'off') - Number(a.status !== 'off') ||
+        String(a.meta?.taught_at ?? '').localeCompare(String(b.meta?.taught_at ?? '')))
+    }
+    return [...g.values()].sort((a, b) => a.supplier.localeCompare(b.supplier))
+  })()
+  const ruleCount = ruleGroups.reduce((n, g) => n + g.notes.length, 0)
 
   const sorted = [...rows].sort((a, b) => (b.due_date || '').localeCompare(a.due_date || ''))
 
@@ -246,6 +273,72 @@ export default async function CashOut() {
                 was printed, only the per-pack price exists and no comparison is possible.
                 &ldquo;Highest yet&rdquo; means the most recent purchase sat at the top of the range you have
                 paid — worth a look before the next order.
+              </p>
+            </>
+          )}
+
+
+          {/* -- What you have taught the robot ----------------- */}
+          <p className="rowlabel" style={{ marginTop: 26 }}>What you have taught the robot</p>
+          {ruleCount === 0 ? (
+            <div className="empty">
+              Nothing taught yet. When a receipt is read wrong, tell Jarvis what it should have
+              said &mdash; &ldquo;for 99 Speed Mart the first number is a shelf code, not the
+              quantity&rdquo; &mdash; and he&rsquo;ll store it here and apply it to every future
+              photo from that shop.
+            </div>
+          ) : (
+            <>
+              <table className="tbl">
+                <thead>
+                  <tr><th>Supplier</th><th>What I apply when reading their receipts</th><th>Taught</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {ruleGroups.flatMap(g =>
+                    g.notes.map((r, i) => {
+                      const on = r.status !== 'off'
+                      const live = g.notes.filter(n => n.status !== 'off').length
+                      return (
+                        <tr key={r.id} style={on ? undefined : { opacity: 0.55 }}>
+                          {/* The supplier name is written once per group, so several
+                              notes visibly belong to ONE shop and all apply together. */}
+                          <td data-label="Supplier">
+                            {i === 0 ? (
+                              <>
+                                <strong>{g.supplier}</strong>
+                                {live > 1 && (
+                                  <div style={{ color: 'var(--dim)', fontSize: 12 }}>
+                                    {live} notes, all applied
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <span style={{ color: 'var(--dim)' }}>&#8942;</span>
+                            )}
+                          </td>
+                          <td data-label="Rule">
+                            {r.notes}
+                            {!on && <> <span className="pill">off</span></>}
+                            {r.meta?.example && (
+                              <div style={{ color: 'var(--dim)', fontSize: 12, marginTop: 4 }}>
+                                From: {String(r.meta.example)}
+                              </div>
+                            )}
+                          </td>
+                          <td data-label="Taught">{String(r.meta?.taught_at ?? '--')}</td>
+                          <td data-label=""><RuleToggle id={r.id} active={on} /></td>
+                        </tr>
+                      )
+                    }),
+                  )}
+                </tbody>
+              </table>
+              <p style={{ fontSize: 12, color: 'var(--dim)', margin: '8px 0 0', lineHeight: 1.6 }}>
+                Teaching <strong>adds</strong> &mdash; a shop can hold several notes and they all apply
+                together, so telling Jarvis something new never wipes what you told him before. Notes apply
+                to every <em>future</em> photo of that supplier and never re-read a receipt already filed.
+                If one is wrong it will quietly affect every receipt from that shop, so switch it off the
+                moment you doubt it.
               </p>
             </>
           )}
