@@ -145,6 +145,15 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         auto_filed: !!payload?.auto,
         source: 'vault',
         sha256: payload?.sha256 || undefined,
+        // The itemised layer from lib/vision.ts — already clamped and reconciled
+        // there. Stored on the ONE row rather than as child rows, so a receipt
+        // stays one cash-out entry and the totals on every other tab stay right.
+        items: Array.isArray(payload?.items) && payload.items.length ? payload.items : undefined,
+        expense_type: payload?.expense_type || undefined,
+        receipt_no: payload?.receipt_no || undefined,
+        subtotal: typeof payload?.subtotal === 'number' ? payload.subtotal : undefined,
+        tax: typeof payload?.tax === 'number' ? payload.tax : undefined,
+        items_note: payload?.items_note || undefined,
       },
     })
     .select()

@@ -1,6 +1,12 @@
 import 'server-only'
 import type { Rec } from './records'
 import { rm, todayISO, getFunnel } from './records'
+// The Facebook Ads lens. SNAPSHOT/RUNS are a point-in-time pull that lives in a
+// file, not in `records` — without this import Jarvis has no way to see a single
+// ad number. readMarketing() is the SAME calculation the Head of Marketing agent
+// uses, shared on purpose so the bot and the agent can never disagree.
+import { SNAPSHOT, RUNS, CURRENT, COMPETITORS } from './ads-snapshot'
+import { readMarketing } from '@/agents/head-marketing/definition'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's HANDS. Instead of dumping your whole table into the prompt,
@@ -82,6 +88,7 @@ export const BOT_TOOLS = [
     name: 'tasks_due',
     description:
       'Open tasks, optionally within a time window, sorted by deadline, with the owner from meta. ' +
+      'Covers BOTH ops to-dos and Facebook Ads playbook tasks — each result says which it is. ' +
       'Use for "what\'s due this week?", "what tasks are open?", "what\'s due today?".',
     input_schema: {
       type: 'object' as const,
@@ -136,17 +143,47 @@ export const BOT_TOOLS = [
     },
   },
   {
+    name: 'get_ad_performance',
+    description:
+      'Facebook/Meta ads performance: spend, impressions, reach, CTR, CPC, CPM, WhatsApp conversations ' +
+      'started, cost per conversation, chat depth, placements, and a comparison across every past ' +
+      'campaign run. Use for ANY question about ads, Facebook, Meta, Instagram, ad spend, CTR, reach, ' +
+      'cost per lead/conversation, which placement works, or how this campaign compares to earlier ones. ' +
+      'Also covers the competitor set from the Meta Ad Library.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        focus: {
+          type: 'string',
+          enum: ['summary', 'placements', 'runs', 'competitors'],
+          description:
+            'summary = headline numbers for the current run (default). placements = which placement is ' +
+            'cheapest. runs = every campaign run compared. competitors = who else is advertising.',
+        },
+      },
+    },
+  },
+  {
+    name: 'get_ad_tasks',
+    description:
+      'The Facebook Ads playbook board: what is overdue, what is due today, what to do first, how many ' +
+      'are done, and the on-time completion rate. Use for "what is overdue on the ads?", "what should I ' +
+      'do first for marketing?", "how is the ads playbook going?".',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
     name: 'search_records',
     description:
       'Find records whose title, notes, or details match a search word. Optionally filter to one ' +
-      'category (cash_in, cash_out, lead, customer, content, task, doc).',
+      'category (cash_in, cash_out, lead, customer, content, task, doc, ad_task). ' +
+      'ad_task = the Facebook Ads playbook tasks.',
     input_schema: {
       type: 'object' as const,
       properties: {
         query: { type: 'string', description: 'The word or name to look for.' },
         category: {
           type: 'string',
-          enum: ['cash_in', 'cash_out', 'lead', 'customer', 'content', 'task', 'doc'],
+          enum: ['cash_in', 'cash_out', 'lead', 'customer', 'content', 'task', 'doc', 'ad_task'],
           description: 'Optional — restrict the search to one category.',
         },
       },
@@ -315,7 +352,16 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
       const window: 'today' | 'week' | 'all' =
         input?.window === 'today' || input?.window === 'all' ? input.window : 'week'
       const weekAhead = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
-      const openTasks = rows.filter(r => r.category === 'task' && !PAID.has((r.status || '').toLowerCase()))
+      // Both lanes: ops to-dos ('task') AND the ads playbook ('ad_task'). They keep
+      // separate categories so ad work can't pollute the ops numbers, but the owner
+      // asking "what's due?" means everything, so both are returned and labelled.
+      // 'declined' is an ad-task-only status and counts as resolved, not open.
+      const openTasks = rows.filter(
+        r =>
+          (r.category === 'task' || r.category === 'ad_task') &&
+          !PAID.has((r.status || '').toLowerCase()) &&
+          (r.status || '').toLowerCase() !== 'declined',
+      )
       const picked = openTasks.filter(r => {
         if (window === 'all') return true
         if (!r.due_date) return false // undated tasks only show in the 'all' window
@@ -324,7 +370,16 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
       })
       const out = picked
         .sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999'))
-        .map(r => ({ task: r.title, due_date: r.due_date, owner: r.meta?.owner || null, status: r.status }))
+        .map(r => ({
+          task: r.title,
+          due_date: r.due_date,
+          owner: r.meta?.owner || null,
+          status: r.status,
+          lane: r.category === 'ad_task' ? 'facebook_ads' : 'ops',
+          // Ads habits carry a start-by date, not a deadline — say so rather than
+          // letting Jarvis call a weekly habit "overdue".
+          recurring: r.category === 'ad_task' && r.meta?.phase === 'ongoing' ? true : undefined,
+        }))
       return JSON.stringify({ window, count: out.length, tasks: out })
     }
 
@@ -431,6 +486,131 @@ export function runBotTool(name: string, input: any, rows: Rec[]): string {
           'Compose a SHORT, warm follow-up message (2-3 sentences) for the OWNER to copy and send. ' +
           'Do not include placeholders they must fill. NEVER say it has been sent — end your reply making clear ' +
           'it is a draft for them to send themselves.',
+      })
+    }
+
+    if (name === 'get_ad_performance') {
+      const t = SNAPSHOT.totals
+      const focus = ['placements', 'runs', 'competitors'].includes(input?.focus) ? input.focus : 'summary'
+      const r2 = (n: number) => Math.round(n * 100) / 100
+      const cpa = (spend: number, convos: number) => (convos > 0 ? r2(spend / convos) : null)
+
+      if (focus === 'placements') {
+        return JSON.stringify({
+          note: 'Cost per WhatsApp conversation by placement, cheapest first. Currency MYR.',
+          period: SNAPSHOT.period,
+          placements: [...SNAPSHOT.placements]
+            .sort((a, b) => (cpa(a.spend, a.convos) ?? 1e9) - (cpa(b.spend, b.convos) ?? 1e9))
+            .map(p => ({
+              placement: p.label,
+              spend: r2(p.spend),
+              ctr_pct: p.ctr,
+              conversations: p.convos,
+              cost_per_conversation: cpa(p.spend, p.convos),
+            })),
+        })
+      }
+
+      if (focus === 'runs') {
+        return JSON.stringify({
+          note:
+            'Every campaign run since March. Delivery is stop-start, so compare RUNS not calendar ' +
+            'weeks. cost_per_engaged_chat = spend divided by conversations that reached a 2nd message ' +
+            '— the quality-adjusted number. A cheap run with a bad depth rate is NOT a good run.',
+          runs: RUNS.map(r => ({
+            run: r.id,
+            label: r.label,
+            dates: `${r.since} to ${r.until}`,
+            days: r.days,
+            spend: r2(r.spend),
+            reach: r.reach,
+            ctr_pct: r2(r.ctr),
+            cpm: r2(r.cpm),
+            conversations: r.convos,
+            cost_per_conversation: cpa(r.spend, r.convos),
+            reached_msg_2_pct: r2((r.depth2 / r.convos) * 100),
+            cost_per_engaged_chat: r2(r.spend / r.depth2),
+            current: !!r.current,
+          })),
+        })
+      }
+
+      if (focus === 'competitors') {
+        return JSON.stringify({
+          note:
+            'From the public Meta Ad Library. It shows what rivals RUN — creative, copy, CTA, and how ' +
+            'long an ad has been live. It does NOT show their spend, CTR or cost per result: that is ' +
+            'private and unobtainable. Never claim to know a competitor’s numbers.',
+          checked: SNAPSHOT.pulledAt,
+          competitors: COMPETITORS.map(c => ({
+            name: c.name, where: c.where, advertising: c.status,
+            ads: c.adCount, leads_with: c.leadsWith, cta: c.cta, threat: c.threat,
+          })),
+          our_position: `We are the only one in the set leading with a discount (${SNAPSHOT.offer.price} set).`,
+        })
+      }
+
+      return JSON.stringify({
+        note:
+          'Meta Ads for the CURRENT run only. Delivery is stop-start — this is a campaign run, not a ' +
+          'calendar window. Currency MYR. Ask again with focus=runs to compare against past campaigns.',
+        account: SNAPSHOT.account.name,
+        campaign: SNAPSHOT.campaign.name,
+        run: CURRENT.id,
+        period: `${SNAPSHOT.period.since} to ${SNAPSHOT.period.until}`,
+        pulled_at: SNAPSHOT.pulledAt,
+        data_freshness: 'A snapshot, not live. Say so if asked how current it is.',
+        spend: r2(t.spend),
+        impressions: t.impressions,
+        reach: t.reach,
+        frequency: r2(t.frequency),
+        clicks: t.clicks,
+        ctr_pct: r2(t.ctr),
+        cpc: r2(t.cpc),
+        cpm: r2(t.cpm),
+        whatsapp_conversations: t.convos,
+        cost_per_conversation: cpa(t.spend, t.convos),
+        reached_msg_2: t.depth2,
+        reached_msg_2_pct: r2((t.depth2 / t.convos) * 100),
+        cost_per_engaged_chat: r2(t.spend / t.depth2),
+        break_even_conversion_pct: r2((t.spend / t.convos / SNAPSHOT.offer.price) * 100),
+        break_even_note: `That share of conversations must become a ${SNAPSHOT.offer.price} set just to cover ad spend, before food cost.`,
+        biggest_problem: `${r2(100 - (t.depth2 / t.convos) * 100)}% of paid conversations die after one message.`,
+        second_problem: `Reach has fallen from ${RUNS[0].reach} in March to ${t.reach} now, while CPM rose from ${r2(RUNS[0].cpm)} to ${r2(t.cpm)}.`,
+      })
+    }
+
+    if (name === 'get_ad_tasks') {
+      const read = readMarketing(rows, todayISO())
+      if (read.openCount === 0 && read.doneCount === 0) {
+        return JSON.stringify({
+          tracked: false,
+          note: 'The ads playbook board has not been set up yet. Tell the owner to open the Playbook tab and turn tracking on.',
+        })
+      }
+      return JSON.stringify({
+        tracked: true,
+        today: read.today,
+        do_this_first: read.topPriority
+          ? { task: read.topPriority.title, due: read.topPriority.due_date, priority: read.topPriority.meta?.priority ?? null }
+          : null,
+        overdue: read.overdue.length,
+        overdue_tasks: read.overdue.slice(0, 5).map(r => ({ task: r.title, due: r.due_date })),
+        due_today: read.dueToday.length,
+        due_within_3_days: read.dueSoon.length,
+        open: read.openCount,
+        done: read.doneCount,
+        declined: read.declinedCount,
+        on_time_pct: read.onTimePct,
+        on_time_note:
+          read.onTimePct === null
+            ? 'Nothing finished yet, so there is no on-time rate to report.'
+            : `${read.onTime} finished on time, ${read.late} late.`,
+        days_to_promo_end: read.daysToPromoEnd,
+        content_scheduled: read.contentScheduled,
+        note:
+          'Recurring habits carry a start-by date, not a deadline, and are never counted overdue. ' +
+          'The owner updates status on the Playbook tab — you cannot change anything, only report it.',
       })
     }
 

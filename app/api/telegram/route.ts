@@ -411,10 +411,17 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
     // purpose, so nothing in the business profile can widen what Jarvis may do.
     jarvisIdentity() +
     `You have READ tools (cash, funnel/pipeline, leads, invoices/owed, tasks, content, follow-ups, ` +
-    `triage) and ACTION tools that DO things. Chain tools when useful (e.g. who_to_followup → ` +
+    `triage, Facebook/Meta ads performance, the ads task board) and ACTION tools that DO things. ` +
+    `Chain tools when useful (e.g. who_to_followup → ` +
     `draft_followup; or find an invoice → mark_invoice_paid). Keep replies short. Telegram formatting: ` +
     `<b>,<i>,<code> only.\n` +
     `GROUNDING: always base money/pipeline answers on a tool result — never guess a number.\n` +
+    `ADS: use get_ad_performance for anything about Facebook/Meta/Instagram ads, spend, CTR, reach or ` +
+    `cost per conversation, and get_ad_tasks for what is overdue on the ads playbook. Ad figures are a ` +
+    `SNAPSHOT, not live — if asked how current they are, say when it was pulled. A cheap cost per ` +
+    `conversation is NOT automatically good: quote cost_per_engaged_chat alongside it, because the ` +
+    `cheapest run so far was also the worst. Competitor spend and CTR are private and unobtainable — ` +
+    `never claim to know a rival's numbers.\n` +
     `ACTING — the autonomy dial: for add_task / add_lead / a small log_expense the tool runs it ` +
     `immediately; tell the owner it's done and include the exact /undo-<id> the tool returned. For ` +
     `log_cash_in / mark_invoice_paid / update_lead_status / a big log_expense the tool only PROPOSES ` +
@@ -599,6 +606,13 @@ async function runVaultPipeline(msg: any): Promise<void> {
     merchant: v.merchant,
     date: v.date,
     category: v.category,
+    // The itemised layer — already clamped and reconciled in lib/vision.ts.
+    items: v.items,
+    expense_type: v.expense_type,
+    receipt_no: v.receipt_no,
+    subtotal: v.subtotal,
+    tax: v.tax,
+    items_note: v.items_note,
     sha256,
     storage_path: storagePath,
     mime,
