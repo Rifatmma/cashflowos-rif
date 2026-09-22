@@ -645,3 +645,4 @@ code {
 .ci-date { display: flex; flex-direction: column; gap: 2px; }
 .ci-date input { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; min-height: 40px; box-sizing: border-box; }
 .ci-upload { align-items: flex-end; }
+#to-check { scroll-margin-top: 16px; }

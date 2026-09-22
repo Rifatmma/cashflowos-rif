@@ -51,6 +51,7 @@ const TYPE_LABEL: Record<string, string> = {
   equipment: 'Equipment',
   services: 'Services',
   other: 'Other',
+  unclassified: 'Not categorised',
 }
 const IS_COGS = (t?: string) => !!t && t.startsWith('cogs_')
 
@@ -191,8 +192,8 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   const unreadable = cur.filter(r => r.meta?.items_note).length
   const needs = [
     waiting.length && { href: '/approvals', text: `${waiting.length} waiting for approval` },
-    unreadable && { href: '#receipts', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
-    unclassified > 0 && { href: '#receipts', text: `${money2(unclassified)} not yet categorised` },
+    unreadable && { href: '#to-check', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
+    unclassified > 0 && { href: '#to-check', text: `${money2(unclassified)} not yet categorised` },
   ].filter(Boolean) as { href: string; text: string }[]
 
   // ---- latest receipts, grouped by day ------------------------------------------
@@ -270,13 +271,18 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   const activeNotes = ruleGroups.reduce((t, g) => t + g.notes.filter(n => n.status !== 'off').length, 0)
 
   // ---------------------------------------------------------------------------
-  const Receipt = ({ r }: { r: Rec }) => {
+  // Receipts behind the "needs you" links: a total that doesn't match its lines,
+  // or money not yet put in a category. Shown OPEN at the top of the list, so the
+  // link lands on the receipt itself rather than on a list of forty.
+  const toCheck = cur.filter(r => r.meta?.items_note || (spendByType(r).unclassified ?? 0) > 0)
+
+  const Receipt = ({ r, open }: { r: Rec; open?: boolean }) => {
     const items = itemsOf(r)
     const split = r.meta?.type_split as Record<string, number> | undefined
     const bits = [typeOf(r), items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : null, r.meta?.filed_by]
       .filter(Boolean).join(' · ')
     return (
-      <details className="co-rx">
+      <details className="co-rx" open={open}>
         <summary>
           <span className="co-rx-main">
             <span className="co-rx-name">{merchantOf(r)}</span>
@@ -298,6 +304,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
                       {' '}· {it.qty} {it.unit !== 'unit' ? it.unit : ''} × {plain2(it.unit_price)}
                       {typeof it.price_per_base === 'number' && ` = ${money2(it.price_per_base)}/${it.base_unit}`}
                       {it.expense_type && split && Object.keys(split).length > 1 && ` · ${TYPE_LABEL[it.expense_type] ?? it.expense_type}`}
+                      {!it.expense_type && split?.unclassified ? <span className="co-flag"> · not categorised</span> : null}
                     </span>
                   </span>
                   <span className="num">{plain2(it.line_total)}</span>
@@ -463,6 +470,17 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           <span className="eyebrow">Receipts</span>
           <span className="co-dim num">{cur.length} in {W.label.toLowerCase().startsWith('this') || W.key === '3m' ? W.label.toLowerCase() : W.label}</span>
         </div>
+
+        {toCheck.length > 0 && (
+          <div className="co-day" id="to-check">
+            <div className="eyebrow co-day-label co-flag"><span>To check</span></div>
+            {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
+            <p className="co-meta">
+              Tell Jarvis what&rsquo;s wrong and he fixes it, e.g. &ldquo;on the FCounter receipt the prawns were RM 32&rdquo;
+              or &ldquo;S.S.75 is packaging&rdquo;.
+            </p>
+          </div>
+        )}
 
         {waiting.length > 0 && (
           <div className="co-day">
