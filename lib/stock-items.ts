@@ -42,7 +42,8 @@ export const ITEMS: ItemDef[] = [
   { key: 'feet', name: 'Chicken feet', unit: 'pc', sort: 12, perKg: 30, fallbackCost: 0.2,
     aliases: ['kaki ayam', 'chicken feet', 'ceker'] },
   { key: 'beef', name: 'Beef', unit: 'g', sort: 20, usablePct: 80, fallbackCost: 0.035, bagG: 80,
-    aliases: ['daging', 'beef'] },
+    // Owner's rule (22 Sep 2026): buffalo meat is stocked and used as beef.
+    aliases: ['daging', 'beef', 'buffalo', 'kerbau', 'carabeef'] },
   { key: 'tongue', name: 'Beef tongue', unit: 'g', sort: 21, fallbackCost: 0.03, bagG: 120,
     aliases: ['lidah', 'tongue'] },
   { key: 'shrimp', name: 'Shrimp', unit: 'pc', sort: 30, perKg: 38, fallbackCost: 0.75,

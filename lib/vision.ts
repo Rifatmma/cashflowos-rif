@@ -413,7 +413,7 @@ export async function readImage(
     `items (array of EVERY line on the receipt).\n` +
     `Each item: name (exactly as printed), key (a NORMALISED lowercase english ingredient name — ` +
     `"Ayam bersih" and "chicken whole" both become "chicken"; siakap/sea bass -> "seabass"; ` +
-    `udang -> "prawn"; sotong -> "squid"), qty (number), unit ("kg","g","l","ml","pcs","pkt","box", ` +
+    `udang -> "prawn"; sotong -> "squid"; buffalo / daging kerbau / carabeef -> "beef", the restaurant uses it as beef), qty (number), unit ("kg","g","l","ml","pcs","pkt","box", ` +
     `"carton","tray","dozen","bottle","can","bag" — lowercase), unit_price (number, RM per ONE unit), ` +
     `pack_size + pack_unit WHENEVER the label prints a weight or volume ("CHILI PADI 100G" -> ` +
     `pack_size 100, pack_unit "g"; "MILK 1.5L" -> 1.5 and "l"), so price per kg can be compared ` +
