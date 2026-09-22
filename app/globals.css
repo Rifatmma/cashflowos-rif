@@ -646,3 +646,16 @@ code {
 .ci-date input { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; min-height: 40px; box-sizing: border-box; }
 .ci-upload { align-items: flex-end; }
 #to-check { scroll-margin-top: 16px; }
+
+/* Fix form under a flagged receipt (app/cash-out/ReceiptFix.tsx). */
+.rf { border-top: 1px dashed var(--line-2); margin-top: 8px; }
+.rf-line { padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.rf-name { font-size: 13px; color: var(--ink); margin-bottom: 4px; }
+.rf-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.rf-row label { display: flex; flex-direction: column; gap: 2px; }
+.rf input, .rf select { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 8px; min-height: 38px; box-sizing: border-box; }
+.rf input { width: 84px; text-align: right; font-family: var(--font-mono), monospace; }
+.rf select { flex: 1; min-width: 130px; }
+.rf .rf-missing { border-color: var(--bad); }
+.rf-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.rf-btns .btn { min-height: 40px; }

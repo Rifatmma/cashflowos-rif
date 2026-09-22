@@ -22,6 +22,7 @@ import {
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
 import PaceChart from '@/app/_components/PaceChart'
+import ReceiptFix from './ReceiptFix'
 
 export const dynamic = 'force-dynamic'
 
@@ -322,6 +323,11 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           )}
           {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
           {r.meta?.items_note && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
+          {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
+          {open && items.length > 0 && (
+            <ReceiptFix id={r.id} total={Number(r.amount)}
+              lines={items.map(it => ({ name: it.name, qty: it.qty, unit_price: it.unit_price, expense_type: it.expense_type }))} />
+          )}
           <p className="co-meta">
             {shortDate(dateOf(r))}
             {r.meta?.receipt_no ? ` · #${r.meta.receipt_no}` : ''}
@@ -476,8 +482,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             <div className="eyebrow co-day-label co-flag"><span>To check</span></div>
             {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
             <p className="co-meta">
-              Tell Jarvis what&rsquo;s wrong and he fixes it, e.g. &ldquo;on the FCounter receipt the prawns were RM 32&rdquo;
-              or &ldquo;S.S.75 is packaging&rdquo;.
+              Correct the line that&rsquo;s wrong and tap Save, or tell Jarvis, e.g. &ldquo;on the FCounter receipt the prawns were RM 32&rdquo;.
             </p>
           </div>
         )}
