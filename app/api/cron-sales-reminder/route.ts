@@ -34,6 +34,12 @@ export async function GET(req: Request) {
   // ① Payments that came by EMAIL today (lib/email-payments.ts): scan, then ask
   //    the owner to classify anything unanswered. Runs every night, whatever the
   //    sales situation, and never blocks the sales reminder below.
+  const params = new URL(req.url).searchParams
+  // ?only=email&dry=1&days=14 -- preview what the detector sees; saves and sends nothing.
+  if (params.get('only') === 'email' && params.get('dry') === '1') {
+    const days = Math.min(31, Math.max(1, Number(params.get('days')) || 2))
+    return Response.json({ ok: true, email: await scanEmailPayments({ days, dry: true }) })
+  }
   const scan = await scanEmailPayments()
   let asked = false
   try {

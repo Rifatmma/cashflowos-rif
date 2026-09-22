@@ -29,15 +29,15 @@ const INBOX = () => (process.env.PAYMENTS_EMAIL || 'rifatmma@gmail.com').trim().
 
 type Mail = { id: string; from: string; subject: string; at: string; text: string }
 
-const QUERY =
-  'newer_than:2d (receipt OR invoice OR payment OR paid OR transfer OR donation OR subscription OR ' +
+const query = (days: number) =>
+  `newer_than:${days}d ` + '(receipt OR invoice OR payment OR paid OR transfer OR donation OR subscription OR ' +
   'charged OR billing OR order OR resit OR pembayaran OR "thank you for your purchase") ' +
   '-category:promotions -category:social'
 
 // Runs INSIDE Composio's sandbox: fetch the inbox, turn each HTML email into
 // plain text there, and send back only that. (One raw email is ~50k tokens --
 // too big to travel back directly.)
-const FETCH_SCRIPT = (query: string, account: string) => String.raw`
+const FETCH_SCRIPT = (query: string, account: string, max: number) => String.raw`
 import json, re, html
 def _plain(s):
     s = re.sub(r'(?is)<(style|script)[^>]*>.*?</\1>', ' ', s or '')
@@ -45,15 +45,15 @@ def _plain(s):
     s = html.unescape(s)
     s = re.sub(r'[\u200b-\u200f\u034f\ufeff\u00ad]', '', s)
     return re.sub(r'\s+', ' ', s).strip()
-_res, _err = run_composio_tool('GMAIL_FETCH_EMAILS', {'query': ${JSON.stringify(query)}, 'max_results': 40, 'verbose': True, 'include_payload': True}, print_schema_for_tool=False, account=${JSON.stringify(account)})
+_res, _err = run_composio_tool('GMAIL_FETCH_EMAILS', {'query': ${JSON.stringify(query)}, 'max_results': ${max}, 'verbose': True, 'include_payload': True}, print_schema_for_tool=False, account=${JSON.stringify(account)})
 _msgs = ((_res or {}).get('data') or _res or {}).get('messages') or []
 _out = {'error': _err, 'mails': [{'id': m.get('messageId'), 'from': m.get('sender',''), 'subject': m.get('subject',''), 'at': m.get('messageTimestamp',''), 'text': _plain(m.get('messageText') or (m.get('preview') or {}).get('body',''))[:1800]} for m in _msgs if m.get('messageId')]}
 print('<<<CFO' + json.dumps(_out, ensure_ascii=True) + '\nCFO>>>')
 `
 
-async function fetchMail(): Promise<Mail[]> {
+async function fetchMail(days = 2): Promise<Mail[]> {
   const account = process.env.COMPOSIO_GMAIL_ACCOUNT?.trim() || INBOX()
-  const out = await runWorkbench(FETCH_SCRIPT(QUERY, account))
+  const out = await runWorkbench(FETCH_SCRIPT(query(days), account, days > 2 ? 100 : 40))
   if (out?.error) throw new Error(`Gmail: ${String(out.error).slice(0, 200)}`)
   return (out?.mails ?? []).map((m: any) => ({
     id: String(m.id), from: String(m.from ?? ''), subject: String(m.subject ?? ''), at: String(m.at ?? ''), text: String(m.text ?? ''),
@@ -90,7 +90,7 @@ export async function extractPayments(mails: Mail[]): Promise<Found[]> {
   const data = mails.map(m => ({ id: m.id, from: m.from, subject: m.subject, at: m.at, text: m.text }))
   const res = await new Anthropic({ apiKey }).messages.create({
     model: 'claude-haiku-4-5',
-    max_tokens: 3000,
+    max_tokens: 6000,
     system,
     messages: [{ role: 'user', content: `<<<EMAILS\n${JSON.stringify(data)}\nEMAILS>>>` }],
   })
@@ -129,11 +129,18 @@ export async function toMyr(amount: number | null, currency: string | null): Pro
 }
 
 /** The nightly scan. Never throws; returns what it did, for the cron's log. */
-export async function scanEmailPayments(): Promise<{ ok: boolean; message: string; found: number }> {
+export async function scanEmailPayments(opts: { days?: number; dry?: boolean } = {}): Promise<{ ok: boolean; message: string; found: number; preview?: any[] }> {
   try {
     if (!supabaseConfigured) return { ok: false, message: 'Supabase not configured', found: 0 }
-    const mails = await fetchMail()
+    const mails = await fetchMail(opts.days ?? 2)
     if (!mails.length) return { ok: true, message: 'no payment-looking emails', found: 0 }
+    // Preview: read everything in the window, save nothing, ask nothing.
+    if (opts.dry) {
+      const found = await extractPayments(mails)
+      const preview = []
+      for (const f of found) preview.push({ ...f, amount_myr: await toMyr(f.amount, f.currency) })
+      return { ok: true, message: `${mails.length} emails read, ${found.length} payments (preview, nothing saved)`, found: found.length, preview }
+    }
     const { data: seen } = await supabase.from('email_seen').select('message_id').in('message_id', mails.map(m => m.id))
     const seenIds = new Set((seen ?? []).map((s: any) => s.message_id))
     const fresh = mails.filter(m => !seenIds.has(m.id))
