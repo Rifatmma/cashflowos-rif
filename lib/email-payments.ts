@@ -182,8 +182,35 @@ export function payLine(p: Pay): string {
   return `${p.list_no}. <b>${esc(p.merchant)}</b> ${amt}${day}${p.what ? ` · ${esc(p.what)}` : ''}`
 }
 
+/**
+ * Payments the owner already filed some other way (e.g. told Jarvis "add as owner
+ * withdraw" and approved the cards): a Cash Out row with the same amount, filed
+ * since the payment was found, dated within 3 days of it. Marked filed so they
+ * are never asked about again.
+ */
+async function reconcileFiled() {
+  const { data } = await supabase.from('email_payments').select('*').in('status', ['new', 'asked'])
+  for (const p of (data ?? []) as (Pay & { created_at: string })[]) {
+    const rm = p.amount_myr ?? p.amount
+    if (!rm) continue
+    const { data: hits } = await supabase.from('records').select('id, due_date, created_at, meta')
+      .eq('category', 'cash_out').gte('amount', rm - 0.01).lte('amount', rm + 0.01).gte('created_at', p.created_at).limit(5)
+    const day = p.paid_on ? Date.parse(p.paid_on) : null
+    const hit = (hits ?? []).find((h: any) => {
+      const d = Date.parse(h.due_date || h.created_at)
+      return day === null || Math.abs(d - day) <= 3 * 86_400_000
+    })
+    if (hit) {
+      await supabase.from('email_payments').update({
+        status: 'filed', record_id: hit.id, expense_type: (hit as any).meta?.expense_type ?? null, decided_at: new Date().toISOString(),
+      }).eq('id', p.id)
+    }
+  }
+}
+
 /** Number every unanswered payment 1..n and build the question. null = nothing to ask. */
 export async function buildQuestion(): Promise<string | null> {
+  await reconcileFiled()
   const { data } = await supabase.from('email_payments').select('*').in('status', ['new', 'asked']).order('paid_on').order('id')
   const list = (data ?? []) as Pay[]
   if (!list.length) return null

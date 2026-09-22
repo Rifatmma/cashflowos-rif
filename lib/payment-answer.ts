@@ -89,3 +89,16 @@ export function parseAnswer(text: string, max: number): Answer {
 /** Does a message look like an answer to the numbered list at all? */
 export const looksLikeAnswer = (text: string) =>
   /^\s*(all|semua|rest|\d+(\s*[-–]\s*\d+)?)\b/i.test(String(text || ''))
+
+// A plain-language reply with no numbers: "add as owner withdraw", "file both
+// as drawings", "semua peribadi". Returns the category and whether it clearly
+// means EVERY item ("both", "all", "these"...). null = no category word at all.
+const ALL_WORDS = /\b(all|both|these|those|them|everything|semua|kedua|dua-dua|keduanya|ทั้งหมด)\b/i
+export function plainAnswer(text: string): { type: string; saysAll: boolean } | null {
+  const t = String(text || '').toLowerCase()
+  if (/\d/.test(t)) return null
+  const words = t.split(/[^a-z฀-๿-]+/).filter(Boolean)
+  const types = [...new Set(words.map(w => WORDS.find(([re]) => re.test(w))?.[1]).filter(Boolean) as string[])]
+  if (types.length !== 1) return null
+  return { type: types[0], saysAll: ALL_WORDS.test(t) }
+}

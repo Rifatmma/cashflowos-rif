@@ -18,7 +18,7 @@ import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
 import { hasOpenQuestion, applyAnswer } from '@/lib/email-payments'
-import { parseAnswer, looksLikeAnswer } from '@/lib/payment-answer'
+import { parseAnswer, looksLikeAnswer, plainAnswer } from '@/lib/payment-answer'
 import { importDay, getItems, getMoves, unitCosts, costOfUse } from '@/lib/stock-data'
 import { type SupplierRule } from '@/lib/supplier-rules'
 import { replyIntent } from '@/lib/reply-intent'
@@ -493,9 +493,25 @@ async function handleMessage(msg: any): Promise<Response> {
   // "1 software, 2 drawings, 3 skip". Owner/allowed users in private only, and
   // only when a list is actually waiting and the message really answers it --
   // otherwise it goes to Jarvis as normal.
-  if (!isGroupChat(msg.chat) && looksLikeAnswer(text) && (await hasOpenQuestion())) {
+  const plain = !isGroupChat(msg.chat) ? plainAnswer(text) : null
+  if (!isGroupChat(msg.chat) && (looksLikeAnswer(text) || plain) && (await hasOpenQuestion())) {
     const { data: open } = await supabase.from('email_payments').select('list_no').eq('status', 'asked')
     const max = Math.max(0, ...(open ?? []).map((o: any) => Number(o.list_no) || 0))
+    // "add as owner withdraw": one category, no numbers. Only safe to apply to
+    // everything when the list has one item or the owner said "both"/"all".
+    if (plain && !looksLikeAnswer(text)) {
+      if (max === 1 || plain.saysAll) {
+        const word = plain.type === 'owner_drawings' ? 'drawings' : plain.type === 'skip' ? 'skip' : plain.type
+        const reply = await applyAnswer(`all ${word}`, filedBy(msg).name)
+        await sendMessage(chatId, reply)
+        await remember(chatId, text, reply.replace(/<[^>]+>/g, ''))
+        return Response.json({ ok: true })
+      }
+      const ask = `All ${max} of them, or which numbers? e.g. <code>all drawings</code> or <code>1 drawings, 2 software</code>.`
+      await sendMessage(chatId, ask)
+      await remember(chatId, text, ask.replace(/<[^>]+>/g, ''))
+      return Response.json({ ok: true })
+    }
     const a = parseAnswer(text, max)
     if (Object.keys(a.choices).length || a.badNumbers.length) {
       const reply = await applyAnswer(text, filedBy(msg).name)
