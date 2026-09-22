@@ -5,7 +5,9 @@ import { getRecords, getFunnel, rm, todayISO, type Rec } from '@/lib/records'
 import { propose, proposeAndNotify, runAutopilot } from '@/lib/actions'
 import { SCHEDULED, type ProposalDraft } from '@/agents/registry'
 import { mytDate, addDays, dayLabel } from '@/lib/period'
-import { missingSalesDays } from '@/lib/sales'
+import { missingSalesDays, isSalesRow, salesDayOf } from '@/lib/sales'
+import { getItems, getMoves, stockState, unitCosts, costOfUse } from '@/lib/stock-data'
+import { fmtQty } from '@/lib/stock-items'
 import { refreshAds } from '@/lib/ads-refresh'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -113,7 +115,40 @@ export async function GET(req: Request) {
   const yesterday = addDays(mytDate(), -1)
   const salesMissing = missingSalesDays(rows, yesterday)
 
-  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team, salesMissing, yesterday)
+  // ④ KITCHEN — yesterday's sales and food cost by recipe, what's running low,
+  //    and whether the weekly count is due. Best-effort: a stock hiccup must
+  //    never cost the owner the rest of the brief.
+  let kitchen = ''
+  try {
+    const [items, moves] = await Promise.all([getItems(), getMoves()])
+    const costs = unitCosts(moves, items)
+    const state = stockState(items, moves)
+    const bits: string[] = []
+    const y = rows.find(r => isSalesRow(r) && salesDayOf(r) === yesterday)
+    if (y) {
+      const sales = Number(y.amount || 0)
+      const food = costOfUse(y.meta?.usage, costs)
+      const pct = sales ? (food / sales) * 100 : 0
+      bits.push(`Yesterday <b>${rm(sales)}</b> sales · food cost <b>${pct.toFixed(0)}%</b> by recipe${pct > 35 ? ' 🔴 over 35%' : ''}` +
+        (y.meta?.sets_sold ? ` · ${y.meta.sets_sold} sets` : ''))
+      const un = (y.meta?.unmatched ?? []).length
+      if (un) bits.push(`${un} dish${un === 1 ? '' : 'es'} had no recipe, so took no stock. Fix on Stock → Recipes.`)
+    }
+    const low = state.filter(s => s.low)
+    if (low.length) {
+      bits.push(`🛒 <b>Running low</b>\n` + low.map(s =>
+        `• ${s.name}: ${fmtQty(Math.max(s.onHand, 0), s.unit)}` + (s.daysLeft !== null ? ` (~${s.daysLeft < 1 ? 'under a day' : s.daysLeft.toFixed(1) + ' days'})` : '')).join('\n'))
+    }
+    const counts = state.map(s => s.lastCount).filter(Boolean).sort() as string[]
+    const usedAtAll = moves.length > 0
+    if (usedAtAll && !counts.length) bits.push(`📦 Stock hasn't been counted yet. One count on the Stock page sets the opening figures.`)
+    else if (counts.length && counts.at(-1)! <= addDays(mytDate(), -7)) bits.push(`📦 Weekly stock count is due (last ${counts.at(-1)}).`)
+    if (bits.length) kitchen = `\n\n<b>Kitchen</b>\n` + bits.join('\n')
+  } catch (e) {
+    console.error('[CFO] brief kitchen block failed:', e)
+  }
+
+  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team, salesMissing, yesterday) + kitchen
 
   // ② Optional Jarvis-Oyen narrative — a warm chief-of-staff paragraph. Only when a
   //    key is set; its absence NEVER blocks the mandated brief above.
@@ -265,7 +300,7 @@ function buildBrief(
         (salesMissing.length === 1
           ? `No POS report for ${dayLabel(salesMissing[0], addDays(yesterday, 1))}, ${salesMissing[0]}.`
           : `No POS reports for ${salesMissing.length} days: ${salesMissing.join(', ')}.`) +
-        ` Send me the CSV and I'll file it — food cost reads high until it's in.`
+        ` Upload the EasyEat Dish Report on the Cash In tab — food cost reads high until it's in.`
       : '') +
     adsBlock
   )

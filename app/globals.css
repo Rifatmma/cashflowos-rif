@@ -596,3 +596,49 @@ code {
 .ad-watch li + li { margin-top: 8px; }
 .ad-chev { color: var(--ink-faint); font-size: 20px; line-height: 1; transition: transform .15s ease; }
 .ad-comp[open] .ad-chev { transform: rotate(90deg); }
+
+/* ============================================================
+   CASH IN + STOCK — app/cash-in, app/stock. Same co-* cards as
+   Cash Out; these add the phone forms. Inputs are 16px so iOS
+   doesn't zoom in when a field is tapped.
+   ============================================================ */
+.ci-upload { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ci-file { flex: 1 1 200px; min-width: 0; }
+.ci-file input { width: 100%; font-size: 14px; color: var(--ink-soft); }
+.ci-result { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--paper-2); }
+.ci-result-head { margin: 0; font-size: 14px; color: var(--ink); }
+.ci-list { margin: 6px 0; padding-left: 18px; }
+
+.st-list { list-style: none; margin: 0; padding: 0; }
+.st-list li { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.st-list li:last-child { border-bottom: none; }
+.st-list li .co-row + .co-row { margin-top: 2px; }
+.st-name { font-weight: 500; color: var(--ink); }
+.st-low .st-name { color: var(--bad); }
+
+.st-count { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 16px; }
+@media (min-width: 769px) { .st-count { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.st-field { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+.st-field > span:first-child { color: var(--ink); min-width: 0; }
+.st-input { display: inline-flex; align-items: center; gap: 6px; }
+.st-input input, .st-input select, .st-teach select {
+  font: inherit; font-size: 16px; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px; min-height: 40px; box-sizing: border-box;
+}
+.st-input input[type=number] { width: 96px; text-align: right; font-family: var(--font-mono), monospace; }
+.st-input input[type=text] { width: 170px; }
+.st-input input:focus, .st-input select:focus, .st-teach select:focus { outline: none; border-color: var(--clay); box-shadow: 0 0 0 3px var(--clay-tint); }
+.st-submit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.st-submit .btn { min-height: 40px; }
+
+.st-teach { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+.st-teach .st-submit { margin-top: 0; }
+.st-teach-name { flex: 1 1 160px; font-size: 13px; color: var(--ink); min-width: 0; }
+
+.st-recipe .co-rx-name { white-space: normal; }
+.st-line { display: flex; margin-top: 6px; }
+.st-line select { flex: 1; min-width: 0; }
+.st-msize { margin-top: 10px; }
+.st-msize > summary { cursor: pointer; font-size: 13px; }
+.st-unit { min-width: 30px; font-size: 12px; line-height: 1.2; }
+@media (max-width: 480px) { .st-count .st-input input[type=number] { width: 68px; } .st-count .st-field { flex-wrap: wrap; } .st-count .st-bag > span:first-child { flex-basis: 100%; } }

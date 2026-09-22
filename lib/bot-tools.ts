@@ -10,6 +10,9 @@ import { SNAPSHOT, COMPETITORS } from './ads-snapshot'
 import { getAds } from './ads-data'
 import { verdict, alerts } from './ads-verdict'
 import { readMarketing } from '@/agents/head-marketing/definition'
+import { getItems, getMoves, stockState, unitCosts, costOfUse } from './stock-data'
+import { fmtQty } from './stock-items'
+import { isSalesRow, salesDayOf } from './sales'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's HANDS. Instead of dumping your whole table into the prompt,
@@ -164,6 +167,20 @@ export const BOT_TOOLS = [
             'cheapest. runs = every campaign run compared. competitors = who else is advertising.',
         },
       },
+    },
+  },
+  {
+    name: 'get_stock',
+    description:
+      'Kitchen stock and daily sales: how much of each tracked ingredient is on hand (chicken breast, ' +
+      'leg quarters, beef, tongue, shrimp, udang galah, crab, squid, mussels, lala, siakap, eggs, rice), ' +
+      'days left at the current pace, what is running low, when it was last counted, and the recent ' +
+      "days' sales with food cost % by recipe. Use for \"how much shrimp is left?\", \"what's running low?\", " +
+      '"what do I need to buy?", "how were sales yesterday?", "what is my food cost?". Only proteins, eggs ' +
+      'and rice are tracked -- say so if asked about veg, sauces or drinks.',
+    input_schema: {
+      type: 'object' as const,
+      properties: { item: { type: 'string', description: 'Optional: one ingredient, e.g. "shrimp".' } },
     },
   },
   {
@@ -545,6 +562,31 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
           'Compose a SHORT, warm follow-up message (2-3 sentences) for the OWNER to copy and send. ' +
           'Do not include placeholders they must fill. NEVER say it has been sent — end your reply making clear ' +
           'it is a draft for them to send themselves.',
+      })
+    }
+
+    if (name === 'get_stock') {
+      const [items, moves] = await Promise.all([getItems(), getMoves()])
+      const costs = unitCosts(moves, items)
+      const q = String(input?.item || '').toLowerCase().trim()
+      const state = stockState(items, moves).filter(s => !q || s.name.toLowerCase().includes(q) || s.key.includes(q))
+      const days = rows.filter(isSalesRow).sort((a, b) => salesDayOf(b).localeCompare(salesDayOf(a))).slice(0, 7)
+      return JSON.stringify({
+        note: 'On-hand is a book figure (receipts in minus recipes used) corrected by the weekly count. ' +
+          'Items never counted are book figures from zero and may read negative -- say they need an opening count.',
+        stock: state.map(s => ({
+          item: s.name, on_hand: fmtQty(s.onHand, s.unit), counted: s.counted, last_count: s.lastCount,
+          used_per_day: s.perDay ? fmtQty(s.perDay, s.unit) : null,
+          days_left: s.daysLeft === null ? null : Math.round(s.daysLeft * 10) / 10, running_low: s.low,
+        })),
+        recent_sales: days.map(r => {
+          const food = costOfUse(r.meta?.usage, costs)
+          const sales = Number(r.amount || 0)
+          return { date: salesDayOf(r), sales, food_cost_by_recipe: Math.round(food * 100) / 100,
+            food_cost_pct: sales ? Math.round((food / sales) * 1000) / 10 : null, sets_sold: r.meta?.sets_sold ?? 0,
+            dishes_without_recipe: (r.meta?.unmatched ?? []).length }
+        }),
+        target_food_cost_pct: 35,
       })
     }
 

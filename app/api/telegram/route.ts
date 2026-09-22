@@ -20,6 +20,7 @@ import { BOT_ACTION_TOOLS, ACTION_TOOL_NAMES, runBotAction } from '@/lib/bot-act
 import { SCHEDULED } from '@/agents/registry'
 import { jarvisIdentity, jarvisName, ownerName } from '@/jarvis/config'
 import { logRun } from '@/lib/runs'
+import { ITEM, fmtQty, stockFromLine } from '@/lib/stock-items'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Telegram brain + hands. This ONE webhook does three jobs:
@@ -1060,7 +1061,17 @@ function receiptSummary(v: VisionResult): string {
   const tax = typeof v.tax === 'number' && v.tax > 0 ? `\nTax ${rm(v.tax)}` : ''
   const warn = v.items_note ? `\n⚠️ ${esc(v.items_note)}` : ''
 
-  return head + `\n\n${shown.join('\n')}${more}${tax}${warn}`
+  // What this receipt puts on the shelf (Stock page), so a wrong weight is caught
+  // here, not at the weekly count. Usable weight: trimming already taken off.
+  const stockBits: string[] = []
+  for (const i of items) {
+    const got = stockFromLine(i as any)
+    if (Array.isArray(got)) for (const g of got) stockBits.push(`+${fmtQty(g.qty, ITEM[g.item].unit)} ${ITEM[g.item].name.toLowerCase()}`)
+    else stockBits.push(`${i.name}: no weight, add it on the Stock page`)
+  }
+  const stock = stockBits.length ? `\n📦 Stock: ${esc(stockBits.join(' · '))}` : ''
+
+  return head + `\n\n${shown.join('\n')}${more}${tax}${warn}${stock}`
 }
 
 // The nudge that turns a read-back into a correction. Without this the owner sees

@@ -105,6 +105,7 @@ export const AGENTS: AgentMeta[] = [
 // ------------------------------------------------------------
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { logRun } from '@/lib/runs'
+import { receiptStockIn } from '@/lib/stock-data'
 
 export type Executor = (payload: any) => Promise<any>
 
@@ -195,9 +196,16 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
     vaultFiled = !!(vfRows && vfRows.length)
   }
 
+  // 3) Stock in: meat, seafood, eggs and rice on the receipt go onto the shelf
+  //    (lib/stock-items.ts). Never throws -- the receipt is filed either way.
+  const stock = isExpense && Array.isArray(payload?.items) && payload.items.length
+    ? await receiptStockIn(recordId, payload.items, payload?.filed_by || undefined)
+    : { added: [], unsized: [] }
+
   const result = {
     kind: catCol === 'cash_out' ? 'expense' : 'doc',
     record_id: recordId,
+    stock_added: stock.added.length ? stock.added : undefined,
     title,
     amount: isExpense ? amount : 0,
     category: label,

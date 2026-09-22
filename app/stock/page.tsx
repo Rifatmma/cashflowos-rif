@@ -1,0 +1,293 @@
+// 👉 Stock — what's on the shelf, what's running low, and the weekly count.
+//
+// Stock comes IN from receipts (Jarvis reads the photo; lib/stock-items.ts turns
+// "FDZ CHICKEN BONELESS BREAST 2KG" into 1,920 g of usable breast) and goes OUT
+// with each day's sales upload on Cash In (lib/recipes.ts). The weekly count is
+// the truth check: what's physically there vs what the book says.
+//
+// Phone first: staff fill the count standing at the fridge, so every input is a
+// big number box, grams are typed in kg, and nothing needs a laptop.
+import Link from 'next/link'
+import { getRecords } from '@/lib/records'
+import { getItems, getMoves, stockState, wasteBetween, unitCosts } from '@/lib/stock-data'
+import { ITEM, ITEMS, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
+import { addDays, daysBetween, dayLabel, mytDate } from '@/lib/period'
+import ActionForm from './ActionForm'
+import { saveCount, addMove, teachAlias, setMin } from './actions'
+
+export const dynamic = 'force-dynamic'
+
+const money2 = (n: number) => 'RM ' + Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const costLabel = (c: number, unit: string) =>
+  unit === 'g' ? `${money2(c * 1000)}/kg` : unit === 'fish' ? `${money2(c)}/fish` : `${money2(c)}/pc`
+// Groceries that are obviously not meat, seafood, eggs or rice: never offered
+// for "this is…", or the list becomes sugar and cooking oil every week.
+const DRY_GOODS = /(gula|sugar|minyak|oil|tepung|flour|susu|milk|krimer|creamer|sauce|sos|kicap|mush|cendawan|margarin|butter|milo|kopi|coffee|nescafe|teh|tea|garam|salt|ajinomoto|perasa|stok|stock|knorr|dipping|cili|chili|bawang|onion|garlic|halia|serai|limau|lime|santan|coconut|beg|bag|tisu|tissue|sabun|soap)/i
+const KIND: Record<string, string> = { purchase: 'Bought', sale: 'Sold', count: 'Count', waste: 'Wasted', correction: 'Fixed' }
+
+export default async function Stock() {
+  const today = mytDate()
+  const [items, moves, all] = await Promise.all([getItems(), getMoves(), getRecords()])
+  const state = stockState(items, moves, today)
+  const costs = unitCosts(moves, items)
+
+  const low = state.filter(s => s.low)
+  const neverCounted = state.filter(s => !s.counted)
+  const lastCountDay = state.map(s => s.lastCount).filter(Boolean).sort().at(-1) as string | undefined
+  const countDue = !lastCountDay || daysBetween(lastCountDay, today) >= 7
+
+  // Missing since the last count (count moves that aren't openings).
+  const since = lastCountDay ? addDays(lastCountDay, -7) : today
+  const waste = wasteBetween(moves, costs, since, today)
+  const wasteRows = Object.entries(waste).filter(([, w]) => Math.abs(w.qty) > 0.0001).sort((a, b) => b[1].rm - a[1].rm)
+
+  // Receipt lines from the last 30 days that are stock but couldn't be sized,
+  // and food lines that matched nothing (candidates for "this is…").
+  const aliases = Object.fromEntries(items.filter(i => i.aliases?.length).map(i => [i.key, i.aliases]))
+  const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -30))
+  const unsized = new Map<string, string>()
+  const unknownFood = new Set<string>()
+  for (const r of recent) {
+    for (const l of (Array.isArray(r.meta?.items) ? r.meta.items : []) as ReceiptLine[]) {
+      if (!l?.name) continue
+      const got = stockFromLine(l, aliases)
+      if (!Array.isArray(got)) unsized.set(l.name, got.item)
+      else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) && !DRY_GOODS.test(l.name)) unknownFood.add(l.name)
+    }
+  }
+
+  const history = [...moves].filter(m => m.kind !== 'sale').reverse().slice(0, 25)
+  const saleDays = [...new Set(moves.filter(m => m.kind === 'sale').map(m => m.sales_date))].length
+
+  return (
+    <div className="co">
+      <div className="co-head">
+        <h1 className="ph">Stock</h1>
+        <Link href="/stock/recipes" className="co-dim">Recipes →</Link>
+      </div>
+
+      {(low.length > 0 || countDue) && (
+        <div className="co-needs" role="status">
+          <span aria-hidden="true">●</span>
+          {low.length > 0 && <a href="#onhand">{low.length} running low</a>}
+          {countDue && <a href="#count">{neverCounted.length === state.length ? 'Opening count needed' : 'Weekly count due'}</a>}
+        </div>
+      )}
+
+      {/* ── on hand ──────────────────────────────────────────────────── */}
+      <section className="co-card co-hero" id="onhand">
+        <div className="co-row" style={{ marginBottom: 6 }}>
+          <span className="eyebrow">On hand now</span>
+          <span className="co-dim">{lastCountDay ? `counted ${dayLabel(lastCountDay, today).toLowerCase()}` : 'not counted yet'}</span>
+        </div>
+        {neverCounted.length === state.length && (
+          <p className="co-sub co-flag" style={{ marginTop: 0 }}>
+            Do one count below to set the opening stock. Until then these are the book figures from zero:
+            what came in on receipts minus what the recipes used.
+          </p>
+        )}
+        <ul className="st-list">
+          {[...state].sort((a, b) => Number(b.low) - Number(a.low)).map(s => (
+            <li key={s.key} className={s.low ? 'st-low' : ''}>
+              <div className="co-row">
+                <span className="st-name">{s.name}</span>
+                <span className={`num ${s.onHand < 0 ? 'co-flag' : ''}`}>
+                  {ITEM[s.key]?.bagG ? `${Math.round(s.onHand / ITEM[s.key].bagG!)} bags` : fmtQty(s.onHand, s.unit)}
+                </span>
+              </div>
+              <div className="co-row co-dim">
+                <span>
+                  {s.perDay > 0 ? `uses ${fmtQty(s.perDay, s.unit)}/day` : 'no sales yet'}
+                  {s.daysLeft !== null && s.counted ? ` · ${s.daysLeft < 1 ? 'under a day' : `${s.daysLeft.toFixed(1)} days`} left` : ''}
+                  {!s.counted && ' · not counted'}
+                </span>
+                <span>{costLabel(s.cost, s.unit)}{s.costEstimated ? ' est.' : ''}</span>
+              </div>
+              {s.low && <div className="co-meta co-flag">Running low{s.min !== null ? ` (minimum ${fmtQty(s.min, s.unit)})` : ''}</div>}
+            </li>
+          ))}
+        </ul>
+        <p className="co-meta">
+          &ldquo;est.&rdquo; = estimated price until a receipt shows the real one. Days left use the last 7 trading days
+          {saleDays === 0 ? ', once sales are uploaded on Cash In' : ''}.
+        </p>
+      </section>
+
+      {/* ── count ────────────────────────────────────────────────────── */}
+      <details className="co-card co-fold" id="count" open={countDue}>
+        <summary>
+          <span>{neverCounted.length === state.length ? 'Opening count' : 'Weekly count'}</span>
+          <span className="co-dim">{lastCountDay ? `last ${dayLabel(lastCountDay, today).toLowerCase()}` : 'never'}</span>
+        </summary>
+        <p className="co-sub" style={{ marginTop: 0 }}>
+          Count what&rsquo;s physically in the fridge and store. Bagged items: count the <b>bags</b> (breast, beef, octopus 80 g;
+          tongue 120 g; lala 250 g), and weigh anything not yet bagged as kg loose. Other meat and seafood in <b>kg</b>; count pieces and fish.
+          Leave an item empty to skip it.
+        </p>
+        <ActionForm action={saveCount} submit="Save count">
+          <div className="st-count">
+            {items.map(i => (
+              <label key={i.key} className={`st-field ${ITEM[i.key]?.bagG ? 'st-bag' : ''}`}>
+                <span>{i.name}</span>
+                <span className="st-input">
+                  {ITEM[i.key]?.bagG && (
+                    <>
+                      <input type="number" name={`c_${i.key}_bags`} inputMode="numeric" step="any" min="0" placeholder="—" aria-label={`${i.name} bags`} />
+                      <span className="co-dim st-unit">bags of {ITEM[i.key].bagG} g</span>
+                    </>
+                  )}
+                  <input type="number" name={`c_${i.key}`} inputMode="decimal" step="any" min="0" placeholder="—"
+                    aria-label={ITEM[i.key]?.bagG ? `${i.name} loose kg` : i.name} />
+                  <span className="co-dim st-unit">{ITEM[i.key]?.bagG ? 'kg loose' : i.unit === 'g' ? 'kg' : i.unit === 'fish' ? 'fish' : 'pcs'}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <label className="st-field"><span>Counted by</span><span className="st-input"><input type="text" name="by" placeholder="Name" autoComplete="name" /></span></label>
+        </ActionForm>
+      </details>
+
+      {/* ── missing since last count ─────────────────────────────────── */}
+      {wasteRows.length > 0 && (
+        <section className="co-card">
+          <div className="eyebrow" style={{ marginBottom: 6 }}>Missing since last count</div>
+          <ul className="co-lines">
+            {wasteRows.map(([k, w]) => (
+              <li key={k}>
+                <span>{ITEM[k]?.name ?? k}<span className="co-dim"> · {w.qty > 0 ? 'short' : 'over'} {fmtQty(Math.abs(w.qty), ITEM[k]?.unit ?? 'g')}</span></span>
+                <span className={`num ${w.rm > 0 ? 'co-flag' : ''}`}>{money2(Math.abs(w.rm))}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="co-meta">
+            Short = the shelf had less than recipes + receipts say: waste, bigger portions, staff meals, or a recipe that&rsquo;s
+            off. Over = a recipe uses less than written, or a delivery wasn&rsquo;t filed.
+          </p>
+        </section>
+      )}
+
+      {/* ── add / fix ────────────────────────────────────────────────── */}
+      <details className="co-card co-fold">
+        <summary><span>Add delivery · log waste · fix</span></summary>
+        <p className="co-sub" style={{ marginTop: 0 }}>
+          For stock that came without a receipt, a receipt Jarvis read wrong, or food thrown away.
+        </p>
+        <ActionForm action={addMove} submit="Save">
+          <label className="st-field"><span>What happened</span>
+            <span className="st-input">
+              <select name="kind" defaultValue="purchase">
+                <option value="purchase">Delivery came in</option>
+                <option value="waste">Thrown away / spoiled</option>
+                <option value="add">Fix: add to stock</option>
+                <option value="remove">Fix: take off stock</option>
+              </select>
+            </span>
+          </label>
+          <label className="st-field"><span>Item</span>
+            <span className="st-input">
+              <select name="item" required defaultValue="">
+                <option value="" disabled>Choose…</option>
+                {ITEMS.map(i => <option key={i.key} value={i.key}>{i.name}</option>)}
+              </select>
+            </span>
+          </label>
+          <label className="st-field"><span>How much</span>
+            <span className="st-input">
+              <input type="number" name="amount" inputMode="decimal" step="any" min="0" required />
+              <select name="unit" defaultValue="kg">
+                <option value="kg">kg</option>
+                <option value="g">g</option>
+                <option value="pc">pcs</option>
+                <option value="fish">fish</option>
+                <option value="bag">bags (80 g breast/beef/octopus · 120 g tongue · 250 g lala)</option>
+              </select>
+            </span>
+          </label>
+          <label className="st-field"><span>Paid (RM, optional)</span>
+            <span className="st-input"><input type="number" name="cost" inputMode="decimal" step="any" min="0" /></span>
+          </label>
+          <label className="st-field"><span>Note</span><span className="st-input"><input type="text" name="note" placeholder="e.g. supplier, reason" /></span></label>
+          <label className="st-field"><span>Your name</span><span className="st-input"><input type="text" name="by" autoComplete="name" /></span></label>
+          <p className="co-meta">Deliveries by weight lose their trimming automatically (breast 4%, squid 25%, beef 20%).</p>
+        </ActionForm>
+      </details>
+
+      {/* ── receipts that need a human ───────────────────────────────── */}
+      {(unsized.size > 0 || unknownFood.size > 0) && (
+        <details className="co-card co-fold">
+          <summary>
+            <span>Receipt lines to check</span>
+            <span className="co-dim num">{unsized.size + unknownFood.size}</span>
+          </summary>
+          {unsized.size > 0 && (
+            <>
+              <p className="co-sub" style={{ marginTop: 0 }}>Stock, but no weight on the receipt. Add them with the form above:</p>
+              <ul className="co-lines">
+                {[...unsized].map(([name, item]) => (
+                  <li key={name}><span>{name}</span><span className="co-dim">{item === 'bird' ? 'whole chicken' : ITEM[item]?.name}</span></li>
+                ))}
+              </ul>
+            </>
+          )}
+          {unknownFood.size > 0 && (
+            <>
+              <details className="st-msize">
+              <summary className="co-dim">{unknownFood.size} other food line{unknownFood.size === 1 ? '' : 's'}: open only if one is actually meat, seafood, eggs or rice</summary>
+              {[...unknownFood].slice(0, 20).map(name => (
+                <ActionForm key={name} action={teachAlias} submit="Learn" ghost className="st-teach">
+                  <input type="hidden" name="text" value={name.toLowerCase().replace(/^\d+\s+/, '').replace(/\s+rm\s.*$/i, '').slice(0, 60)} />
+                  <span className="st-teach-name">{name}</span>
+                  <select name="item" defaultValue="" required>
+                    <option value="" disabled>This is…</option>
+                    {ITEMS.map(i => <option key={i.key} value={i.key}>{i.name}</option>)}
+                  </select>
+                </ActionForm>
+              ))}
+              <p className="co-meta">Taught names add to what&rsquo;s known; nothing is overwritten.</p>
+              </details>
+            </>
+          )}
+        </details>
+      )}
+
+      {/* ── minimums ─────────────────────────────────────────────────── */}
+      <details className="co-card co-fold">
+        <summary><span>Minimum levels</span><span className="co-dim">for the morning warning</span></summary>
+        <p className="co-sub" style={{ marginTop: 0 }}>
+          Jarvis warns in the 9 am brief when an item drops below its minimum. With no minimum set, he warns at under 2 days left.
+        </p>
+        {state.map(s => (
+          <ActionForm key={s.key} action={setMin} submit="Set" ghost className="st-teach">
+            <input type="hidden" name="item" value={s.key} />
+            <span className="st-teach-name">{s.name}</span>
+            <span className="st-input">
+              <input type="number" name="min" inputMode="decimal" step="any" min="0"
+                defaultValue={s.min === null ? '' : s.unit === 'g' ? s.min / 1000 : s.min} placeholder="auto" />
+              <span className="co-dim">{s.unit === 'g' ? 'kg' : s.unit === 'fish' ? 'fish' : 'pcs'}</span>
+            </span>
+          </ActionForm>
+        ))}
+      </details>
+
+      {/* ── history ──────────────────────────────────────────────────── */}
+      <details className="co-card co-fold">
+        <summary><span>Recent stock in and fixes</span><span className="co-dim num">{history.length}</span></summary>
+        {history.length === 0 ? (
+          <p className="co-sub" style={{ marginTop: 0 }}>Receipts Jarvis files from now on add their meat, seafood, eggs and rice here.</p>
+        ) : (
+          <ul className="co-lines">
+            {history.map(m => (
+              <li key={m.id}>
+                <span>
+                  {KIND[m.kind] ?? m.kind} · {ITEM[m.item]?.name ?? m.item}
+                  <span className="co-dim"> · {dayLabel(mytDate(m.created_at), today)}{m.by ? ` · ${m.by}` : ''}{m.meta?.from ? ` · ${m.meta.from}` : ''}{m.note ? ` · ${m.note}` : ''}{m.meta?.opening ? ' · opening' : ''}</span>
+                </span>
+                <span className="num">{m.kind === 'count' ? fmtQty(m.meta?.counted ?? 0, ITEM[m.item]?.unit ?? 'g') : (m.qty > 0 ? '+' : '') + fmtQty(m.qty, ITEM[m.item]?.unit ?? 'g')}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+    </div>
+  )
+}
