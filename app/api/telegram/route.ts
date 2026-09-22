@@ -413,12 +413,14 @@ async function handleMessage(msg: any): Promise<Response> {
   const typedText: string = !msg.photo && !msg.document ? String(msg.text || '') : ''
   const isTyped = !!typedText && looksTyped(typedText)
   const staffTyped = isGroupChat(msg.chat) && isReceiptChat(chatId) && isTyped
+  // "no photo" answering Jarvis's photo question, also through the letterbox.
+  const staffSkip = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!typedText && SKIP_PHOTO.test(typedText)
 
   if (isGroupChat(msg.chat)) {
     // A receipt dropped in the designated group needs no @mention and no
     // allowlist -- that is the whole point. Everything ELSE in a group keeps the
     // old gate, so this opens a letterbox, not a door.
-    if (!staffFiling && !staffTyped) {
+    if (!staffFiling && !staffTyped && !staffSkip) {
       if (!(await isAddressedToBot(msg))) {
         return Response.json({ ok: true, ignored: 'group: not addressed' })
       }
@@ -449,6 +451,19 @@ async function handleMessage(msg: any): Promise<Response> {
   }
 
   // Typed bill → file it (same dial as a photo). ACK-first, like the photo path.
+  // "no photo" after a typed bill: close the wait, confirm, done.
+  if (typedText && SKIP_PHOTO.test(typedText)) {
+    const w = await getPending(chatId, filedBy(msg).id)
+    if (w?.type === 'need_photo') {
+      await clearPending(chatId, filedBy(msg).id)
+      await sendMessage(chatId, `👍 OK, ${w.what} stays filed without a photo.`)
+      return Response.json({ ok: true })
+    }
+    // Nothing waiting: say nothing. It came in through the receipts letterbox,
+    // which must never open onto questions about the books.
+    if (staffSkip) return Response.json({ ok: true, ignored: 'skip: nothing pending' })
+  }
+
   if (isTyped) {
     after(() =>
       fileTypedReceipt(msg, staffTyped).catch(e => console.error('[CFO] typed receipt threw:', e)),
@@ -1060,7 +1075,11 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
 type Pending =
   | { type: 'need_photo'; key: string; record_id?: number | null; what: string; until: number }
   | { type: 'have_photo'; sha256: string; storage_path: string | null; mime: string; size_bytes: number; until: number }
-const PENDING_MS = 3 * 3600_000
+// How long each link stays open. A held photo waits for someone to type (that
+// can take a while); a typed bill waits only briefly for its photo, so the next
+// receipt someone sends later is read and filed as its own, not swallowed as a bill.
+const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000 }
+const SKIP_PHOTO = /^\s*(no\s*(photo|pic|picture|bill|receipt)|skip|none|tiada|takde|tak\s*ada|ไม่มี)\s*[.!]?\s*$/i
 
 const safeKey = (k: string) => String(k).replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)
 
@@ -1082,7 +1101,7 @@ async function writePending(chatId: number | string, userId: string, value: Pend
 }
 type NewPending = Pending extends infer P ? (P extends any ? Omit<P, 'until'> : never) : never
 const setPending = (chatId: number | string, userId: string, p: NewPending) =>
-  writePending(chatId, userId, { ...(p as any), until: Date.now() + PENDING_MS })
+  writePending(chatId, userId, { ...(p as any), until: Date.now() + PENDING_MS[p.type] })
 const clearPending = (chatId: number | string, userId: string) => writePending(chatId, userId, null)
 
 /** Put a photo in the private vault bucket. Returns its path, or null if it failed. */
@@ -1146,7 +1165,7 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   const approvalChatId = staffTyped ? (OWNER ? Number(OWNER) : chatId) : chatId
   const askPhoto = photo
     ? `\n📎 The bill photo you sent earlier is attached.`
-    : `\n📸 Now send a photo of the bill, just for the record. I won't need to read it.`
+    : `\n📸 Photo of the bill? Send it in the next 10 minutes and I'll keep it with this. No photo? Nothing to do, it's filed (or reply <i>no photo</i>).`
   const what = `${rm(amount)}${t.merchant ? ` · ${esc(t.merchant)}` : ''}`
   const detail = receiptSummary(v)
 
