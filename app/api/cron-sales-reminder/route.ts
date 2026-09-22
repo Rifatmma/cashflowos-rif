@@ -47,6 +47,11 @@ export async function GET(req: Request) {
     console.error('[CFO] email payments question failed:', e)
   }
 
+  // ?only=email -- a manual test of the email check without the sales nudge.
+  if (new URL(req.url).searchParams.get('only') === 'email') {
+    return Response.json({ ok: true, email: scan, asked })
+  }
+
   // ② The sales reminder. The business day that is just closing, in Malaysia.
   const today = mytDate()
   const rows = await getRecords()
