@@ -3,6 +3,7 @@ import { getRecords } from '@/lib/records'
 import { appendTurn } from '@/lib/bot-memory'
 import { mytDate, dayLabel } from '@/lib/period'
 import { salesImportInUse, salesFiledFor } from '@/lib/sales'
+import { scanEmailPayments, buildQuestion } from '@/lib/email-payments'
 
 // The nightly "send me tonight's sales" nudge.
 //
@@ -20,6 +21,7 @@ import { salesImportInUse, salesFiledFor } from '@/lib/sales'
 // AUTH FAILS CLOSED, exactly like /api/cron-daily: no CRON_SECRET, no entry.
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60 // the email scan reads Gmail and asks Claude once
 
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET?.trim()
@@ -29,15 +31,31 @@ export async function GET(req: Request) {
   const owner = process.env.OWNER_CHAT_ID?.trim()
   if (!owner) return Response.json({ ok: true, skipped: 'no OWNER_CHAT_ID to remind' })
 
-  // The business day that is just closing, in Malaysia -- never the UTC date.
+  // ① Payments that came by EMAIL today (lib/email-payments.ts): scan, then ask
+  //    the owner to classify anything unanswered. Runs every night, whatever the
+  //    sales situation, and never blocks the sales reminder below.
+  const scan = await scanEmailPayments()
+  let asked = false
+  try {
+    const q = await buildQuestion()
+    if (q) {
+      await sendMessage(owner, q)
+      await appendTurn(Number(owner), '[nightly email payments check]', q.replace(/<[^>]+>/g, ''))
+      asked = true
+    }
+  } catch (e) {
+    console.error('[CFO] email payments question failed:', e)
+  }
+
+  // ② The sales reminder. The business day that is just closing, in Malaysia.
   const today = mytDate()
   const rows = await getRecords()
 
   if (!salesImportInUse(rows)) {
-    return Response.json({ ok: true, skipped: 'POS import not in use yet — staying quiet' })
+    return Response.json({ ok: true, email: scan, asked, sales: 'POS import not in use yet — staying quiet' })
   }
   if (salesFiledFor(rows, today)) {
-    return Response.json({ ok: true, skipped: `sales for ${today} already in` })
+    return Response.json({ ok: true, email: scan, asked, sales: `sales for ${today} already in` })
   }
 
   const text =
@@ -56,5 +74,5 @@ export async function GET(req: Request) {
     console.error('[CFO] reminder memory write failed:', e)
   }
 
-  return Response.json({ ok: true, reminded: today })
+  return Response.json({ ok: true, email: scan, asked, reminded: today })
 }
