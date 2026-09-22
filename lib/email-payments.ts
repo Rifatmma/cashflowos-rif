@@ -150,7 +150,7 @@ export async function extractPayments(mails: Mail[]): Promise<Found[]> {
 }
 
 /** Foreign amounts to RM at today's rate. null when the rate can't be fetched. */
-async function toMyr(amount: number | null, currency: string | null): Promise<number | null> {
+export async function toMyr(amount: number | null, currency: string | null): Promise<number | null> {
   if (amount === null) return null
   if (!currency || currency === 'MYR' || currency === 'RM') return amount
   try {
