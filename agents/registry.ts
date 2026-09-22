@@ -130,6 +130,17 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
     ? `${merchant || 'Receipt'} — ${label}`
     : `${merchant || payload?.title || 'Document'}`
 
+  // 0) Already in the books? An approval can sit for hours while the same
+  //    receipt is filed another way (22 Sep: a stale RM 43.65 card, approved the
+  //    next morning, filed 99 Speed Mart #614447 a second time). Same receipt
+  //    number + same amount = same receipt: refuse rather than double-count.
+  const receiptNo = String(payload?.receipt_no ?? '').trim()
+  if (isExpense && receiptNo.length >= 5) {
+    const { data: same } = await supabase.from('records').select('id')
+      .eq('category', 'cash_out').eq('meta->>receipt_no', receiptNo).eq('amount', amount).limit(1)
+    if (same?.[0]) throw new Error(`already filed as #${same[0].id} (same receipt number and amount), so it wasn't filed twice`)
+  }
+
   // 1) The business-spine row.
   const { data: recRows, error: recErr } = await supabase
     .from('records')
