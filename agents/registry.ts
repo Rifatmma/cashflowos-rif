@@ -144,7 +144,9 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         merchant: merchant || undefined,
         category: payload?.category || undefined,
         auto_filed: !!payload?.auto,
-        source: 'vault',
+        source: payload?.source || 'vault',
+        // A typed bill keeps exactly what was typed, as the audit trail.
+        typed_text: payload?.typed_text || undefined,
         sha256: payload?.sha256 || undefined,
         // The itemised layer from lib/vision.ts — already clamped and reconciled
         // there. Stored on the ONE row rather than as child rows, so a receipt
@@ -194,6 +196,15 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
       .select()
     if (vfErr) console.error('[CFO] vault_files write failed:', vfErr.message)
     vaultFiled = !!(vfRows && vfRows.length)
+  }
+
+  // 2b) A typed bill's photo can arrive while the bill waits for approval. It is
+  //     stored under bills/<idempotency key>-…, so link it now that the row exists.
+  if (recordId && String(payload?.idempotencyKey || '').startsWith('typed:')) {
+    const prefix = 'bills/' + String(payload.idempotencyKey).replace(/[^a-z0-9_-]/gi, '_').slice(0, 80) + '-'
+    const { error } = await supabase.from('vault_files').update({ record_id: recordId })
+      .like('storage_path', `${prefix}%`).is('record_id', null)
+    if (error) console.error('[CFO] linking typed bill photo failed:', error.message)
   }
 
   // 3) Stock in: meat, seafood, eggs and rice on the receipt go onto the shelf
