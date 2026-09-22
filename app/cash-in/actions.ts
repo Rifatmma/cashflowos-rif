@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs'
 import { supabaseConfigured } from '@/lib/supabase'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { importDay } from '@/lib/stock-data'
+import { mytDate, shortDate } from '@/lib/period'
 import { ITEM, fmtQty } from '@/lib/stock-items'
 
 export type ImportResult =
@@ -41,6 +42,19 @@ export async function importDishReport(_prev: ImportResult | null, form: FormDat
     ws.eachRow({ includeEmpty: false }, r => { rows.push((r.values as unknown[]).slice(1)) })
 
     const rep = parseDishReport(rows)
+
+    // The day these sales belong to. The owner picks it; EasyEat also prints it in
+    // the title. When both exist they must agree -- a mismatch is almost always the
+    // wrong file, and filing it would put a whole day's sales and stock on the
+    // wrong date.
+    const picked = String(form.get('date') || '').trim()
+    if (picked && !/^\d{4}-\d{2}-\d{2}$/.test(picked)) return { ok: false, message: 'Pick the sales date.' }
+    if (picked && picked > mytDate()) return { ok: false, message: 'That date is in the future. Pick the day the sales happened.' }
+    if (rep.date && picked && rep.date !== picked) {
+      return { ok: false, message: `This file is the report for ${shortDate(rep.date)}, but you picked ${shortDate(picked)}. Pick ${shortDate(rep.date)}, or export the report for ${shortDate(picked)} from EasyEat.` }
+    }
+    if (!rep.date && !picked) return { ok: false, message: 'Pick the sales date.' }
+    rep.date = rep.date || picked
     const { replaced, day } = await importDay(rep, 'Cash In upload', file.name)
 
     revalidatePath('/cash-in')

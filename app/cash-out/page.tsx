@@ -17,7 +17,7 @@ import { getRecords, rm, type Rec } from '@/lib/records'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { supplierKey } from '@/lib/supplier-rules'
 import {
-  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, shortDate,
+  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, shortDate, addDays, daysBetween,
 } from '@/lib/period'
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
@@ -166,6 +166,13 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   const salesRows = all.filter(r => isSalesRow(r) && inWin(salesDayOf(r), W.current))
   const sales = salesRows.reduce((t, r) => t + Number(r.amount || 0), 0)
   const salesDays = new Set(salesRows.map(salesDayOf)).size
+  // Days that SHOULD have sales: from the first report ever uploaded (never
+  // before it) up to yesterday (today's arrive after closing).
+  const firstSalesDay = all.filter(isSalesRow).map(salesDayOf).filter(Boolean).sort()[0]
+  const lastExpected = W.current.end < addDays(today, -1) ? W.current.end : addDays(today, -1)
+  const firstExpected = firstSalesDay && firstSalesDay > W.current.start ? firstSalesDay : W.current.start
+  const expectedSalesDays = firstSalesDay && lastExpected >= firstExpected ? daysBetween(firstExpected, lastExpected) + 1 : 0
+  const salesDaysIn = new Set(salesRows.map(salesDayOf).filter(d => d <= lastExpected)).size
   const foodCostPct = sales > 0 ? (cogs / sales) * 100 : null
   const over = foodCostPct !== null && foodCostPct > FOOD_COST_TARGET_PCT
 
@@ -407,9 +414,9 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
               <p className="co-sub">
                 Target {FOOD_COST_TARGET_PCT}% · cost of goods <span className="num">{money2(cogs)}</span>{' '}on sales <span className="num">{money2(sales)}</span>
               </p>
-              {W.live && salesDays < W.elapsedDays && (
+              {salesDaysIn < expectedSalesDays && (
                 <p className="co-sub co-flag">
-                  Sales are in for {salesDays} of {W.elapsedDays} days, so this reads high until the rest arrive.
+                  Sales are in for {salesDaysIn} of {expectedSalesDays} days, so this reads high until the rest arrive.
                 </p>
               )}
             </>

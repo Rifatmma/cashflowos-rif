@@ -17,7 +17,7 @@
 import Link from 'next/link'
 import { getRecords, type Rec } from '@/lib/records'
 import {
-  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel,
+  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, addDays, daysBetween,
 } from '@/lib/period'
 import { isSalesRow, salesDayOf, missingSalesDays } from '@/lib/sales'
 import { getItems, getMoves, unitCosts, costOfUse, wasteBetween } from '@/lib/stock-data'
@@ -93,7 +93,15 @@ export default async function CashIn({ searchParams }: { searchParams: Promise<{
 
   // ---- days on record -------------------------------------------------------------
   const days = [...new Set(cur.map(salesDayOf))].sort().reverse()
-  const missing = missingSalesDays(salesRows, today).filter(d => inWin(d, W.current))
+  // Today's sales only exist after closing (11 pm), so "missing" runs to YESTERDAY,
+  // and never counts days before the first report was ever uploaded.
+  const yesterday = addDays(today, -1)
+  const missing = missingSalesDays(salesRows, yesterday).filter(d => inWin(d, W.current))
+  const firstDay = salesRows.map(salesDayOf).filter(Boolean).sort()[0]
+  const expectFrom = firstDay && firstDay > W.current.start ? firstDay : W.current.start
+  const expectTo = W.current.end < yesterday ? W.current.end : yesterday
+  const expectedDays = firstDay && expectTo >= expectFrom ? daysBetween(expectFrom, expectTo) + 1 : 0
+  const daysIn = days.filter(d => d <= expectTo).length
   const latest = [...salesRows].sort((a, b) => salesDayOf(b).localeCompare(salesDayOf(a)))[0]
   const latestUnmatched = (latest?.meta?.unmatched ?? []) as { name: string; variation: string; qty: number }[]
 
@@ -187,8 +195,8 @@ export default async function CashIn({ searchParams }: { searchParams: Promise<{
                 ? <span><i className="co-key co-key-cmp" /> {cmpNoun}</span>
                 : <span>{cmpNoun[0].toUpperCase() + cmpNoun.slice(1)}&rsquo;s line appears once it&rsquo;s on record</span>}
             </div>
-            {W.live && days.length < W.elapsedDays && (
-              <p className="co-sub co-flag">Sales are in for {days.length} of {W.elapsedDays} days so far.</p>
+            {daysIn < expectedDays && (
+              <p className="co-sub co-flag">Sales are in for {daysIn} of {expectedDays} days since you started uploading.</p>
             )}
           </>
         )}
@@ -197,10 +205,10 @@ export default async function CashIn({ searchParams }: { searchParams: Promise<{
       {/* ── upload ────────────────────────────────────────────────────────── */}
       <section className="co-card" id="upload">
         <div className="co-row" style={{ marginBottom: 8 }}>
-          <span className="eyebrow">Today&rsquo;s sales</span>
+          <span className="eyebrow">Upload sales</span>
           {latest && <span className="co-dim">last filed {dayLabel(salesDayOf(latest), today).toLowerCase()}</span>}
         </div>
-        <UploadReport />
+        <UploadReport today={today} />
         <p className="co-meta" style={{ marginTop: 10 }}>
           Grab &amp; Foodpanda weekly reports: coming next. Send me one export of each and I&rsquo;ll add them here.
         </p>

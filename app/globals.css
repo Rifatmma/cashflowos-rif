@@ -642,3 +642,6 @@ code {
 .st-msize > summary { cursor: pointer; font-size: 13px; }
 .st-unit { min-width: 30px; font-size: 12px; line-height: 1.2; }
 @media (max-width: 480px) { .st-count .st-input input[type=number] { width: 68px; } .st-count .st-field { flex-wrap: wrap; } .st-count .st-bag > span:first-child { flex-basis: 100%; } }
+.ci-date { display: flex; flex-direction: column; gap: 2px; }
+.ci-date input { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; min-height: 40px; box-sizing: border-box; }
+.ci-upload { align-items: flex-end; }

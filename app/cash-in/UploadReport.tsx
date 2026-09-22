@@ -10,19 +10,23 @@ import { importDishReport, type ImportResult } from './actions'
 const money2 = (n: number) => 'RM ' + Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const strip = (s: string) => s.replace(/[฀-๿]+/g, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
 
-export default function UploadReport() {
+export default function UploadReport({ today }: { today: string }) {
   const [res, action, pending] = useActionState<ImportResult | null, FormData>(importDishReport, null)
 
   return (
     <div>
       <form action={action} className="ci-upload">
+        <label className="ci-date">
+          <span className="co-dim">Sales date</span>
+          <input type="date" name="date" defaultValue={today} max={today} required />
+        </label>
         <label className="ci-file">
           <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
         </label>
         <button className="btn" disabled={pending}>{pending ? 'Reading…' : 'Upload'}</button>
       </form>
       <p className="co-meta">
-        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel. Uploading a day again replaces it.
+        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel. Pick the day those sales are for; if the file says a different day, I&rsquo;ll stop you. Uploading a day again replaces it.
       </p>
 
       {res && !res.ok && <p className="co-sub co-flag" role="alert">{res.message}</p>}

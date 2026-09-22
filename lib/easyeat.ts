@@ -53,7 +53,7 @@ export function parseDishReport(rows: unknown[][]): DishReport {
       break
     }
   }
-  if (!date) throw new ReportError('Could not find the report date. Is this the EasyEat "Dish Report Over Time" export?')
+  // No date in the title: fine, the uploader picks the day (date stays '').
 
   const hi = rows.findIndex(r => r.map(c => cell(c).toUpperCase()).includes('ITEM NAME'))
   if (hi < 0) throw new ReportError('Could not find the ITEM NAME column. Is this the EasyEat "Dish Report Over Time" export?')
