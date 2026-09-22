@@ -14,56 +14,18 @@ import 'server-only'
 //
 // Email text is UNTRUSTED: it is only ever read as data, never obeyed.
 //
-// SETUP: COMPOSIO_API_KEY (same key as the ads refresh). Optional:
-//   COMPOSIO_GMAIL_ACCOUNT_ID -- pin the Gmail connection
-//   PAYMENTS_EMAIL            -- which inbox (default rifatmma@gmail.com)
+// SETUP: COMPOSIO_API_KEY = the owner's Composio CONSUMER key (ck_…), used over
+// Composio's MCP endpoint (lib/composio-mcp.ts). Optional:
+//   COMPOSIO_GMAIL_ACCOUNT -- the Gmail connection's alias or id (default: the inbox address)
+//   PAYMENTS_EMAIL         -- which inbox (default rifatmma@gmail.com)
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase, supabaseConfigured } from './supabase'
 import { mytDate } from './period'
 import { parseAnswer } from './payment-answer'
 import { runAutopilot } from './actions'
+import { runWorkbench } from './composio-mcp'
 
-const BASE = 'https://backend.composio.dev'
 const INBOX = () => (process.env.PAYMENTS_EMAIL || 'rifatmma@gmail.com').trim().toLowerCase()
-
-async function composio(path: string, init?: RequestInit): Promise<any> {
-  const key = process.env.COMPOSIO_API_KEY?.trim()
-  if (!key) throw new Error('COMPOSIO_API_KEY is not set')
-  const res = await fetch(BASE + path, {
-    ...init,
-    headers: { 'x-api-key': key, 'content-type': 'application/json', ...(init?.headers || {}) },
-    signal: AbortSignal.timeout(25_000),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(`Composio ${res.status}: ${body?.error?.message ?? body?.message ?? 'request failed'}`)
-  return body
-}
-
-async function tool(slug: string, account: { id: string; userId?: string }, args: Record<string, any>) {
-  const body = await composio(`/api/v3.1/tools/execute/${slug}`, {
-    method: 'POST',
-    body: JSON.stringify({ connected_account_id: account.id, ...(account.userId ? { user_id: account.userId } : {}), arguments: args }),
-  })
-  if (body?.successful === false) throw new Error(`${slug}: ${String(body?.error ?? 'failed').slice(0, 200)}`)
-  return body?.data ?? {}
-}
-
-/** The Gmail connection for the payments inbox (there's also a work Gmail). */
-async function gmailAccount(): Promise<{ id: string; userId?: string }> {
-  const pinned = process.env.COMPOSIO_GMAIL_ACCOUNT_ID?.trim()
-  if (pinned) return { id: pinned }
-  const body = await composio('/api/v3.1/connected_accounts?toolkit_slugs=gmail&statuses=ACTIVE&limit=50')
-  const items: any[] = body?.items ?? body?.data ?? []
-  for (const i of items) {
-    const acct = { id: i.id, userId: i.user_id ?? i.userId }
-    try {
-      const p = await tool('GMAIL_GET_PROFILE', acct, { user_id: 'me' })
-      const email = String(p?.emailAddress ?? p?.response_data?.emailAddress ?? '').toLowerCase()
-      if (email === INBOX()) return acct
-    } catch { /* try the next one */ }
-  }
-  throw new Error(`No active Gmail connection for ${INBOX()} on Composio`)
-}
 
 type Mail = { id: string; from: string; subject: string; at: string; text: string }
 
@@ -72,24 +34,29 @@ const QUERY =
   'charged OR billing OR order OR resit OR pembayaran OR "thank you for your purchase") ' +
   '-category:promotions -category:social'
 
-function plain(html: string) {
-  return String(html || '')
-    .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-    .replace(/[​-‏͏﻿]/g, '')
-    .replace(/\s+/g, ' ').trim()
-}
+// Runs INSIDE Composio's sandbox: fetch the inbox, turn each HTML email into
+// plain text there, and send back only that. (One raw email is ~50k tokens --
+// too big to travel back directly.)
+const FETCH_SCRIPT = (query: string, account: string) => String.raw`
+import json, re, html
+def _plain(s):
+    s = re.sub(r'(?is)<(style|script)[^>]*>.*?</\1>', ' ', s or '')
+    s = re.sub(r'<[^>]+>', ' ', s)
+    s = html.unescape(s)
+    s = re.sub(r'[\u200b-\u200f\u034f\ufeff\u00ad]', '', s)
+    return re.sub(r'\s+', ' ', s).strip()
+_res, _err = run_composio_tool('GMAIL_FETCH_EMAILS', {'query': ${JSON.stringify(query)}, 'max_results': 40, 'verbose': True, 'include_payload': True}, print_schema_for_tool=False, account=${JSON.stringify(account)})
+_msgs = ((_res or {}).get('data') or _res or {}).get('messages') or []
+_out = {'error': _err, 'mails': [{'id': m.get('messageId'), 'from': m.get('sender',''), 'subject': m.get('subject',''), 'at': m.get('messageTimestamp',''), 'text': _plain(m.get('messageText') or (m.get('preview') or {}).get('body',''))[:1800]} for m in _msgs if m.get('messageId')]}
+print('<<<CFO' + json.dumps(_out, ensure_ascii=True) + '\nCFO>>>')
+`
 
-async function fetchMail(acct: { id: string; userId?: string }): Promise<Mail[]> {
-  const d = await tool('GMAIL_FETCH_EMAILS', acct, { query: QUERY, max_results: 40, verbose: true, include_payload: true })
-  const list: any[] = d?.messages ?? d?.response_data?.messages ?? []
-  return list.filter(m => m?.messageId).map(m => ({
-    id: String(m.messageId),
-    from: String(m.sender ?? ''),
-    subject: String(m.subject ?? m.preview?.subject ?? ''),
-    at: String(m.messageTimestamp ?? ''),
-    text: plain(m.messageText || m.preview?.body || '').slice(0, 1800),
+async function fetchMail(): Promise<Mail[]> {
+  const account = process.env.COMPOSIO_GMAIL_ACCOUNT?.trim() || INBOX()
+  const out = await runWorkbench(FETCH_SCRIPT(QUERY, account))
+  if (out?.error) throw new Error(`Gmail: ${String(out.error).slice(0, 200)}`)
+  return (out?.mails ?? []).map((m: any) => ({
+    id: String(m.id), from: String(m.from ?? ''), subject: String(m.subject ?? ''), at: String(m.at ?? ''), text: String(m.text ?? ''),
   }))
 }
 
@@ -165,8 +132,7 @@ export async function toMyr(amount: number | null, currency: string | null): Pro
 export async function scanEmailPayments(): Promise<{ ok: boolean; message: string; found: number }> {
   try {
     if (!supabaseConfigured) return { ok: false, message: 'Supabase not configured', found: 0 }
-    const acct = await gmailAccount()
-    const mails = await fetchMail(acct)
+    const mails = await fetchMail()
     if (!mails.length) return { ok: true, message: 'no payment-looking emails', found: 0 }
     const { data: seen } = await supabase.from('email_seen').select('message_id').in('message_id', mails.map(m => m.id))
     const seenIds = new Set((seen ?? []).map((s: any) => s.message_id))
