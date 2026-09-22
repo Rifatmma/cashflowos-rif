@@ -1,10 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import ExcelJS from 'exceljs'
 import { supabaseConfigured } from '@/lib/supabase'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { importDay } from '@/lib/stock-data'
+import { readReportRows, isReportFile } from '@/lib/report-file'
 import { mytDate, shortDate } from '@/lib/period'
 import { ITEM, fmtQty } from '@/lib/stock-items'
 
@@ -29,19 +29,13 @@ const MAX_BYTES = 5 * 1024 * 1024
 export async function importDishReport(_prev: ImportResult | null, form: FormData): Promise<ImportResult> {
   if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
   const file = form.get('file')
-  if (!(file instanceof File) || file.size === 0) return { ok: false, message: 'Choose the Excel file first.' }
+  if (!(file instanceof File) || file.size === 0) return { ok: false, message: 'Choose the report file first.' }
   if (file.size > MAX_BYTES) return { ok: false, message: 'That file is too big to be a daily dish report.' }
-  if (!/\.xlsx$/i.test(file.name)) return { ok: false, message: 'That isn’t an Excel (.xlsx) file. Export the Dish Report Over Time from EasyEat as Excel.' }
+  if (!isReportFile(file.name, file.type)) return { ok: false, message: 'That isn’t an Excel (.xlsx) or CSV file. Export the Dish Report Over Time from EasyEat as Excel or CSV.' }
 
   try {
-    const wb = new ExcelJS.Workbook()
-    await wb.xlsx.load(Buffer.from(await file.arrayBuffer()) as any)
-    const ws = wb.worksheets[0]
-    if (!ws) return { ok: false, message: 'The file has no sheets.' }
-    const rows: unknown[][] = []
-    ws.eachRow({ includeEmpty: false }, r => { rows.push((r.values as unknown[]).slice(1)) })
-
-    const rep = parseDishReport(rows)
+    const rows = await readReportRows(Buffer.from(await file.arrayBuffer()), file.name, file.type)
+    const rep = parseDishReport(rows, file.name)
 
     // The day these sales belong to comes from the report itself (EasyEat prints
     // it in the title). Only a file WITHOUT a date asks the uploader to pick one.
@@ -76,6 +70,6 @@ export async function importDishReport(_prev: ImportResult | null, form: FormDat
   } catch (e: any) {
     if (e instanceof ReportError) return { ok: false, message: e.message }
     console.error('[CFO] dish report import failed:', e)
-    return { ok: false, message: 'Could not read that file. Is it the EasyEat Dish Report Over Time, exported as Excel?' }
+    return { ok: false, message: 'Could not read that file. Is it the EasyEat Dish Report Over Time, exported as Excel or CSV?' }
   }
 }

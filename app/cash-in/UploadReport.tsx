@@ -24,12 +24,12 @@ export default function UploadReport({ today }: { today: string }) {
           </label>
         )}
         <label className="ci-file">
-          <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
+          <input type="file" name="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
         </label>
         <button className="btn" disabled={pending}>{pending ? 'Reading…' : 'Upload'}</button>
       </form>
       <p className="co-meta">
-        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel. The date is read from the report. Uploading a day again replaces it.
+        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel or CSV. The date is read from the report. Uploading a day again replaces it.
       </p>
 
       {res && !res.ok && <p className="co-sub co-flag" role="alert">{res.message}</p>}

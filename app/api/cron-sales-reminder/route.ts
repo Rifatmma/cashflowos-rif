@@ -42,8 +42,8 @@ export async function GET(req: Request) {
 
   const text =
     `🌙 <b>Tonight's sales aren't in yet</b> (${dayLabel(today, today).toLowerCase()}, ${today}).\n` +
-    `When service ends, export the EasyEat <b>Dish Report Over Time</b> for today and upload it on the ` +
-    `Cash In tab. It files the sales and takes the stock off the shelf — ` +
+    `When service ends, export the EasyEat <b>Dish Report Over Time</b> for today (CSV or Excel) and ` +
+    `send the file to me here, or upload it on the Cash In tab. It files the sales and takes the stock off the shelf — ` +
     `it's what keeps your food cost % honest.`
   await sendMessage(owner, text)
 
@@ -51,7 +51,7 @@ export async function GET(req: Request) {
   // file itself -- lands in a conversation Jarvis knows is about tonight's sales.
   try {
     await appendTurn(Number(owner), '[nightly sales reminder]',
-      `Reminded the owner to upload the EasyEat Dish Report for ${today} on the Cash In tab (the web page, not Telegram). Not received yet.`)
+      `Reminded the owner to upload the EasyEat Dish Report for ${today} (they can send the CSV/Excel here, or upload it on the Cash In tab). Not received yet.`)
   } catch (e) {
     console.error('[CFO] reminder memory write failed:', e)
   }

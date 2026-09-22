@@ -300,7 +300,7 @@ function buildBrief(
         (salesMissing.length === 1
           ? `No POS report for ${dayLabel(salesMissing[0], addDays(yesterday, 1))}, ${salesMissing[0]}.`
           : `No POS reports for ${salesMissing.length} days: ${salesMissing.join(', ')}.`) +
-        ` Upload the EasyEat Dish Report on the Cash In tab — food cost reads high until it's in.`
+        ` Send me the EasyEat Dish Report (CSV or Excel) or upload it on Cash In — food cost reads high until it's in.`
       : '') +
     adsBlock
   )

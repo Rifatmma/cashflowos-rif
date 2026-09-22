@@ -39,21 +39,22 @@ const num = (v: unknown): number => {
 
 export class ReportError extends Error {}
 
-export function parseDishReport(rows: unknown[][]): DishReport {
-  // The date range lives in the title row.
+export function parseDishReport(rows: unknown[][], fileName = ''): DishReport {
+  // The date range lives in the title row -- or, when a CSV export drops the
+  // title, in EasyEat's file name: "jaosamut-Dish_Report_Over_Time-2026-09-21-2026-09-21.csv".
   let date = ''
-  for (const r of rows.slice(0, 5)) {
-    const text = r.map(cell).join(' ')
+  const range = (text: string) => {
     const m = text.match(/(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/)
-    if (m) {
-      if (m[1] !== m[2]) {
-        throw new ReportError(`This report covers ${m[1]} to ${m[2]}. Export one day at a time, so each day's sales and stock land on the right date.`)
-      }
-      date = m[1]
-      break
+    if (!m) return false
+    if (m[1] !== m[2]) {
+      throw new ReportError(`This report covers ${m[1]} to ${m[2]}. Export one day at a time, so each day's sales and stock land on the right date.`)
     }
+    date = m[1]
+    return true
   }
-  // No date in the title: fine, the uploader picks the day (date stays '').
+  for (const r of rows.slice(0, 5)) if (range(r.map(cell).join(' '))) break
+  if (!date && fileName) range(fileName)
+  // Still no date: fine, the uploader picks the day (date stays '').
 
   const hi = rows.findIndex(r => r.map(c => cell(c).toUpperCase()).includes('ITEM NAME'))
   if (hi < 0) throw new ReportError('Could not find the ITEM NAME column. Is this the EasyEat "Dish Report Over Time" export?')

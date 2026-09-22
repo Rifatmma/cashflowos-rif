@@ -13,8 +13,11 @@ import { loadTurns, appendTurn, bumpDailyCounter } from '@/lib/bot-memory'
 import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, type VisionResult } from '@/lib/vision'
-import { parseTypedReceipt, looksTyped, TEMPLATE } from '@/lib/typed-receipt'
-import { mytDate } from '@/lib/period'
+import { parseTypedReceipt, looksTyped, typedDate, TEMPLATE } from '@/lib/typed-receipt'
+import { mytDate, dayLabel } from '@/lib/period'
+import { parseDishReport, ReportError } from '@/lib/easyeat'
+import { readReportRows, isReportFile } from '@/lib/report-file'
+import { importDay, getItems, getMoves, unitCosts, costOfUse } from '@/lib/stock-data'
 import { type SupplierRule } from '@/lib/supplier-rules'
 import { replyIntent } from '@/lib/reply-intent'
 import { BOT_TOOLS, runBotTool } from '@/lib/bot-tools'
@@ -443,6 +446,16 @@ async function handleMessage(msg: any): Promise<Response> {
   // runs inside after() so Telegram gets its fast 200 and never retries (a retry
   // would duplicate the proposal). after() from next/server behaves the same in
   // `next dev` and prod (waitUntil from @vercel/functions does not).
+  // The POS sales report (EasyEat exports CSV or Excel): file the day's sales and
+  // take its stock, the same as the Cash In upload. Not a receipt, so it never
+  // goes near the vision reader.
+  if (msg.document && isReportFile(String(msg.document.file_name || ''), String(msg.document.mime_type || ''))) {
+    after(() =>
+      importSalesFile(msg).catch(e => console.error('[CFO] sales file threw:', e)),
+    )
+    return Response.json({ ok: true })
+  }
+
   if (msg.photo || msg.document) {
     after(() =>
       runVaultPipeline(msg, staffFiling).catch(e => console.error('[CFO] vault pipeline threw:', e)),
@@ -1201,6 +1214,61 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   }
   if (staffTyped) await sendMessage(chatId, `📝 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.${askPhoto}`)
   else if (!row) await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
+}
+
+// ============================================================
+// SALES REPORT from Telegram. EasyEat's "Dish Report Over Time" as CSV or Excel,
+// sent at closing. Same import as the Cash In upload (lib/stock-data importDay):
+// one sales row per day, the day's stock taken off, re-sending replaces the day.
+// ============================================================
+async function importSalesFile(msg: any): Promise<void> {
+  const chatId = msg.chat?.id
+  const filer = filedBy(msg)
+  const name = String(msg.document?.file_name || 'report')
+  const say = async (text: string) => { await sendMessage(chatId, text); await remember(chatId, '[sent the POS sales report]', text) }
+
+  if (Number(msg.document?.file_size || 0) > MAX_FILE_BYTES) { await say('📊 That file is too big to be a daily sales report.'); return }
+  const info = await getFilePath(msg.document.file_id)
+  const bytes = info ? await downloadFileBytes(info.file_path) : null
+  if (!bytes || !bytes.length) { await say('📊 I couldn\'t fetch that file from Telegram — try sending it again.'); return }
+
+  let rep
+  try {
+    rep = parseDishReport(await readReportRows(bytes, name, String(msg.document?.mime_type || '')), name)
+  } catch (e: any) {
+    await say(e instanceof ReportError ? `📊 ${esc(e.message)}` :
+      '📊 I couldn\'t read that file. Is it the EasyEat <b>Dish Report Over Time</b>, exported as CSV or Excel?')
+    return
+  }
+  // No date in the file or its name: take one from the caption ("21/09").
+  if (!rep.date) {
+    const d = msg.caption ? typedDate(String(msg.caption), mytDate()) : undefined
+    if (!d) { await say('📊 That report doesn\'t say which day it\'s for. Send it again with the date as the caption, e.g. <code>21/09</code>.'); return }
+    rep.date = d
+  }
+  if (rep.date > mytDate()) { await say(`📊 That report is dated ${rep.date}, which hasn't happened yet. Check the export.`); return }
+
+  try {
+    const { replaced, day } = await importDay(rep, filer.name, name)
+    const [items, moves] = await Promise.all([getItems(), getMoves()])
+    const food = costOfUse(day.total, unitCosts(moves, items))
+    const pct = rep.total ? (food / rep.total) * 100 : 0
+    const used = Object.entries(day.total).filter(([k]) => ITEM[k])
+      .sort((a, b) => ITEM[a[0]].sort - ITEM[b[0]].sort)
+      .map(([k, q]) => `${ITEM[k].name.toLowerCase()} ${fmtQty(q, ITEM[k].unit)}`)
+    const strip = (s: string) => s.replace(/[฀-๿]+/g, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
+    const missing = day.unmatched.map(u => `• ${u.qty} × ${esc(strip(u.name))} ${esc(strip(u.variation))}`)
+    await say(
+      `✅ <b>Sales for ${dayLabel(rep.date, mytDate())} (${rep.date}) ${replaced ? 'replaced' : 'filed'}</b>: ${rm(rep.total)} · ${rep.qty} items` +
+      (day.setsSold ? ` · ${day.setsSold} sets` : '') +
+      `\nFood cost <b>${pct.toFixed(0)}%</b> by recipe (target 35%)${pct > 35 ? ' 🔴' : ''}` +
+      (used.length ? `\n📦 Stock used: ${esc(used.join(' · '))}` : '') +
+      (missing.length ? `\n\n⚠️ No recipe yet, so no stock taken:\n${missing.join('\n')}\nAdd them on Stock → Recipes.` : ''),
+    )
+  } catch (e: any) {
+    console.error('[CFO] sales import failed:', e)
+    await say('📊 I read the report but couldn\'t save it. Try again in a minute, or upload it on the Cash In tab.')
+  }
 }
 
 // What the money was FOR, in words the owner uses rather than column names.
