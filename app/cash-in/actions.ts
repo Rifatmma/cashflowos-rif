@@ -9,7 +9,7 @@ import { mytDate, shortDate } from '@/lib/period'
 import { ITEM, fmtQty } from '@/lib/stock-items'
 
 export type ImportResult =
-  | { ok: false; message: string }
+  | { ok: false; message: string; needDate?: boolean }
   | {
       ok: true
       date: string
@@ -43,18 +43,17 @@ export async function importDishReport(_prev: ImportResult | null, form: FormDat
 
     const rep = parseDishReport(rows)
 
-    // The day these sales belong to. The owner picks it; EasyEat also prints it in
-    // the title. When both exist they must agree -- a mismatch is almost always the
-    // wrong file, and filing it would put a whole day's sales and stock on the
-    // wrong date.
+    // The day these sales belong to comes from the report itself (EasyEat prints
+    // it in the title). Only a file WITHOUT a date asks the uploader to pick one.
     const picked = String(form.get('date') || '').trim()
-    if (picked && !/^\d{4}-\d{2}-\d{2}$/.test(picked)) return { ok: false, message: 'Pick the sales date.' }
-    if (picked && picked > mytDate()) return { ok: false, message: 'That date is in the future. Pick the day the sales happened.' }
-    if (rep.date && picked && rep.date !== picked) {
-      return { ok: false, message: `This file is the report for ${shortDate(rep.date)}, but you picked ${shortDate(picked)}. Pick ${shortDate(rep.date)}, or export the report for ${shortDate(picked)} from EasyEat.` }
+    if (!rep.date) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(picked)) {
+        return { ok: false, needDate: true, message: 'This file doesn’t say which day it’s for. Pick the day below and upload again.' }
+      }
+      if (picked > mytDate()) return { ok: false, needDate: true, message: 'That date is in the future. Pick the day the sales happened.' }
+      rep.date = picked
     }
-    if (!rep.date && !picked) return { ok: false, message: 'Pick the sales date.' }
-    rep.date = rep.date || picked
+    if (rep.date > mytDate()) return { ok: false, message: `This report is dated ${shortDate(rep.date)}, which hasn’t happened yet. Check the export.` }
     const { replaced, day } = await importDay(rep, 'Cash In upload', file.name)
 
     revalidatePath('/cash-in')

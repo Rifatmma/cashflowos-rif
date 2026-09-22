@@ -16,17 +16,20 @@ export default function UploadReport({ today }: { today: string }) {
   return (
     <div>
       <form action={action} className="ci-upload">
-        <label className="ci-date">
-          <span className="co-dim">Sales date</span>
-          <input type="date" name="date" defaultValue={today} max={today} required />
-        </label>
+        {/* Only when a file had no date in it: the report's own date is used otherwise. */}
+        {res && !res.ok && res.needDate && (
+          <label className="ci-date">
+            <span className="co-dim">Sales date</span>
+            <input type="date" name="date" max={today} required />
+          </label>
+        )}
         <label className="ci-file">
           <input type="file" name="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required />
         </label>
         <button className="btn" disabled={pending}>{pending ? 'Reading…' : 'Upload'}</button>
       </form>
       <p className="co-meta">
-        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel. Pick the day those sales are for; if the file says a different day, I&rsquo;ll stop you. Uploading a day again replaces it.
+        EasyEat → Reports → <b>Dish Report Over Time</b> → one day → Excel. The date is read from the report. Uploading a day again replaces it.
       </p>
 
       {res && !res.ok && <p className="co-sub co-flag" role="alert">{res.message}</p>}
