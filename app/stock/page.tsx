@@ -66,11 +66,11 @@ export default async function Stock() {
         <Link href="/stock/recipes" className="co-dim">Recipes →</Link>
       </div>
 
-      {(low.length > 0 || countDue) && (
+      {(low.length > 0 || unsized.size > 0) && (
         <div className="co-needs" role="status">
           <span aria-hidden="true">●</span>
           {low.length > 0 && <a href="#onhand">{low.length} running low</a>}
-          {countDue && <a href="#count">{neverCounted.length === state.length ? 'Opening count needed' : 'Weekly count due'}</a>}
+          {unsized.size > 0 && <a href="#tofix">{unsized.size} receipt line{unsized.size === 1 ? '' : 's'} with no amount</a>}
         </div>
       )}
 
@@ -78,14 +78,12 @@ export default async function Stock() {
       <section className="co-card co-hero" id="onhand">
         <div className="co-row" style={{ marginBottom: 6 }}>
           <span className="eyebrow">On hand now</span>
-          <span className="co-dim">{lastCountDay ? `counted ${dayLabel(lastCountDay, today).toLowerCase()}` : 'not counted yet'}</span>
+          <span className="co-dim">{lastCountDay ? `checked ${dayLabel(lastCountDay, today).toLowerCase()}` : 'from receipts & sales'}</span>
         </div>
-        {neverCounted.length === state.length && (
-          <p className="co-sub co-flag" style={{ marginTop: 0 }}>
-            Do one count below to set the opening stock. Until then these are the book figures from zero:
-            what came in on receipts minus what the recipes used.
-          </p>
-        )}
+        <p className="co-sub" style={{ marginTop: 0 }}>
+          Counted for you: each receipt Jarvis reads puts its meat, seafood, eggs and rice on the shelf, and each
+          day&rsquo;s sales take off what the recipes used. Count by hand only when a receipt didn&rsquo;t say how much.
+        </p>
         <ul className="st-list">
           {[...state].sort((a, b) => Number(b.low) - Number(a.low)).map(s => (
             <li key={s.key} className={s.low ? 'st-low' : ''}>
@@ -98,8 +96,7 @@ export default async function Stock() {
               <div className="co-row co-dim">
                 <span>
                   {s.perDay > 0 ? `uses ${fmtQty(s.perDay, s.unit)}/day` : 'no sales yet'}
-                  {s.daysLeft !== null && s.counted ? ` · ${s.daysLeft < 1 ? 'under a day' : `${s.daysLeft.toFixed(1)} days`} left` : ''}
-                  {!s.counted && ' · not counted'}
+                  {s.daysLeft !== null && s.onHand > 0 ? ` · ${s.daysLeft < 1 ? 'under a day' : `${s.daysLeft.toFixed(1)} days`} left` : ''}
                 </span>
                 <span>{costLabel(s.cost, s.unit)}{s.costEstimated ? ' est.' : ''}</span>
               </div>
@@ -107,6 +104,13 @@ export default async function Stock() {
             </li>
           ))}
         </ul>
+        {state.some(s => s.onHand < 0) && (
+          <p className="co-meta co-flag">
+            A minus means more was used than Jarvis has seen come in &mdash; stock that was already in the fridge before
+            you started, or a receipt that didn&rsquo;t print an amount. Type the real number under
+            &ldquo;Correct a number by counting&rdquo; and it&rsquo;s right from then on.
+          </p>
+        )}
         <p className="co-meta">
           &ldquo;est.&rdquo; = estimated price until a receipt shows the real one. Days left use the last 7 trading days
           {saleDays === 0 ? ', once sales are uploaded on Cash In' : ''}.
@@ -114,15 +118,16 @@ export default async function Stock() {
       </section>
 
       {/* ── count ────────────────────────────────────────────────────── */}
-      <details className="co-card co-fold" id="count" open={countDue}>
+      <details className="co-card co-fold" id="count">
         <summary>
-          <span>{neverCounted.length === state.length ? 'Opening count' : 'Weekly count'}</span>
-          <span className="co-dim">{lastCountDay ? `last ${dayLabel(lastCountDay, today).toLowerCase()}` : 'never'}</span>
+          <span>Correct a number by counting</span>
+          <span className="co-dim">{lastCountDay ? `last ${dayLabel(lastCountDay, today).toLowerCase()}` : 'not needed yet'}</span>
         </summary>
         <p className="co-sub" style={{ marginTop: 0 }}>
-          Count what&rsquo;s physically in the fridge and store. Bagged items: count the <b>bags</b> (breast, beef, octopus 80 g;
-          tongue 120 g; lala 250 g), and weigh anything not yet bagged as kg loose. Other meat and seafood in <b>kg</b>; count pieces and fish.
-          Leave an item empty to skip it.
+          Only when a figure above looks wrong, or to set what was already in the fridge when you started &mdash;
+          the receipts do the counting the rest of the time. Count the <b>bags</b> for breast, beef and octopus (80 g),
+          tongue (120 g) and lala (250 g); weigh anything not yet bagged as kg loose, and count pieces and fish.
+          Leave an item empty to skip it; whatever you type replaces that item&rsquo;s figure.
         </p>
         <ActionForm action={saveCount} submit="Save count">
           <div className="st-count">
@@ -214,19 +219,35 @@ export default async function Stock() {
 
       {/* ── receipts that need a human ───────────────────────────────── */}
       {(unsized.size > 0 || unknownFood.size > 0) && (
-        <details className="co-card co-fold">
+        <details className="co-card co-fold" id="tofix" open={unsized.size > 0}>
           <summary>
-            <span>Receipt lines to check</span>
+            <span>{unsized.size > 0 ? 'Receipts that didn’t say how much' : 'Receipt lines to check'}</span>
             <span className="co-dim num">{unsized.size + unknownFood.size}</span>
           </summary>
           {unsized.size > 0 && (
             <>
-              <p className="co-sub" style={{ marginTop: 0 }}>Stock, but no weight on the receipt. Add them with the form above:</p>
-              <ul className="co-lines">
-                {[...unsized].map(([name, item]) => (
-                  <li key={name}><span>{name}</span><span className="co-dim">{item === 'bird' ? 'whole chicken' : ITEM[item]?.name}</span></li>
-                ))}
-              </ul>
+              <p className="co-sub" style={{ marginTop: 0 }}>
+                These are stock, but the receipt printed no weight or count. Type how much came in and it goes straight
+                onto the shelf &mdash; this is the only counting you have to do.
+              </p>
+              {[...unsized].map(([name, item]) => (
+                <ActionForm key={name} action={addMove} submit="Add" ghost className="st-teach">
+                  <input type="hidden" name="kind" value="purchase" />
+                  <input type="hidden" name="item" value={item === 'bird' ? 'leg' : item} />
+                  <input type="hidden" name="note" value={`From receipt line: ${name}`.slice(0, 200)} />
+                  <span className="st-teach-name">{name}<span className="co-dim"> &middot; {item === 'bird' ? 'whole chicken' : ITEM[item]?.name}</span></span>
+                  <span className="st-input">
+                    <input type="number" name="amount" inputMode="decimal" step="any" min="0" required aria-label={`How much ${name}`} />
+                    <select name="unit" defaultValue={item !== 'bird' && ITEM[item]?.unit === 'pc' ? 'pc' : 'kg'} aria-label="unit">
+                      <option value="kg">kg</option>
+                      <option value="g">g</option>
+                      <option value="pc">pcs</option>
+                      <option value="bag">bags</option>
+                      <option value="fish">fish</option>
+                    </select>
+                  </span>
+                </ActionForm>
+              ))}
             </>
           )}
           {unknownFood.size > 0 && (

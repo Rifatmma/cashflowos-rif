@@ -572,8 +572,10 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
       const state = stockState(items, moves).filter(s => !q || s.name.toLowerCase().includes(q) || s.key.includes(q))
       const days = rows.filter(isSalesRow).sort((a, b) => salesDayOf(b).localeCompare(salesDayOf(a))).slice(0, 7)
       return JSON.stringify({
-        note: 'On-hand is a book figure (receipts in minus recipes used) corrected by the weekly count. ' +
-          'Items never counted are book figures from zero and may read negative -- say they need an opening count.',
+        note: 'On-hand is counted automatically: receipts add what they say, the day of sales takes off what the ' +
+          'recipes used. Staff only type a number when a receipt did not print an amount, or to correct a figure. ' +
+          'A negative figure means stock was there before the app started, or a receipt amount is missing -- ' +
+          'say that, do not tell them to do a full stocktake.',
         stock: state.map(s => ({
           item: s.name, on_hand: fmtQty(s.onHand, s.unit), counted: s.counted, last_count: s.lastCount,
           used_per_day: s.perDay ? fmtQty(s.perDay, s.unit) : null,

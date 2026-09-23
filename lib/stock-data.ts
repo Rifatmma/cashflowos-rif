@@ -113,8 +113,11 @@ export function stockState(items: ItemRow[], moves: Move[], today = mytDate()): 
     const min = i.min_level === null || i.min_level === undefined ? null : Number(i.min_level)
     const counted = counts.length > 0
     // Low: under the owner's minimum, else under 2 days at the current pace.
-    // Never "low" before a first count: a book figure from zero means nothing yet.
-    const low = counted && (min !== null ? onHand < min : daysLeft !== null && daysLeft < 2)
+    // Counting is optional (owner, 23 Sep: the receipts do the counting), so this
+    // works off the book figure -- but an item that has never been counted AND
+    // never been bought is just an empty row, not a warning.
+    const known = counted || mine.some(m => m.kind === 'purchase')
+    const low = known && onHand > -1 && (min !== null ? onHand < min : daysLeft !== null && daysLeft < 2)
     return {
       key: i.key, name: i.name, unit: i.unit, min, onHand, counted,
       lastCount: counted ? mytDate(counts.at(-1)!.created_at) : null,

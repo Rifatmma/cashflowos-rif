@@ -7,7 +7,7 @@ import { SCHEDULED, type ProposalDraft } from '@/agents/registry'
 import { mytDate, addDays, dayLabel } from '@/lib/period'
 import { missingSalesDays, isSalesRow, salesDayOf } from '@/lib/sales'
 import { getItems, getMoves, stockState, unitCosts, costOfUse } from '@/lib/stock-data'
-import { fmtQty } from '@/lib/stock-items'
+import { fmtQty, stockFromLine } from '@/lib/stock-items'
 import { refreshAds } from '@/lib/ads-refresh'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -139,10 +139,17 @@ export async function GET(req: Request) {
       bits.push(`🛒 <b>Running low</b>\n` + low.map(s =>
         `• ${s.name}: ${fmtQty(Math.max(s.onHand, 0), s.unit)}` + (s.daysLeft !== null ? ` (~${s.daysLeft < 1 ? 'under a day' : s.daysLeft.toFixed(1) + ' days'})` : '')).join('\n'))
     }
-    const counts = state.map(s => s.lastCount).filter(Boolean).sort() as string[]
-    const usedAtAll = moves.length > 0
-    if (usedAtAll && !counts.length) bits.push(`📦 Stock hasn't been counted yet. One count on the Stock page sets the opening figures.`)
-    else if (counts.length && counts.at(-1)! <= addDays(mytDate(), -7)) bits.push(`📦 Weekly stock count is due (last ${counts.at(-1)}).`)
+    // Receipts do the counting; the only ask is when one did not print an amount.
+    const aliases = Object.fromEntries(items.filter(i => i.aliases?.length).map(i => [i.key, i.aliases]))
+    const since = addDays(mytDate(), -7)
+    let unsized = 0
+    for (const r of rows) {
+      if (r.category !== 'cash_out' || (r.due_date || mytDate(r.created_at)) < since) continue
+      for (const l of (Array.isArray(r.meta?.items) ? r.meta.items : [])) {
+        if (l?.name && !Array.isArray(stockFromLine(l, aliases))) unsized++
+      }
+    }
+    if (unsized) bits.push(`📦 ${unsized} receipt line${unsized === 1 ? '' : 's'} didn't say how much came in — type the amount on the Stock page and it goes on the shelf.`)
     if (bits.length) kitchen = `\n\n<b>Kitchen</b>\n` + bits.join('\n')
   } catch (e) {
     console.error('[CFO] brief kitchen block failed:', e)
