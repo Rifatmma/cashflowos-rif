@@ -20,7 +20,8 @@ import {
   PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, addDays, daysBetween,
 } from '@/lib/period'
 import { isSalesRow, salesDayOf, missingSalesDays } from '@/lib/sales'
-import { getItems, getMoves, unitCosts, costOfUse, wasteBetween } from '@/lib/stock-data'
+import { getItems, getMoves, getRecipes, unitCosts, costOfUse, wasteBetween } from '@/lib/stock-data'
+import { findRecipe } from '@/lib/recipes'
 import PaceChart from '@/app/_components/PaceChart'
 import UploadReport from './UploadReport'
 
@@ -51,7 +52,7 @@ export default async function CashIn({ searchParams }: { searchParams: Promise<{
   const today = mytDate()
   const W = periodWindows(isPeriodKey(p) ? p : 'month', today)
 
-  const [all, items, moves] = await Promise.all([getRecords(), getItems(), getMoves()])
+  const [all, items, moves, recipeBook] = await Promise.all([getRecords(), getItems(), getMoves(), getRecipes()])
   const costs = unitCosts(moves, items)
   const estimated = items.filter(i => costs[i.key]?.estimated).map(i => i.name)
 
@@ -103,7 +104,10 @@ export default async function CashIn({ searchParams }: { searchParams: Promise<{
   const expectedDays = firstDay && expectTo >= expectFrom ? daysBetween(expectFrom, expectTo) + 1 : 0
   const daysIn = days.filter(d => d <= expectTo).length
   const latest = [...salesRows].sort((a, b) => salesDayOf(b).localeCompare(salesDayOf(a)))[0]
-  const latestUnmatched = (latest?.meta?.unmatched ?? []) as { name: string; variation: string; qty: number }[]
+  // Checked against the live recipe book: a dish taught since this day was
+  // imported must stop asking for a recipe straight away (owner, 23 Sep 2026).
+  const latestUnmatched = ((latest?.meta?.unmatched ?? []) as { name: string; variation: string; qty: number }[])
+    .filter(u => !findRecipe(String(u.name ?? ''), String(u.variation ?? ''), recipeBook))
 
   // ---- dishes: what each earns after its tracked ingredients -----------------------
   type Dish = { name: string; qty: number; revenue: number; cost: number; tracked: boolean }

@@ -9,7 +9,7 @@ import { getRecipes } from '@/lib/stock-data'
 import { ITEM, ITEMS, fmtQty } from '@/lib/stock-items'
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import { addDays, mytDate } from '@/lib/period'
-import type { Line } from '@/lib/recipes'
+import { findRecipe, type Line } from '@/lib/recipes'
 import ActionForm from '../ActionForm'
 import RecipeRows from './RecipeRows'
 import { saveRecipe, addRecipe, reapplyRecipes } from '../actions'
@@ -31,6 +31,9 @@ export default async function Recipes() {
     .sort((a, b) => salesDayOf(b).localeCompare(salesDayOf(a)))
   const unmatched = new Map<string, { name: string; variation: string; qty: number }>()
   for (const r of recent) for (const u of (r.meta?.unmatched ?? []) as any[]) {
+    // Checked against the LIVE recipe book, not the snapshot taken when the day
+    // was imported -- a dish taught since then must drop off this list at once.
+    if (findRecipe(String(u.name ?? ''), String(u.variation ?? ''), recipes)) continue
     const k = strip(u.name) + '|' + strip(u.variation)
     const cur = unmatched.get(k)
     if (cur) cur.qty += Number(u.qty) || 0

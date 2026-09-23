@@ -201,8 +201,8 @@ export async function saveRecipe(_prev: Result, form: FormData): Promise<Result>
   if ((cur.sizes as any)?.L) sizes.L = (cur.sizes as any).L
   const { error } = await supabase.from('recipes').update({ sizes, guess: false, updated_at: new Date().toISOString() }).eq('id', id)
   if (error) return { ok: false, message: error.message }
-  refresh()
-  return { ok: true, message: 'Saved. Tap “Re-apply” to update past days.' }
+  const n = await reapplyDays(14)
+  return { ok: true, message: `Saved${n ? ` and applied to the last ${n} day${n === 1 ? '' : 's'} of sales` : ''}.` }
 }
 
 /** A recipe for a dish the book didn't know. Sorted first, so it wins over families. */
@@ -217,19 +217,29 @@ export async function addRecipe(_prev: Result, form: FormData): Promise<Result> 
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const key = 'owner-' + (n + (variation ? '-' + variation : '')).replace(/\s+/g, '-').slice(0, 60)
   const { error } = await supabase.from('recipes').upsert({
-    key, label: dish.replace(/[฀-๿]+/g, '').trim() + (variation ? ` (${variation})` : ''),
+    // Thai out, and the empty brackets it leaves behind with it.
+    key, label: dish.replace(/[฀-๿]+/g, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim() + (variation ? ` (${variation})` : ''),
     pattern: '^' + esc(n), variant: variation ? esc(variation) : null,
     sizes: { S }, guess: false, sort: 1, active: true, updated_at: new Date().toISOString(),
   }, { onConflict: 'key' })
   if (error) return { ok: false, message: error.message }
-  refresh()
-  return { ok: true, message: S.length ? 'Recipe added. Tap “Re-apply” to update past days.' : 'Marked as having no tracked ingredients.' }
+  const applied = await reapplyDays(14)
+  return {
+    ok: true,
+    message: (S.length ? 'Recipe added' : 'Marked as having no tracked ingredients') +
+      (applied ? ` and applied to the last ${applied} day${applied === 1 ? '' : 's'} of sales.` : '.'),
+  }
 }
 
-/** Re-run the recipes over recent days (from the dish lines stored on each day). */
-export async function reapplyRecipes(_prev: Result, _form: FormData): Promise<Result> {
-  if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
-  const since = addDays(mytDate(), -14)
+/**
+ * Re-run the recipes over recent days, from the dish lines stored on each day.
+ * Called by the button AND automatically whenever a recipe is added or edited --
+ * otherwise a dish the owner has just taught keeps showing as "sold with no
+ * recipe", because that list was written when the sales were imported
+ * (owner, 23 Sep 2026).
+ */
+async function reapplyDays(days = 14): Promise<number> {
+  const since = addDays(mytDate(), -days)
   const { data } = await supabase.from('records').select('*').eq('category', 'cash_in')
   const rows = (data ?? []).filter((r: any) => isSalesRow(r) && r.meta?.channel === 'dine_in' && salesDayOf(r) >= since)
   let n = 0
@@ -243,5 +253,11 @@ export async function reapplyRecipes(_prev: Result, _form: FormData): Promise<Re
     n++
   }
   refresh()
+  return n
+}
+
+export async function reapplyRecipes(_prev: Result, _form: FormData): Promise<Result> {
+  if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
+  const n = await reapplyDays(14)
   return { ok: true, message: n ? `Re-applied to ${n} day${n === 1 ? '' : 's'}.` : 'No days in the last two weeks to update.' }
 }
