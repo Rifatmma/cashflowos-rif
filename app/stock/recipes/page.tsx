@@ -11,6 +11,7 @@ import { isSalesRow, salesDayOf } from '@/lib/sales'
 import { addDays, mytDate } from '@/lib/period'
 import type { Line } from '@/lib/recipes'
 import ActionForm from '../ActionForm'
+import RecipeRows from './RecipeRows'
 import { saveRecipe, addRecipe, reapplyRecipes } from '../actions'
 
 export const dynamic = 'force-dynamic'
@@ -18,23 +19,8 @@ export const dynamic = 'force-dynamic'
 const strip = (s: string) => String(s || '').replace(/[฀-๿]+/g, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim()
 const say = (lines: Line[] = []) => lines.length ? lines.map(l => `${ITEM[l.item]?.name ?? l.item} ${fmtQty(l.qty, ITEM[l.item]?.unit ?? 'g')}`).join(' · ') : 'nothing tracked'
 
-function Rows({ size, lines, blanks = 2 }: { size: string; lines: Line[]; blanks?: number }) {
-  const rows = [...lines, ...Array(Math.max(0, Math.min(6, lines.length + blanks) - lines.length)).fill(null)] as (Line | null)[]
-  return (
-    <>
-      {rows.slice(0, 6).map((l, i) => (
-        <div key={i} className="st-input st-line">
-          <select name={`${size}_item_${i}`} defaultValue={l?.item ?? ''}>
-            <option value="">—</option>
-            {ITEMS.map(it => <option key={it.key} value={it.key}>{it.name}</option>)}
-          </select>
-          <input type="number" name={`${size}_qty_${i}`} inputMode="decimal" step="any" min="0" defaultValue={l ? +l.qty.toFixed(3) : ''} />
-          <span className="co-dim st-unit">{l ? (ITEM[l.item]?.unit === 'g' ? 'g' : ITEM[l.item]?.unit === 'fish' ? 'fish' : 'pcs') : ''}</span>
-        </div>
-      ))}
-    </>
-  )
-}
+// Plain data for the client rows: no server objects cross the boundary.
+const ITEM_OPTS = ITEMS.map(i => ({ key: i.key, name: i.name, unit: i.unit, bagG: i.bagG }))
 
 export default async function Recipes() {
   const today = mytDate()
@@ -66,10 +52,10 @@ export default async function Recipes() {
         <ActionForm action={saveRecipe} submit={r.guess ? 'Correct — save' : 'Save'}>
           <input type="hidden" name="id" value={r.id} />
           <div className="eyebrow" style={{ margin: '4px 0' }}>{r.sizes.M ? 'Small' : 'Per portion'}</div>
-          <Rows size="S" lines={r.sizes.S ?? []} />
+          <RecipeRows size="S" lines={r.sizes.S ?? []} items={ITEM_OPTS} />
           <details className="st-msize" open={!!r.sizes.M}>
             <summary className="co-dim">Medium size</summary>
-            <Rows size="M" lines={r.sizes.M ?? []} blanks={r.sizes.M ? 1 : 3} />
+            <RecipeRows size="M" lines={r.sizes.M ?? []} blanks={r.sizes.M ? 1 : 3} items={ITEM_OPTS} />
           </details>
           {r.variant && <p className="co-meta">Used when the POS options say {r.variant.split('|').join(' or ')}.</p>}
         </ActionForm>
@@ -84,7 +70,9 @@ export default async function Recipes() {
         <Link href="/stock" className="co-dim">← Stock</Link>
       </div>
       <p className="co-sub" style={{ marginTop: 0 }}>
-        What each dish takes from stock. Only proteins, eggs and rice are tracked; one rice portion = 110 g uncooked.
+        What <b>one portion</b> of each dish takes from stock. Pick the ingredient and the box tells you the unit:
+        <b>grams</b> for breast, beef, octopus, lala and rice; <b>pieces</b> for shrimp, prawns, mussels, chicken
+        feet and eggs; <b>fish</b> for siakap. Only proteins, eggs and rice are tracked; one rice portion = 110 g.
       </p>
 
       {unmatched.size > 0 && (
@@ -104,8 +92,11 @@ export default async function Recipes() {
                   <label className="st-field"><span>Only for these options (optional)</span>
                     <span className="st-input"><input type="text" name="variation" placeholder="e.g. beef" /></span>
                   </label>
-                  <Rows size="S" lines={[]} blanks={4} />
-                  <p className="co-meta">Leave every line empty and save to mark it as having no tracked ingredients.</p>
+                  <RecipeRows size="S" lines={[]} blanks={4} items={ITEM_OPTS} />
+                  <p className="co-meta">
+                    Amounts are for <b>one portion</b> of this dish. Leave every line empty and save to mark it as
+                    having no tracked ingredients.
+                  </p>
                 </ActionForm>
               </div>
             </details>
