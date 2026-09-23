@@ -6,6 +6,7 @@ import {
   sendMessage,
   answerCallbackQuery,
   editMessageReplyMarkup,
+  sendFileTo,
   getFilePath,
   downloadFileBytes,
 } from '@/lib/telegram'
@@ -420,12 +421,19 @@ async function handleMessage(msg: any): Promise<Response> {
   const staffTyped = isGroupChat(msg.chat) && isReceiptChat(chatId) && isTyped
   // "no photo" answering Jarvis's photo question, also through the letterbox.
   const staffSkip = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!typedText && SKIP_PHOTO.test(typedText)
+  // A plain line of text while a receipt is waiting for its shop name: that IS
+  // the answer. Kept to short, non-command text so a chat message never files.
+  const couldBeShop = !!typedText && !isTyped && !SKIP_PHOTO.test(typedText) && !typedText.startsWith('/') &&
+    typedText.trim().length >= 2 && typedText.trim().length <= 60 && typedText.split(String.fromCharCode(10)).length <= 2
+  const shopWaiting = couldBeShop ? await getPending(chatId, isGroupChat(msg.chat) ? 'chat' : filedBy(msg).id) : null
+  const shopAnswer = shopWaiting?.type === 'need_shop' ? shopWaiting : null
+  const staffShop = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!shopAnswer
 
   if (isGroupChat(msg.chat)) {
     // A receipt dropped in the designated group needs no @mention and no
     // allowlist -- that is the whole point. Everything ELSE in a group keeps the
     // old gate, so this opens a letterbox, not a door.
-    if (!staffFiling && !staffTyped && !staffSkip) {
+    if (!staffFiling && !staffTyped && !staffSkip && !staffShop) {
       if (!(await isAddressedToBot(msg))) {
         return Response.json({ ok: true, ignored: 'group: not addressed' })
       }
@@ -477,6 +485,12 @@ async function handleMessage(msg: any): Promise<Response> {
     // Nothing waiting: say nothing. It came in through the receipts letterbox,
     // which must never open onto questions about the books.
     if (staffSkip) return Response.json({ ok: true, ignored: 'skip: nothing pending' })
+  }
+
+  // The shop name for a receipt that had none.
+  if (shopAnswer) {
+    after(() => answerShopName(msg, shopAnswer).catch(e => console.error('[CFO] shop answer threw:', e)))
+    return Response.json({ ok: true })
   }
 
   if (isTyped) {
@@ -1026,98 +1040,124 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     idempotencyKey: `photo:${sha256}`,
   }
 
-  // THE DIAL (§7b) — 🟢 small + confident expense ⇒ autopilot; 🟡 otherwise ⇒ ask.
-  // An e-wallet / QR / bank-transfer screen proves money moved, but says nothing
-  // about WHAT was bought -- and those payees are exactly where business and
-  // personal spending blur. So they always come to the owner, whatever the amount.
-  // A typed shopping list names no shop, and "Unknown" in the books is a receipt
-  // nobody can trace later -- so those always come to the owner to name.
-  const noMerchant = !v.merchant || /^unknown$/i.test(v.merchant) || (v.missing ?? []).includes('merchant')
-  const autopilot =
-    isExpense && !v.payment_proof && !noMerchant && v.confidence === 'high' && (v.amount as number) <= threshold()
+  await decideAndFile({ v, payload, chatId, staffFiling, filer, approvalChatId,
+    fileId, isPhoto: !!msg.photo?.length })
+}
 
-  // ---- 🟢 AUTOPILOT: file it, then just tell them (with a /undo escape hatch). ----
+// ============================================================
+// THE DIAL (§7b) -- what happens to a receipt once it has been read.
+//   green  small + confident + a named shop => file it, then say so.
+//   ask    no shop name, from the group     => ASK THE GROUP which shop, park it.
+//   yellow anything else                    => Approve/Reject card to the owner,
+//                                              WITH the original photo attached.
+// Shared by the photo path and by the "which shop?" answer, so both file the
+// same way.
+// ============================================================
+async function decideAndFile(a: {
+  v: VisionResult; payload: any; chatId: any; staffFiling: boolean
+  filer: { id: string; name: string }; approvalChatId: any
+  fileId?: string; isPhoto?: boolean
+}): Promise<void> {
+  const { v, payload, chatId, staffFiling, filer, approvalChatId } = a
+  const isExpense = typeof v.amount === 'number' && v.amount > 0 && v.kind !== 'doc'
+  const detail = receiptSummary(v)
+  // NEVER guess the shop (owner, 23 Sep 2026): several suppliers give no receipt,
+  // so an unnamed list could be any of them.
+  const noMerchant = !v.merchant || /^unknown$/i.test(String(v.merchant)) || (v.missing ?? []).includes('merchant')
+
+  // ---- no shop name: ask where it came from, in the chat it arrived in -------
+  if (isExpense && noMerchant) {
+    await setPending(chatId, staffFiling ? 'chat' : filer.id, {
+      type: 'need_shop', payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
+    })
+    await sendMessage(chatId,
+      `🧾 Read it: <b>${rm(Number(v.amount))}</b>${v.date ? ` · ${v.date}` : ''}.${detail}` +
+      `
+
+❓ There's no shop name on this one. <b>Which shop or market was it from?</b> ` +
+      `Just reply here with the name${staffFiling ? '' : ''} and I'll file it.`)
+    await remember(chatId, staffFiling ? `[${filer.name} sent a receipt with no shop name]` : '[sent a receipt with no shop name]',
+      `Read RM ${Number(v.amount).toFixed(2)}; asked which shop it was from. Nothing is filed until that is answered.`)
+    return
+  }
+
+  // ---- green: file it ---------------------------------------------------------
+  const autopilot =
+    isExpense && !v.payment_proof && v.confidence === 'high' && (v.amount as number) <= threshold()
   if (autopilot) {
     const done = await runAutopilot('expense', { ...payload, auto: true })
-    if (done) {
-      const what =
-        `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
-        `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
-      const detail = receiptSummary(v)
-      // In the staff group: confirm briefly so they know it landed, and do NOT
-      // hand out /undo -- reversing a filed row is the owner's call, not the
-      // sender's. The owner still gets the id privately.
-      if (staffFiling) {
-        await sendMessage(
-          chatId,
-          `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${FIX_HINT_STAFF}`,
-        )
-        await remember(chatId, `[${filer.name} sent a receipt photo]`,
-          `Filed ${what} as record #${done.row.id}.${detail}`)
-        // The owner's own chat hears about it too, so "did Aisyah's receipt go in?"
-        // has an answer when asked there.
-        if (OWNER) await remember(OWNER, `[${filer.name} filed a receipt in the group]`,
-          `Filed ${what} as record #${done.row.id}.${detail}`)
-        if (OWNER) {
-          await sendMessage(
-            Number(OWNER),
-            `🧾 ${esc(filer.name)} filed <b>${what}</b> from the receipts group.${detail}\n\n` +
-              `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`,
-          )
-        }
-      } else {
-        await sendMessage(
-          chatId,
-          `✅ Filed <b>${what}</b>.${detail}\n\n` +
-            `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`,
-        )
-        await remember(chatId, '[sent a receipt photo]',
-          `Filed ${what} as record #${done.row.id}.${detail}`)
+    if (!done) {
+      await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.')
+      return
+    }
+    const what = `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
+      `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
+    if (staffFiling) {
+      await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${FIX_HINT_STAFF}`)
+      await remember(chatId, `[${filer.name} filed a receipt]`, `Filed ${what} as record #${done.row.id}.${detail}`)
+      if (OWNER) {
+        await remember(OWNER, `[${filer.name} filed a receipt in the group]`, `Filed ${what} as record #${done.row.id}.${detail}`)
+        await sendMessage(Number(OWNER),
+          `🧾 ${esc(filer.name)} filed <b>${what}</b> from the receipts group.${detail}
+
+` +
+          `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
       }
     } else {
-      // Duplicate event or a failed executor (already recorded in Activity).
-      await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.')
+      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}
+
+Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
+      await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${done.row.id}.${detail}`)
     }
     return
   }
 
-  // ---- 🟡 ASK-FIRST: propose + Approve/Reject buttons. ----
-  // The buttons go to the OWNER, never into the staff group: a "this needs your
-  // sign-off" card in front of the team is a public comment on a colleague, and
-  // only the owner can answer it anyway.
+  // ---- yellow: ask the owner, with the original attached ----------------------
   const key = isExpense ? 'expense' : 'vault'
-  // NEVER guess the shop (owner, 23 Sep 2026): several suppliers give no receipt,
-  // so an unnamed list could be any of them. Ask, and leave it blank until he says.
-  const askShop = isExpense && noMerchant
-    ? `
+  // What the staff actually sent, so the owner can decide without going to the
+  // group to look for it (owner, 23 Sep 2026).
+  const typed = payload?.typed_text ? `
 
-<i>❓ No shop name on this one. Which shop or market was it from? Tap ✅ to file it, then tell me the name and I'll put it on the receipt.</i>`
-    : ''
-  const text = buildProposalText(v, threshold()) + askShop +
-    receiptSummary(v) +
-    (staffFiling ? `\n\nSent by ${esc(filer.name)} in the receipts group.` : '')
-  const row = await proposeAndNotify({
-    agentKey: key,
-    idempotencyKey: payload.idempotencyKey,
-    payload,
-    chatId: approvalChatId,
-    text,
-  })
+<i>${esc(filer.name)} typed:</i>
+<code>${esc(String(payload.typed_text).slice(0, 900))}</code>` : ''
+  const text = buildProposalText(v, threshold()) + detail + typed +
+    (staffFiling ? `
+
+Sent by ${esc(filer.name)} in the receipts group.` : '')
+  if (a.fileId && String(approvalChatId) !== String(chatId)) {
+    await sendFileTo(approvalChatId, a.fileId, a.isPhoto !== false,
+      `🧾 From ${esc(filer.name)} in the receipts group — needs your OK`)
+  }
+  const row = await proposeAndNotify({ agentKey: key, idempotencyKey: payload.idempotencyKey, payload, chatId: approvalChatId, text })
   if (row) {
-    // The card is the bot's own message -- write it into memory so a later "yes",
-    // "did you file this?" or "what was that?" is about something Jarvis knows of.
-    await remember(approvalChatId, '[sent a receipt photo]',
-      `${text}\n\n(Waiting for the owner's approval — approval #${row.id}. ` +
-      `Nothing is filed until they tap Approve or reply yes to the card.)`)
+    await remember(approvalChatId, '[a receipt needs approval]',
+      `${text}
+
+(Waiting for the owner's approval — approval #${row.id}. Nothing is filed until they tap Approve or reply yes to the card.)`)
   }
   if (staffFiling) {
-    // Tell the sender it arrived, without saying it is "pending the boss" -- they
-    // do not need to know the amount tripped a limit.
-    await sendMessage(chatId, `📸 Got it, thanks ${filer.name} — passed to ${jarvisName()} for filing.`)
+    await sendMessage(chatId, `📸 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.`)
   } else if (!row) {
-    // A proposal with this exact file already exists — don't send a second card.
-    await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
+    await sendMessage(chatId, '📁 Already waiting on your YES for this one — check the buttons above.')
   }
+}
+
+/** "Pasar Borong Selangor" -> put it on the parked receipt and file it. */
+async function answerShopName(msg: any, p: any): Promise<void> {
+  const chatId = msg.chat?.id
+  const filer = filedBy(msg)
+  const staffFiling = isGroupChat(msg.chat) && isReceiptChat(chatId)
+  const shop = String(msg.text || '').trim().replace(/^(from|dari|kedai|shop)\s+/i, '').slice(0, 60)
+  await clearPending(chatId, staffFiling ? 'chat' : filer.id)
+
+  const v = { ...p.v, merchant: shop, missing: (p.v?.missing ?? []).filter((m: string) => m !== 'merchant') }
+  const payload = { ...p.payload, merchant: shop }
+  await sendMessage(chatId, `👍 Thanks — filing it under <b>${esc(shop)}</b>.`)
+  await decideAndFile({
+    v, payload, chatId, staffFiling, filer,
+    approvalChatId: staffFiling ? (OWNER ? Number(OWNER) : chatId) : chatId,
+    fileId: p.fileId, isPhoto: p.isPhoto,
+  })
 }
 
 // ============================================================
@@ -1132,10 +1172,13 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
 type Pending =
   | { type: 'need_photo'; key: string; record_id?: number | null; what: string; until: number }
   | { type: 'have_photo'; sha256: string; storage_path: string | null; mime: string; size_bytes: number; until: number }
+  // A receipt read from the group with no shop name on it: parked here while the
+  // GROUP is asked which shop it was (owner, 23 Sep: ask there, not in my chat).
+  | { type: 'need_shop'; payload: any; v: any; fileId?: string; isPhoto?: boolean; by: string; until: number }
 // How long each link stays open. A held photo waits for someone to type (that
 // can take a while); a typed bill waits only briefly for its photo, so the next
 // receipt someone sends later is read and filed as its own, not swallowed as a bill.
-const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000 }
+const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_shop: 12 * 3600_000 }
 const SKIP_PHOTO = /^\s*(no\s*(photo|pic|picture|bill|receipt)|skip|none|tiada|takde|tak\s*ada|ไม่มี)\s*[.!]?\s*$/i
 
 const safeKey = (k: string) => String(k).replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)
@@ -1247,8 +1290,10 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   const head = s.reconciles
     ? buildProposalText(v, threshold())
     : `⚠️ <b>Typed bill doesn't add up</b>: the items come to ${rm(summed)} but the TOTAL typed is ${rm(amount)}. Check before approving.`
+  // The owner decides without going to the group to look: the exact words the
+  // staff typed ride along on the card (owner, 23 Sep 2026).
   const text = head + detail +
-    (staffTyped ? `\n\nTyped by ${esc(filer.name)} in the receipts group.` : '')
+    (staffTyped ? `\n\n<i>${esc(filer.name)} typed:</i>\n<code>${esc(String(msg.text).slice(0, 900))}</code>` : '')
   const row = await proposeAndNotify({ agentKey: 'expense', idempotencyKey: payload.idempotencyKey, payload, chatId: approvalChatId, text })
   if (row) {
     await remember(approvalChatId, '[a bill was typed]',

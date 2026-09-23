@@ -128,6 +128,28 @@ export async function sendWithButtons(
   return post(chatId, parts[parts.length - 1], { reply_markup: { inline_keyboard: inlineKeyboard } })
 }
 
+/**
+ * Re-send a photo/file the bot already has, by its Telegram file_id, into another
+ * chat -- so an approval card in the owner's chat carries the actual receipt the
+ * staff photographed, instead of making him go and find it in the group.
+ */
+export async function sendFileTo(chatId: string | number, fileId: string, isPhoto: boolean, caption?: string) {
+  const url = api(isPhoto ? 'sendPhoto' : 'sendDocument')
+  if (!url || !fileId) return null
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      [isPhoto ? 'photo' : 'document']: fileId,
+      ...(caption ? { caption: caption.slice(0, 1000), parse_mode: 'HTML' } : {}),
+    }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) console.error('[CFO] Telegram sendFileTo failed:', body.description || res.status)
+  return body?.result?.message_id ?? null
+}
+
 // Acknowledge a button tap so Telegram stops the little spinner on the user's
 // button. Optional toast text. Never throws.
 export async function answerCallbackQuery(callbackId: string, text?: string) {
