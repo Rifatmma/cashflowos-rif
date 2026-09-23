@@ -12,6 +12,7 @@ import { getRecords } from '@/lib/records'
 import { getItems, getMoves, stockState, wasteBetween, unitCosts, taughtAliases } from '@/lib/stock-data'
 import { ITEM, ITEMS, IGNORE_KEY, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
 import { addDays, daysBetween, dayLabel, mytDate } from '@/lib/period'
+import { forecastFor, shortTonight, buyFor, coverDays, roundBuy, BASIS_WORD } from '@/lib/stock-forecast'
 import ActionForm from './ActionForm'
 import { saveCount, addMove, teachAlias, ignoreAll, skipLine } from './actions'
 
@@ -74,6 +75,44 @@ export default async function Stock() {
     }
   }
 
+  // What a normal day uses, per item -- and therefore what runs out tonight and
+  // what to pick up on the way in. The owner shops most days (23 Sep 2026), so
+  // the buy list covers 2 days.
+  const COVER_DAYS = 2
+  const view = state.map(st => {
+    const usage = moves
+      .filter(m => m.item === st.key && m.kind === 'sale' && m.sales_date)
+      .map(m => ({ date: String(m.sales_date), qty: -m.qty }))
+    const f = forecastFor(usage, today)
+    const bagG = ITEM[st.key]?.bagG
+    const boughtWeek = moves
+      .filter(m => m.item === st.key && m.kind === 'purchase' && mytDate(m.created_at) > addDays(today, -7))
+      .reduce((t, m) => t + m.qty, 0)
+    return {
+      ...st, f, bagG, boughtWeek,
+      short: shortTonight(st.onHand, f),
+      cover: coverDays(st.onHand, f),
+      buy: roundBuy(buyFor(st.onHand, f, COVER_DAYS), st.unit, bagG),
+      show: (q: number) => {
+        if (!bagG) return fmtQty(q, st.unit)
+        const n = Math.round((q / bagG) * 10) / 10
+        return `${n} bag${Math.abs(n) === 1 ? '' : 's'}`
+      },
+    }
+  })
+  // An item Jarvis has never seen arrive (no receipt, never counted) is UNKNOWN,
+  // not short -- saying "you'll run out of eggs" when nobody ever told it about
+  // eggs is crying wolf, and the owner stops trusting the warnings.
+  const seen = (key: string) => moves.some(m => m.item === key && (m.kind === 'purchase' || m.kind === 'count'))
+  const known = view.filter(v => seen(v.key))
+  const unknownItems = view.filter(v => !seen(v.key) && v.f.perDay > 0)
+  const tonight = known.filter(v => v.short > 0 && v.f.perDay > 0).sort((a, b) => b.short - a.short)
+  const toBuy = known.filter(v => v.buy.qty > 0 && v.f.perDay > 0).sort((a, b) => (a.cover ?? 99) - (b.cover ?? 99))
+  const thinnest = known.filter(v => v.cover !== null).sort((a, b) => (a.cover ?? 99) - (b.cover ?? 99))[0]
+  const basis = view.find(v => v.f.basis === 'weekday')?.f.basis ?? view.find(v => v.f.days > 0)?.f.basis ?? 'none'
+  const historyDays = Math.max(0, ...view.map(v => v.f.days))
+  const lastSalesDay = view.find(v => v.f.yesterdayDate)?.f.yesterdayDate ?? null
+
   const history = [...moves].filter(m => m.kind !== 'sale').reverse().slice(0, 25)
   const saleDays = [...new Set(moves.filter(m => m.kind === 'sale').map(m => m.sales_date))].length
 
@@ -84,53 +123,133 @@ export default async function Stock() {
         <Link href="/stock/recipes" className="co-dim">Recipes →</Link>
       </div>
 
-      {low.length > 0 && (
-        <div className="co-needs" role="status">
-          <span aria-hidden="true">●</span>
-          <a href="#onhand">{low.length} running low</a>
+      {/* ── tonight ──────────────────────────────────────────────────── */}
+      <section className="co-card co-hero">
+        <div className="co-row" style={{ marginBottom: 6 }}>
+          <span className="eyebrow">Tonight</span>
+          <span className="co-dim">{historyDays > 0 ? `${BASIS_WORD[basis]} · ${historyDays} day${historyDays === 1 ? '' : 's'} of sales` : 'no sales uploaded yet'}</span>
         </div>
+        {historyDays === 0 ? (
+          <p className="co-sub" style={{ marginTop: 0 }}>
+            Upload a day&rsquo;s sales on <Link href="/cash-in">Cash In</Link> and I can tell you what tonight needs.
+          </p>
+        ) : tonight.length === 0 ? (
+          <>
+            <div className="co-big num" style={{ fontSize: 26 }}>Enough for tonight</div>
+            {thinnest && thinnest.cover !== null && (
+              <p className="co-sub">
+                Thinnest is <b>{thinnest.name.toLowerCase()}</b> &mdash; {thinnest.show(Math.max(thinnest.onHand, 0))} left,
+                about {thinnest.cover < 1 ? 'under a day' : `${thinnest.cover.toFixed(1)} days`} at this pace.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="co-big num co-up" style={{ fontSize: 26 }}>
+              {tonight.length} item{tonight.length === 1 ? '' : 's'}{' '}won&rsquo;t last tonight
+            </div>
+            <ul className="st-list">
+              {tonight.map(v => (
+                <li key={v.key}>
+                  <div className="co-row">
+                    <span className="st-name">{v.name}</span>
+                    <span className="num co-flag">short {v.show(v.short)}</span>
+                  </div>
+                  <div className="co-row co-dim">
+                    <span>{v.show(Math.max(v.onHand, 0))} left · a night like tonight uses {v.show(v.f.perDay)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      {unknownItems.length > 0 && (
+        <section className="co-card">
+          <div className="eyebrow" style={{ marginBottom: 6 }}>I&rsquo;ve never seen these arrive</div>
+          <p className="co-sub" style={{ marginTop: 0 }}>
+            Your dishes use them, but no receipt has shown them coming in, so I can&rsquo;t say how much is left or
+            warn you properly. File a receipt for them, or count them once below.
+          </p>
+          <ul className="st-list">
+            {unknownItems.map(v => (
+              <li key={v.key}>
+                <div className="co-row">
+                  <span className="st-name">{v.name}</span>
+                  <span className="co-dim">uses about {v.show(v.f.perDay)}/day</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
-      {/* ── on hand ──────────────────────────────────────────────────── */}
-      <section className="co-card co-hero" id="onhand">
+      {/* ── buy today ────────────────────────────────────────────────── */}
+      {toBuy.length > 0 && (
+        <section className="co-card" id="buy">
+          <div className="co-row" style={{ marginBottom: 6 }}>
+            <span className="eyebrow">Buy today</span>
+            <span className="co-dim">enough for {COVER_DAYS} days</span>
+          </div>
+          <ul className="st-list">
+            {toBuy.map(v => (
+              <li key={v.key}>
+                <div className="co-row">
+                  <span className="st-name">{v.name}</span>
+                  <span className="num">{v.buy.label}</span>
+                </div>
+                <div className="co-row co-dim">
+                  <span>
+                    {v.show(Math.max(v.onHand, 0))} left
+                    {v.cover !== null ? ` · ${v.cover < 1 ? 'under a day' : `${v.cover.toFixed(1)} days`} of cover` : ''}
+                    {` · uses ${v.show(v.f.perDay)}/day`}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* ── in the fridge ────────────────────────────────────────────── */}
+      <section className="co-card" id="onhand">
         <div className="co-row" style={{ marginBottom: 6 }}>
-          <span className="eyebrow">On hand now</span>
-          <span className="co-dim">{lastCountDay ? `checked ${dayLabel(lastCountDay, today).toLowerCase()}` : 'from receipts & sales'}</span>
+          <span className="eyebrow">In the fridge</span>
+          <span className="co-dim">{lastCountDay ? `counted ${dayLabel(lastCountDay, today).toLowerCase()}` : 'from receipts & sales'}</span>
         </div>
-        <p className="co-sub" style={{ marginTop: 0 }}>
-          Counted for you: each receipt Jarvis reads puts its meat, seafood, eggs and rice on the shelf, and each
-          day&rsquo;s sales take off what the recipes used. Count by hand only when a receipt didn&rsquo;t say how much.
-        </p>
-        <ul className="st-list">
-          {[...state].sort((a, b) => Number(b.low) - Number(a.low)).map(s => (
-            <li key={s.key} className={s.low ? 'st-low' : ''}>
-              <div className="co-row">
-                <span className="st-name">{s.name}</span>
-                <span className={`num ${s.onHand < 0 ? 'co-flag' : ''}`}>
-                  {ITEM[s.key]?.bagG ? `${Math.round(s.onHand / ITEM[s.key].bagG!)} bags` : fmtQty(s.onHand, s.unit)}
+        <div className="st-grid st-grid-head">
+          <span>Item</span>
+          <span>Used {lastSalesDay ? dayLabel(lastSalesDay, today).toLowerCase() : 'yest.'}</span>
+          <span>Left now</span>
+        </div>
+        {[...known, ...view.filter(v => !seen(v.key))].map(v => (
+          <details key={v.key} className="st-row">
+            <summary>
+              <span className="st-grid">
+                <span className="st-name">{v.name}</span>
+                <span className="num co-dim">{v.f.yesterday > 0 ? v.show(v.f.yesterday) : '—'}</span>
+                <span className={`num ${seen(v.key) && v.short > 0 ? 'co-flag' : ''}`}>
+                  {seen(v.key) ? v.show(v.onHand) : <span className="co-dim">not seen</span>}
                 </span>
-              </div>
-              <div className="co-row co-dim">
-                <span>
-                  {s.perDay > 0 ? `uses ${fmtQty(s.perDay, s.unit)}/day` : 'no sales yet'}
-                  {s.daysLeft !== null && s.onHand > 0 ? ` · ${s.daysLeft < 1 ? 'under a day' : `${s.daysLeft.toFixed(1)} days`} left` : ''}
-                </span>
-                <span>{costLabel(s.cost, s.unit)}{s.costEstimated ? ' est.' : ''}</span>
-              </div>
-              {s.low && <div className="co-meta co-flag">Running low{s.min !== null ? ` (minimum ${fmtQty(s.min, s.unit)})` : ''}</div>}
-            </li>
-          ))}
-        </ul>
-        {state.some(s => s.onHand < 0) && (
-          <p className="co-meta co-flag">
-            A minus means more was used than Jarvis has seen come in &mdash; stock that was already in the fridge before
-            you started, or a receipt that didn&rsquo;t print an amount. Type the real number under
-            &ldquo;Correct a number by counting&rdquo; and it&rsquo;s right from then on.
-          </p>
-        )}
+              </span>
+            </summary>
+            <div className="st-row-body co-dim">
+              {v.cover !== null && <div>About {v.cover < 1 ? 'under a day' : `${v.cover.toFixed(1)} days`} left at {v.show(v.f.perDay)}/day.</div>}
+              <div>Bought this week: {v.boughtWeek > 0 ? v.show(v.boughtWeek) : 'nothing'} · 7-day average {v.show(v.f.avg7)}/day</div>
+              <div>Latest price {costLabel(v.cost, v.unit)}{v.costEstimated ? ' (estimated)' : ''}</div>
+              {v.onHand < 0 && (
+                <div className="co-flag">
+                  Below zero: stock was already in the fridge before this started, or a receipt didn&rsquo;t print an
+                  amount. Put the real number in under &ldquo;Correct a number by counting&rdquo;.
+                </div>
+              )}
+            </div>
+          </details>
+        ))}
         <p className="co-meta">
-          &ldquo;est.&rdquo; = estimated price until a receipt shows the real one. Days left use the last 7 trading days
-          {saleDays === 0 ? ', once sales are uploaded on Cash In' : ''}.
+          Counted for you: receipts add what they say, each day&rsquo;s sales take off what the recipes used.
+          {historyDays > 0 && historyDays < 14 ? ' Forecasts sharpen as more days of sales come in.' : ''}
         </p>
       </section>
 

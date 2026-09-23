@@ -662,3 +662,12 @@ code {
 .st-skips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .st-skips .btn { font-size: 12px; padding: 6px 10px; min-height: 34px; }
 .rcpt-img { display: block; width: 100%; height: auto; border-radius: 12px; }
+
+/* Stock: the item table — item · used yesterday · left now. */
+.st-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 0.9fr); gap: 8px; align-items: baseline; width: 100%; }
+.st-grid > span:nth-child(n+2) { text-align: right; }
+.st-grid-head { font-family: var(--font-mono), monospace; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.st-row { border-bottom: 1px solid var(--line); }
+.st-row > summary { list-style: none; cursor: pointer; padding: 10px 0; font-size: 14px; display: flex; }
+.st-row > summary::-webkit-details-marker { display: none; }
+.st-row-body { padding: 0 0 12px; font-size: 12px; line-height: 1.7; }
