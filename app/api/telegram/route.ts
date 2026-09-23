@@ -1336,9 +1336,11 @@ const esc = (t: unknown) =>
 // cannot see, so every filing now shows its lines -- which is also what makes
 // correct_receipt and teach_supplier usable at all.
 //
-// Capped at MAX_SHOWN lines: Telegram rejects messages over ~4096 characters, and
-// a long grocery receipt would otherwise send nothing.
-const MAX_SHOWN = 8
+// EVERY line is shown (owner, 23 Sep 2026: "he ends the list and says and 9 more
+// items -- send the full list"). Telegram caps a message at 4096 characters, so
+// lib/telegram.ts splits a long one across messages instead of trimming it. The
+// cap here is only a runaway guard: no real receipt has 200 lines.
+const MAX_SHOWN = 200
 function receiptSummary(v: VisionResult): string {
   const items = v.items ?? []
   const bits: string[] = []

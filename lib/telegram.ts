@@ -64,21 +64,51 @@ export async function downloadFileBytes(filePath: string): Promise<Buffer | null
 export type InlineButton = { text: string; callback_data: string }
 export type InlineKeyboard = InlineButton[][]
 
-export async function sendMessage(chatId: string | number, text: string) {
+// Telegram rejects a message over 4096 characters. A long receipt used to be
+// trimmed to "…and 9 more" -- the owner could not check what he could not see --
+// so instead we split on LINE boundaries and send the parts in order. Splitting
+// mid-line would tear an HTML tag in half and Telegram would reject the part.
+export const CHUNK = 3800
+export function splitForTelegram(text: string, limit = CHUNK): string[] {
+  if (text.length <= limit) return [text]
+  const out: string[] = []
+  const NL = String.fromCharCode(10)
+  let cur = ''
+  for (const line of text.split(NL)) {
+    // A single monster line (never expected) still has to go somewhere: cut it.
+    if (line.length > limit) {
+      if (cur) { out.push(cur); cur = '' }
+      for (let i = 0; i < line.length; i += limit) out.push(line.slice(i, i + limit))
+      continue
+    }
+    if (cur.length + line.length + 1 > limit) { out.push(cur); cur = line }
+    else cur = cur ? cur + NL + line : line
+  }
+  if (cur) out.push(cur)
+  return out
+}
+
+async function post(chatId: string | number, text: string, extra: Record<string, any> = {}): Promise<number | null> {
   const url = api('sendMessage')
   if (!url) {
     console.warn('[CFO] TELEGRAM_BOT_TOKEN not set yet — skipping sendMessage.')
-    return
+    return null
   }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', ...extra }),
   })
+  const body = await res.json().catch(() => ({}))
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
     console.error('[CFO] Telegram sendMessage failed:', body.description || res.status)
+    return null
   }
+  return body?.result?.message_id ?? null
+}
+
+export async function sendMessage(chatId: string | number, text: string) {
+  for (const part of splitForTelegram(text)) await post(chatId, part)
 }
 
 // Send a message with Approve/Reject (or any) inline buttons. RETURNS the sent
@@ -90,27 +120,12 @@ export async function sendWithButtons(
   text: string,
   inlineKeyboard: InlineKeyboard,
 ): Promise<number | null> {
-  const url = api('sendMessage')
-  if (!url) {
-    console.warn('[CFO] TELEGRAM_BOT_TOKEN not set yet — skipping sendWithButtons.')
-    return null
-  }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: 'HTML',
-      reply_markup: { inline_keyboard: inlineKeyboard },
-    }),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok || !body.ok) {
-    console.error('[CFO] Telegram sendWithButtons failed:', body.description || res.status)
-    return null
-  }
-  return body.result?.message_id ?? null
+  // A long card (a 17-line grocery list) is sent as several messages; the
+  // BUTTONS go on the last one, so the owner reads everything before deciding,
+  // and the returned id is that message -- the one whose buttons get stripped.
+  const parts = splitForTelegram(text)
+  for (const part of parts.slice(0, -1)) await post(chatId, part)
+  return post(chatId, parts[parts.length - 1], { reply_markup: { inline_keyboard: inlineKeyboard } })
 }
 
 // Acknowledge a button tap so Telegram stops the little spinner on the user's
