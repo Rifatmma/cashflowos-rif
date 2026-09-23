@@ -434,6 +434,16 @@ export async function readImage(
     `for these and is NOT a reason for low confidence.\n` +
     `RULES: read every line, do not summarise or merge lines. Numbers only, no currency ` +
     `symbols. If it is not a receipt or invoice, use kind "doc" and omit items.\n` +
+    // 23 Sep 2026: a 2-line 99 Speed Mart receipt came back as 3 lines -- the
+    // "3x2.50" belonging to the cooking oil was pinned onto the NEXT item and a
+    // phantom RM 5.50 oil line invented to fill the gap.
+    `ONE PRINTED LINE = ONE ITEM. Never output more lines than the receipt prints, never invent a line, ` +
+    `and never carry a number from one line onto another. Many Malaysian receipts print the quantity and ` +
+    `unit price together just after the item name or under it -- "3x2.50", "3 X 2.50", "2 @ 4.50" -- that ` +
+    `is qty 3 at RM 2.50 for a line total of 7.50, and it belongs to THAT item, not the one below it. ` +
+    `If your lines do not add up to the printed total, re-read the quantity/price pairing before answering ` +
+    `rather than adding or splitting lines to make it fit.
+` +
     `NEVER DERIVE A UNIT PRICE. unit_price must be a number PRINTED on the receipt. Do not get ` +
     `it by dividing the line total by a quantity, and never treat a leading item/shelf/department ` +
     `code as a quantity. If the quantity or the unit price is not clearly printed, set qty 1, ` +
