@@ -1030,8 +1030,11 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // An e-wallet / QR / bank-transfer screen proves money moved, but says nothing
   // about WHAT was bought -- and those payees are exactly where business and
   // personal spending blur. So they always come to the owner, whatever the amount.
+  // A typed shopping list names no shop, and "Unknown" in the books is a receipt
+  // nobody can trace later -- so those always come to the owner to name.
+  const noMerchant = !v.merchant || /^unknown$/i.test(v.merchant) || (v.missing ?? []).includes('merchant')
   const autopilot =
-    isExpense && !v.payment_proof && v.confidence === 'high' && (v.amount as number) <= threshold()
+    isExpense && !v.payment_proof && !noMerchant && v.confidence === 'high' && (v.amount as number) <= threshold()
 
   // ---- 🟢 AUTOPILOT: file it, then just tell them (with a /undo escape hatch). ----
   if (autopilot) {
@@ -1083,7 +1086,14 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // sign-off" card in front of the team is a public comment on a colleague, and
   // only the owner can answer it anyway.
   const key = isExpense ? 'expense' : 'vault'
-  const text = buildProposalText(v, threshold()) +
+  // NEVER guess the shop (owner, 23 Sep 2026): several suppliers give no receipt,
+  // so an unnamed list could be any of them. Ask, and leave it blank until he says.
+  const askShop = isExpense && noMerchant
+    ? `
+
+<i>❓ No shop name on this one. Which shop or market was it from? Tap ✅ to file it, then tell me the name and I'll put it on the receipt.</i>`
+    : ''
+  const text = buildProposalText(v, threshold()) + askShop +
     receiptSummary(v) +
     (staffFiling ? `\n\nSent by ${esc(filer.name)} in the receipts group.` : '')
   const row = await proposeAndNotify({

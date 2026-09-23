@@ -153,6 +153,7 @@ export const BOT_ACTION_TOOLS = [
       properties: {
         receipt: { type: 'string', description: 'Supplier name or what to match the filed receipt on (e.g. "99 speed mart", "the rice one").' },
         amount: { type: 'number', description: 'Optional: the receipt total, to pick the right one when several match.' },
+        merchant: { type: 'string', description: 'Set or fix WHO it was paid to. Use when a receipt was filed with no shop name (a typed list, a market stall), e.g. "Pasar Borong Selangor".' },
         items: {
           type: 'array',
           description: 'The corrected lines. Give ALL lines for the receipt, not just the changed one.',
@@ -437,9 +438,13 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       if (!q) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
 
       const wanted = Number(input?.amount)
-      const candidates = rows.filter(r => {
+      const byAmount = Number.isFinite(wanted)
+        ? rows.filter(r => r.category === 'cash_out' && Math.abs(Number(r.amount) - wanted) <= 0.01)
+        : []
+      // An exact, unique amount IS the identification -- needed for a receipt filed
+      // with no shop name, where there is no name to match on.
+      const candidates = byAmount.length === 1 ? byAmount : (Number.isFinite(wanted) ? byAmount : rows).filter(r => {
         if (r.category !== 'cash_out') return false
-        if (Number.isFinite(wanted) && Math.abs(Number(r.amount) - wanted) > 0.01) return false
         const hay = `${r.title} ${r.meta?.merchant || ''}`.toLowerCase()
         return sameSupplier(q, String(r.meta?.merchant || r.title)) || hay.includes(q.toLowerCase())
       })
@@ -477,8 +482,9 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       const totalChanges =
         Number.isFinite(newTotal) && newTotal > 0 && Math.abs(newTotal - Number(target.amount)) > 0.01
       const expenseType = typeof input?.expense_type === 'string' ? input.expense_type : undefined
-      if (!items?.length && !expenseType && !totalChanges) {
-        return JSON.stringify({ status: 'error', message: 'Nothing to correct -- tell me the lines, the expense type, or the total.' })
+      const merchantFix = String(input?.merchant || '').trim().slice(0, 120)
+      if (!items?.length && !expenseType && !totalChanges && !merchantFix) {
+        return JSON.stringify({ status: 'error', message: 'Nothing to correct -- tell me the lines, the shop, the expense type, or the total.' })
       }
 
       const meta: any = {
@@ -492,6 +498,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         delete meta.items_note
       }
       if (expenseType) meta.expense_type = expenseType
+      if (merchantFix) meta.merchant = merchantFix
 
       // The total moved -- money truth, so it goes to the buttons.
       if (totalChanges) {
@@ -512,6 +519,8 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       // Lines / type only -- the money is untouched, so just do it.
       const done = await runAutopilot('correct-receipt', {
         op: 'update', record_id: target.id, meta, idempotencyKey: randomUUID(),
+        // Naming the shop renames the row too, so Cash Out stops saying "Receipt".
+        ...(merchantFix ? { title: `${merchantFix} — ${String(target.title).split(' — ').slice(1).join(' — ') || 'expense'}` } : {}),
       })
       if (!done) return JSON.stringify({ status: 'noop', message: 'Already corrected.' })
       return JSON.stringify({

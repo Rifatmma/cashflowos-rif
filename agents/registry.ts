@@ -260,6 +260,7 @@ async function writeRecord(agentKey: string, payload: any): Promise<any> {
     if (payload?.status != null) patch.status = String(payload.status)
     if (payload?.meta && typeof payload.meta === 'object') patch.meta = payload.meta
     if (payload?.note != null) patch.notes = String(payload.note)
+    if (payload?.title != null) patch.title = String(payload.title).slice(0, 200)
     // A corrected TOTAL. Only ever set from the yellow (approved) path, and still
     // bounded here -- an executor never trusts its payload.
     if (payload?.amount != null) {
