@@ -58,6 +58,11 @@ export const ITEMS: ItemDef[] = [
     aliases: ['ketam', 'crab'] },
   { key: 'squid', name: 'Squid / octopus', unit: 'g', sort: 33, usablePct: 75, fallbackCost: 0.03, bagG: 80,
     aliases: ['sotong', 'squid', 'calamari', 'octopus'] },
+  // Owner, 23 Sep 2026: frozen sotong is its own item -- it goes into the fried
+  // squid dish only; every other sotong dish uses fresh. Rings come cleaned and
+  // cut, so nothing is trimmed off (ASK if that is wrong).
+  { key: 'squid_frozen', name: 'Squid (frozen rings)', unit: 'g', sort: 33, fallbackCost: 0.02, bagG: 80,
+    aliases: ['(frz|fzn|frozen|beku|iqf)[^a-z]*(sotong|squid|calamari)', '(sotong|squid|calamari)[^a-z]*(frz|fzn|frozen|beku|iqf)'] },
   { key: 'mussel', name: 'Mussels', unit: 'pc', sort: 34, perKg: 20, fallbackCost: 0.25,
     // A Sri Ternak bag is about 20 pieces; treated as a 1 kg bag when no weight prints.
     defaultPackKg: 1,
@@ -109,6 +114,7 @@ export const IGNORE_KEY = '__ignore'
 
 const FROZEN = /(^|[^a-z])(frz|fzn|frozen|beku|iqf)([^a-z]|$)/
 const SHRIMP_WORD = /(udang|prawn|shrimp)/
+const SQUID_WORD = /(sotong|squid|calamari)/
 
 /** Which stock item a receipt name means, if any. Owner-taught aliases win. */
 export function itemForName(name: string, extraAliases: Record<string, string[]> = {}): string | 'bird' | null {
@@ -121,13 +127,16 @@ export function itemForName(name: string, extraAliases: Record<string, string[]>
   }
   if (WHOLE_BIRD.test(n)) return 'bird'
   if (NOT_STOCK.test(n)) return null
-  // Frozen shrimp, checked on its own. On a supplier line the frozen marker and
-  // the shrimp word sit at opposite ends -- "FRZ SHUDANG PRAWN SIZE 41/50 IQF
-  // 1KG JPK" -- so an alias that wants them side by side misses it and the bag
-  // lands in fresh shrimp (owner, 23 Sep 2026). Udang galah is never frozen stock.
-  if (FROZEN.test(n) && SHRIMP_WORD.test(n) && !/galah/.test(n)) return 'shrimp_frozen'
+  // The frozen items, checked on their own. On a supplier line the frozen marker
+  // and the seafood word sit at opposite ends -- "FRZ SHUDANG PRAWN SIZE 41/50
+  // IQF 1KG JPK" -- so an alias that wants them side by side misses it and the
+  // bag lands in the fresh item (owner, 23 Sep 2026). Galah is never frozen stock.
+  if (FROZEN.test(n)) {
+    if (SHRIMP_WORD.test(n) && !/galah/.test(n)) return 'shrimp_frozen'
+    if (SQUID_WORD.test(n)) return 'squid_frozen'
+  }
   // Most specific first: "udang galah" must not land on shrimp, "kaki ayam" not on breast.
-  for (const key of ['galah', 'feet', 'tongue', 'breast', 'leg', 'shrimp_frozen', 'shrimp', 'crab', 'squid', 'mussel', 'lala', 'siakap', 'beef', 'egg', 'rice']) {
+  for (const key of ['galah', 'feet', 'tongue', 'breast', 'leg', 'shrimp_frozen', 'shrimp', 'crab', 'squid_frozen', 'squid', 'mussel', 'lala', 'siakap', 'beef', 'egg', 'rice']) {
     if (ITEM[key].aliases.some(a => new RegExp(a).test(n))) return key
   }
   return null

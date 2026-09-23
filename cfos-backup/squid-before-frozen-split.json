@@ -1,0 +1,47 @@
+{
+  "before": [
+    {
+      "id": 25,
+      "item": "squid",
+      "qty": 808.5,
+      "kind": "purchase",
+      "unit_cost": 0.010253555967841681,
+      "record_id": 95,
+      "sales_date": null,
+      "by": "Tina Kuno",
+      "note": null,
+      "meta": {
+        "from": "FRZ SOTONG RING SKIN ON IQF*KG"
+      },
+      "created_at": "2026-09-22T05:17:23.655375+00:00"
+    }
+  ],
+  "rx": [
+    {
+      "id": 57,
+      "key": "squid-dish",
+      "label": "Sotong / calamari dishes",
+      "pattern": "sotong|calamari|squid|octopus",
+      "variant": null,
+      "variant_not": null,
+      "sizes": {
+        "M": [
+          {
+            "qty": 160,
+            "item": "squid"
+          }
+        ],
+        "S": [
+          {
+            "qty": 80,
+            "item": "squid"
+          }
+        ]
+      },
+      "guess": false,
+      "sort": 570,
+      "active": true,
+      "updated_at": "2026-09-21T16:18:39.809094+00:00"
+    }
+  ]
+}
