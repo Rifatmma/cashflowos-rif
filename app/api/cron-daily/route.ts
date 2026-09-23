@@ -67,6 +67,10 @@ export async function GET(req: Request) {
       .from('agent_actions')
       .select('agent_key, payload')
       .eq('status', 'proposed')
+      // Unexpired only. An expired proposal cannot be approved any more (the
+      // claim refuses it), so mentioning it is just noise -- that is how the
+      // starter-kit demo proposals kept turning up in the brief (23 Sep 2026).
+      .gt('expires_at', new Date().toISOString())
     proposed = (data ?? []) as any[]
   }
 

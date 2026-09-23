@@ -1,0 +1,65 @@
+[
+  {
+    "id": 1,
+    "agent_key": "expense",
+    "idempotency_key": "seed-demo-proposal-001",
+    "payload": {
+      "date": "2026-07-22",
+      "kind": "receipt",
+      "note": "RM269 > RM200 threshold â€” needs your YES",
+      "amount": 269,
+      "category": "Supplies",
+      "merchant": "Office Depot"
+    },
+    "status": "proposed",
+    "proposed_at": "2026-09-19T03:23:57.909457+00:00",
+    "expires_at": "2026-09-20T03:23:57.909457+00:00",
+    "decided_at": null,
+    "executed_at": null,
+    "approver_chat_id": null,
+    "result": null,
+    "error": null,
+    "notify_chat_id": null,
+    "notify_message_id": null
+  },
+  {
+    "id": 2,
+    "agent_key": "overdue-invoice",
+    "idempotency_key": "overdue-invoice:28:2026-09-19",
+    "payload": {
+      "text": "Hi Nur Trading, a friendly reminder that RM 4,200 for \"Invoice #022 â€” Nur Trading\" is now 12 days past due. Could you let me know when it'll be settled? Thank you!",
+      "row_id": 28,
+      "channel": "whatsapp"
+    },
+    "status": "proposed",
+    "proposed_at": "2026-09-19T04:26:17.245+00:00",
+    "expires_at": "2026-09-20T04:26:17.245+00:00",
+    "decided_at": null,
+    "executed_at": null,
+    "approver_chat_id": null,
+    "result": null,
+    "error": null,
+    "notify_chat_id": 5880782382,
+    "notify_message_id": 8
+  },
+  {
+    "id": 7,
+    "agent_key": "overdue-invoice",
+    "idempotency_key": "overdue-invoice:28:2026-09-20",
+    "payload": {
+      "text": "Hi Nur Trading, a friendly reminder that RM 4,200 for \"Invoice #022 â€” Nur Trading\" is now 13 days past due. Could you let me know when it'll be settled? Thank you!",
+      "row_id": 28,
+      "channel": "whatsapp"
+    },
+    "status": "proposed",
+    "proposed_at": "2026-09-20T01:49:13.879+00:00",
+    "expires_at": "2026-09-21T01:49:13.879+00:00",
+    "decided_at": null,
+    "executed_at": null,
+    "approver_chat_id": null,
+    "result": null,
+    "error": null,
+    "notify_chat_id": 5880782382,
+    "notify_message_id": 58
+  }
+]

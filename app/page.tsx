@@ -13,6 +13,7 @@ async function proposedCount(): Promise<number> {
     .from('agent_actions')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'proposed')
+    .gt('expires_at', new Date().toISOString())   // expired ones can no longer be approved
   if (error) return 0
   return count ?? 0
 }

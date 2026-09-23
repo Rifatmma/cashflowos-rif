@@ -184,10 +184,9 @@ select * from (values
 ) as seed(title, status, amount, category, due_date, notes, meta)
 where not exists (select 1 from records);
 
--- One PENDING proposal so the Approvals tab + the 🙋 count aren't empty on minute one.
--- (An expense above the RM200 threshold → the classic 🟡 "ask first" demo.)
-insert into agent_actions (agent_key, idempotency_key, payload, status, expires_at)
-select 'expense', 'seed-demo-proposal-001',
-       '{"kind":"receipt","merchant":"Office Depot","amount":269,"date":"2026-07-22","category":"Supplies","note":"RM269 > RM200 threshold — needs your YES"}'::jsonb,
-       'proposed', now() + interval '24 hours'
-where not exists (select 1 from agent_actions where idempotency_key = 'seed-demo-proposal-001');
+-- The starter kit used to seed one PENDING demo proposal (Office Depot RM269) here,
+-- so the Approvals tab wasn't empty on minute one. REMOVED 23 Sep 2026: this is a
+-- live business now, and that row -- plus the chase messages the overdue-invoice
+-- agent wrote against the demo "Nur Trading" invoice -- kept showing up in the
+-- owner's brief as bills he had never sent. Demo data must never ask him anything.
+-- The records seed below is already guarded by "no records exist", so it is inert.

@@ -359,6 +359,7 @@ async function findDuplicate(receiptNo: string | undefined, amount: number | und
       .from('agent_actions')
       .select('id')
       .eq('status', 'proposed')
+      .gt('expires_at', new Date().toISOString())
       .eq('payload->>receipt_no', no)
       .limit(5)
     const match = (waiting ?? [])[0]
