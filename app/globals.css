@@ -671,3 +671,20 @@ code {
 .st-row > summary { list-style: none; cursor: pointer; padding: 10px 0; font-size: 14px; display: flex; }
 .st-row > summary::-webkit-details-marker { display: none; }
 .st-row-body { padding: 0 0 12px; font-size: 12px; line-height: 1.7; }
+
+/* ── Dashboard (rebuilt 23 Sep 2026) ─────────────────────────────────────── */
+.co-good { color: var(--good); }
+.co-hero-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.co-total { font-weight: 600; color: var(--ink); border-top: 1px solid var(--line) !important; margin-top: 4px; padding-top: 10px; }
+.co-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+@media (min-width: 720px) {
+  .co-two { grid-template-columns: 1fr 1fr; column-gap: 12px; }
+}
+/* A whole card that is a link: the shortcut buttons under the dashboard. */
+a.co-tap {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 56px; text-decoration: none; color: var(--ink); font-size: 15px; font-weight: 500;
+}
+a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
+/* An amount never wraps onto two lines ("− RM 1,734.00" was splitting). */
+.co-lines li .num { white-space: nowrap; }
