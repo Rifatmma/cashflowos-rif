@@ -14,7 +14,7 @@ import { loadTurns, appendTurn, bumpDailyCounter } from '@/lib/bot-memory'
 import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, type VisionResult } from '@/lib/vision'
-import { parseTypedReceipt, looksTyped, typedDate, TEMPLATE } from '@/lib/typed-receipt'
+import { parseTypedReceipt, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
 import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
@@ -421,19 +421,23 @@ async function handleMessage(msg: any): Promise<Response> {
   const staffTyped = isGroupChat(msg.chat) && isReceiptChat(chatId) && isTyped
   // "no photo" answering Jarvis's photo question, also through the letterbox.
   const staffSkip = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!typedText && SKIP_PHOTO.test(typedText)
-  // A plain line of text while a receipt is waiting for its shop name: that IS
-  // the answer. Kept to short, non-command text so a chat message never files.
-  const couldBeShop = !!typedText && !isTyped && !SKIP_PHOTO.test(typedText) && !typedText.startsWith('/') &&
-    typedText.trim().length >= 2 && typedText.trim().length <= 60 && typedText.split(String.fromCharCode(10)).length <= 2
-  const shopWaiting = couldBeShop ? await getPending(chatId, isGroupChat(msg.chat) ? 'chat' : filedBy(msg).id) : null
-  const shopAnswer = shopWaiting?.type === 'need_shop' ? shopWaiting : null
-  const staffShop = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!shopAnswer
+  // A message while a receipt is parked waiting for missing fields. Anything that
+  // looks like an ATTEMPT (mentions a field word, or is one short line) is treated
+  // as the answer -- filled correctly it files, otherwise it is refused with the
+  // template again. Ordinary group chatter is left alone.
+  const looksLikeAttempt = !!typedText && !typedText.startsWith('/') && !SKIP_PHOTO.test(typedText) &&
+    (/(shop|kedai|supplier|pembekal|ร้าน|date|tarikh|วันที่|total|jumlah|รวม|rm\s*\d)/i.test(typedText) ||
+      (typedText.split(NL).length === 1 && typedText.trim().length <= 60))
+  const fieldsWaiting = looksLikeAttempt && !isTyped
+    ? await getPending(chatId, isGroupChat(msg.chat) ? 'chat' : filedBy(msg).id) : null
+  const fieldsAnswer = fieldsWaiting?.type === 'need_fields' ? fieldsWaiting : null
+  const staffFields = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!fieldsAnswer
 
   if (isGroupChat(msg.chat)) {
     // A receipt dropped in the designated group needs no @mention and no
     // allowlist -- that is the whole point. Everything ELSE in a group keeps the
     // old gate, so this opens a letterbox, not a door.
-    if (!staffFiling && !staffTyped && !staffSkip && !staffShop) {
+    if (!staffFiling && !staffTyped && !staffSkip && !staffFields) {
       if (!(await isAddressedToBot(msg))) {
         return Response.json({ ok: true, ignored: 'group: not addressed' })
       }
@@ -487,9 +491,9 @@ async function handleMessage(msg: any): Promise<Response> {
     if (staffSkip) return Response.json({ ok: true, ignored: 'skip: nothing pending' })
   }
 
-  // The shop name for a receipt that had none.
-  if (shopAnswer) {
-    after(() => answerShopName(msg, shopAnswer).catch(e => console.error('[CFO] shop answer threw:', e)))
+  // The filled-in template for a receipt that was missing something.
+  if (fieldsAnswer) {
+    after(() => answerMissingFields(msg, fieldsAnswer).catch(e => console.error('[CFO] fields answer threw:', e)))
     return Response.json({ ok: true })
   }
 
@@ -1044,6 +1048,12 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     fileId, isPhoto: !!msg.photo?.length })
 }
 
+const NL = String.fromCharCode(10)
+
+// The lines the staff must send back, one per thing that could not be read.
+const FIELD_LINE: Record<string, string> = { shop: 'Shop: ', date: 'Date: ', total: 'Total: RM ' }
+const fieldTemplate = (gaps: string[]) => gaps.map(g => FIELD_LINE[g] ?? `${g}: `).join(NL)
+
 // ============================================================
 // THE DIAL (§7b) -- what happens to a receipt once it has been read.
 //   green  small + confident + a named shop => file it, then say so.
@@ -1065,19 +1075,28 @@ async function decideAndFile(a: {
   // so an unnamed list could be any of them.
   const noMerchant = !v.merchant || /^unknown$/i.test(String(v.merchant)) || (v.missing ?? []).includes('merchant')
 
-  // ---- no shop name: ask where it came from, in the chat it arrived in -------
-  if (isExpense && noMerchant) {
+  // ---- anything unreadable: ask, with a template, in the chat it arrived in ----
+  // The owner's rule (23 Sep 2026): never guess a field. Ask in the group, give
+  // the exact lines to fill, and file nothing until they come back filled.
+  const gaps: string[] = []
+  if (noMerchant) gaps.push('shop')
+  if (!v.date || (v.missing ?? []).includes('date')) gaps.push('date')
+  if (!isExpense || (v.missing ?? []).includes('amount')) gaps.push('total')
+  if (gaps.length && v.kind !== 'doc') {
     await setPending(chatId, staffFiling ? 'chat' : filer.id, {
-      type: 'need_shop', payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
+      type: 'need_fields', gaps, payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
     })
+    const known = [
+      !gaps.includes('total') && isExpense ? `<b>${rm(Number(v.amount))}</b>` : null,
+      !gaps.includes('shop') && v.merchant ? esc(String(v.merchant)) : null,
+      !gaps.includes('date') && v.date ? v.date : null,
+    ].filter(Boolean).join(' · ')
     await sendMessage(chatId,
-      `🧾 Read it: <b>${rm(Number(v.amount))}</b>${v.date ? ` · ${v.date}` : ''}.${detail}` +
-      `
-
-❓ There's no shop name on this one. <b>Which shop or market was it from?</b> ` +
-      `Just reply here with the name${staffFiling ? '' : ''} and I'll file it.`)
-    await remember(chatId, staffFiling ? `[${filer.name} sent a receipt with no shop name]` : '[sent a receipt with no shop name]',
-      `Read RM ${Number(v.amount).toFixed(2)}; asked which shop it was from. Nothing is filed until that is answered.`)
+      `🧾 I read this one${known ? `: ${known}` : ''}, but I can't see the <b>${gaps.join('</b>, the <b>')}</b>.${detail}` +
+      NL + NL + `Please reply with exactly these lines filled in — I won't file it until you do:` +
+      NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
+    await remember(chatId, staffFiling ? `[${filer.name} sent a receipt missing ${gaps.join(', ')}]` : `[sent a receipt missing ${gaps.join(', ')}]`,
+      `Asked for ${gaps.join(', ')} using the template. Nothing is filed until that comes back.`)
     return
   }
 
@@ -1142,17 +1161,50 @@ Sent by ${esc(filer.name)} in the receipts group.` : '')
   }
 }
 
-/** "Pasar Borong Selangor" -> put it on the parked receipt and file it. */
-async function answerShopName(msg: any, p: any): Promise<void> {
+/**
+ * The staff's filled-in template. STRICT on purpose (owner, 23 Sep 2026): every
+ * asked-for line must be there and readable, or nothing is filed and the template
+ * is sent back. A guessed date or total is worse than waiting.
+ */
+async function answerMissingFields(msg: any, p: any): Promise<void> {
   const chatId = msg.chat?.id
   const filer = filedBy(msg)
   const staffFiling = isGroupChat(msg.chat) && isReceiptChat(chatId)
-  const shop = String(msg.text || '').trim().replace(/^(from|dari|kedai|shop)\s+/i, '').slice(0, 60)
-  await clearPending(chatId, staffFiling ? 'chat' : filer.id)
+  const gaps: string[] = p.gaps ?? []
+  const text = String(msg.text || '')
+  const got = parseLabelled(text)
 
-  const v = { ...p.v, merchant: shop, missing: (p.v?.missing ?? []).filter((m: string) => m !== 'merchant') }
-  const payload = { ...p.payload, merchant: shop }
-  await sendMessage(chatId, `👍 Thanks — filing it under <b>${esc(shop)}</b>.`)
+  const v: VisionResult = { ...p.v }
+  const payload = { ...p.payload }
+  const bad: string[] = []
+
+  for (const gap of gaps) {
+    if (gap === 'shop') {
+      const shop = (got.supplier ?? '').trim().slice(0, 60)
+      if (shop.length < 2) { bad.push('Shop'); continue }
+      v.merchant = shop; payload.merchant = shop
+    } else if (gap === 'date') {
+      const d = got.date ? typedDate(got.date, mytDate()) : undefined
+      if (!d || d > mytDate()) { bad.push('Date (write it like 22/09/2026)'); continue }
+      v.date = d; payload.date = d
+    } else if (gap === 'total') {
+      const n = Number(String(got.total ?? '').replace(/[^0-9.]/g, ''))
+      if (!Number.isFinite(n) || n <= 0) { bad.push('Total (write it like RM 112.70)'); continue }
+      v.amount = Math.round(n * 100) / 100; payload.amount = v.amount
+      v.kind = 'receipt'; payload.kind = 'receipt'
+    }
+  }
+
+  if (bad.length) {
+    await sendMessage(chatId,
+      `🚫 I won't file this yet — I still need ${bad.join(' and ')}.` + NL + NL +
+      `Please reply with exactly these lines:` + NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
+    return
+  }
+
+  v.missing = (v.missing ?? []).filter((m: string) => !['merchant', 'date', 'amount'].includes(m))
+  await clearPending(chatId, staffFiling ? 'chat' : filer.id)
+  await sendMessage(chatId, `👍 Got it — ${esc(String(v.merchant ?? ''))}${v.date ? ` · ${v.date}` : ''}. Filing it now.`)
   await decideAndFile({
     v, payload, chatId, staffFiling, filer,
     approvalChatId: staffFiling ? (OWNER ? Number(OWNER) : chatId) : chatId,
@@ -1172,13 +1224,14 @@ async function answerShopName(msg: any, p: any): Promise<void> {
 type Pending =
   | { type: 'need_photo'; key: string; record_id?: number | null; what: string; until: number }
   | { type: 'have_photo'; sha256: string; storage_path: string | null; mime: string; size_bytes: number; until: number }
-  // A receipt read from the group with no shop name on it: parked here while the
-  // GROUP is asked which shop it was (owner, 23 Sep: ask there, not in my chat).
-  | { type: 'need_shop'; payload: any; v: any; fileId?: string; isPhoto?: boolean; by: string; until: number }
+  // A receipt with something unreadable on it -- shop, date, total -- parked here
+  // while the GROUP is asked to fill a template (owner, 23 Sep: ask there, not in
+  // my chat, and don't file anything until the reply matches the template).
+  | { type: 'need_fields'; gaps: string[]; payload: any; v: any; fileId?: string; isPhoto?: boolean; by: string; until: number }
 // How long each link stays open. A held photo waits for someone to type (that
 // can take a while); a typed bill waits only briefly for its photo, so the next
 // receipt someone sends later is read and filed as its own, not swallowed as a bill.
-const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_shop: 12 * 3600_000 }
+const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_fields: 12 * 3600_000 }
 const SKIP_PHOTO = /^\s*(no\s*(photo|pic|picture|bill|receipt)|skip|none|tiada|takde|tak\s*ada|ไม่มี)\s*[.!]?\s*$/i
 
 const safeKey = (k: string) => String(k).replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)

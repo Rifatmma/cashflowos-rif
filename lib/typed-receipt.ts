@@ -148,3 +148,20 @@ export const TEMPLATE =
   'Weight: \n' +
   'Quantity: \n' +
   'Price: RM '
+
+/**
+ * Pull labelled header lines out of a reply ("Shop: Pasar Borong / Date: 22/09 /
+ * Total: RM 112.70"). Used when a receipt was unreadable in some field and the
+ * staff are asked to fill a template: anything not in this shape is refused,
+ * rather than guessed at.
+ */
+export function parseLabelled(text: string): { supplier?: string; date?: string; total?: string } {
+  const out: { supplier?: string; date?: string; total?: string } = {}
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const hit = labelOf(line)
+    if (!hit) continue
+    const [key, value] = hit
+    if ((key === 'supplier' || key === 'date' || key === 'total') && value.trim()) out[key] = value.trim()
+  }
+  return out
+}
