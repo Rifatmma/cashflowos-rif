@@ -46,8 +46,12 @@ export const ITEMS: ItemDef[] = [
     aliases: ['daging', 'beef', 'buffalo', 'kerbau', 'carabeef'] },
   { key: 'tongue', name: 'Beef tongue', unit: 'g', sort: 21, fallbackCost: 0.03, bagG: 120,
     aliases: ['lidah', 'tongue'] },
-  { key: 'shrimp', name: 'Shrimp', unit: 'pc', sort: 30, perKg: 38, fallbackCost: 0.75,
+  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 38, fallbackCost: 0.75,
     aliases: ['udang(?! galah)', 'prawn', 'shrimp'] },
+  // Owner, 23 Sep 2026: frozen shrimp is a different item -- it only goes into
+  // fried rice; every other shrimp dish uses fresh. Checked BEFORE 'shrimp'.
+  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 38, fallbackCost: 0.5,
+    aliases: ['(frz|frozen|beku|iqf)[^a-z]*(isi )?(udang|prawn|shrimp)', '(udang|prawn|shrimp)[^a-z]*(frz|frozen|beku|iqf)'] },
   { key: 'galah', name: 'Udang galah', unit: 'pc', sort: 31, perKg: 20, fallbackCost: 3,
     aliases: ['udang galah', 'river prawn', 'galah'] },
   { key: 'crab', name: 'Crab', unit: 'pc', sort: 32, perKg: 6, fallbackCost: 6,
@@ -98,17 +102,24 @@ export type ReceiptLine = {
 
 export type StockIn = { item: string; qty: number; unit_cost: number | null; from: string; note?: string }
 
+// Names the owner has marked "not stock" -- vegetables, sauces, dry goods. Kept
+// under this key in the taught-alias map so the same "this is…" picker can also
+// mean "stop asking me about this one".
+export const IGNORE_KEY = '__ignore'
+
 /** Which stock item a receipt name means, if any. Owner-taught aliases win. */
 export function itemForName(name: string, extraAliases: Record<string, string[]> = {}): string | 'bird' | null {
   const n = ' ' + String(name || '').toLowerCase() + ' '
   // Taught aliases first: an exact "this is…" from the owner beats any guess.
+  if ((extraAliases[IGNORE_KEY] ?? []).some(a => a && n.includes(a.toLowerCase()))) return null
   for (const [key, list] of Object.entries(extraAliases)) {
+    if (key === IGNORE_KEY) continue
     if (list.some(a => a && n.includes(a.toLowerCase()))) return key
   }
   if (WHOLE_BIRD.test(n)) return 'bird'
   if (NOT_STOCK.test(n)) return null
   // Most specific first: "udang galah" must not land on shrimp, "kaki ayam" not on breast.
-  for (const key of ['galah', 'feet', 'tongue', 'breast', 'leg', 'shrimp', 'crab', 'squid', 'mussel', 'lala', 'siakap', 'beef', 'egg', 'rice']) {
+  for (const key of ['galah', 'feet', 'tongue', 'breast', 'leg', 'shrimp_frozen', 'shrimp', 'crab', 'squid', 'mussel', 'lala', 'siakap', 'beef', 'egg', 'rice']) {
     if (ITEM[key].aliases.some(a => new RegExp(a).test(n))) return key
   }
   return null

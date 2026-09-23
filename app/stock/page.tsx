@@ -9,11 +9,11 @@
 // big number box, grams are typed in kg, and nothing needs a laptop.
 import Link from 'next/link'
 import { getRecords } from '@/lib/records'
-import { getItems, getMoves, stockState, wasteBetween, unitCosts } from '@/lib/stock-data'
-import { ITEM, ITEMS, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
+import { getItems, getMoves, stockState, wasteBetween, unitCosts, taughtAliases } from '@/lib/stock-data'
+import { ITEM, ITEMS, IGNORE_KEY, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
 import { addDays, daysBetween, dayLabel, mytDate } from '@/lib/period'
 import ActionForm from './ActionForm'
-import { saveCount, addMove, teachAlias, setMin } from './actions'
+import { saveCount, addMove, teachAlias } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +43,7 @@ export default async function Stock() {
 
   // Receipt lines from the last 30 days that are stock but couldn't be sized,
   // and food lines that matched nothing (candidates for "this is…").
-  const aliases = Object.fromEntries(items.filter(i => i.aliases?.length).map(i => [i.key, i.aliases]))
+  const aliases = await taughtAliases()
   const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -30))
   const unsized = new Map<string, string>()
   const unknownFood = new Set<string>()
@@ -171,20 +171,24 @@ export default async function Stock() {
         </section>
       )}
 
-      {/* ── add / fix ────────────────────────────────────────────────── */}
+      {/* ── waste ────────────────────────────────────────────────────── */}
       <details className="co-card co-fold">
-        <summary><span>Add delivery · log waste · fix</span></summary>
+        <summary><span>Record waste</span><span className="co-dim">food that never reached a customer</span></summary>
         <p className="co-sub" style={{ marginTop: 0 }}>
-          For stock that came without a receipt, a receipt Jarvis read wrong, or food thrown away.
+          A dish cooked wrong, an order cancelled, something spoiled or dropped. Recording it keeps the shelf honest
+          and shows up as the gap between what you bought and what you sold.
         </p>
-        <ActionForm action={addMove} submit="Save">
+        <ActionForm action={addMove} submit="Record it">
+          <input type="hidden" name="kind" value="waste" />
           <label className="st-field"><span>What happened</span>
             <span className="st-input">
-              <select name="kind" defaultValue="purchase">
-                <option value="purchase">Delivery came in</option>
-                <option value="waste">Thrown away / spoiled</option>
-                <option value="add">Fix: add to stock</option>
-                <option value="remove">Fix: take off stock</option>
+              <select name="reason" defaultValue="Cooked wrong">
+                <option>Cooked wrong / order remade</option>
+                <option>Order cancelled</option>
+                <option>Spoiled / expired</option>
+                <option>Dropped or damaged</option>
+                <option>Staff meal</option>
+                <option>Other</option>
               </select>
             </span>
           </label>
@@ -199,21 +203,17 @@ export default async function Stock() {
           <label className="st-field"><span>How much</span>
             <span className="st-input">
               <input type="number" name="amount" inputMode="decimal" step="any" min="0" required />
-              <select name="unit" defaultValue="kg">
+              <select name="unit" defaultValue="bag">
+                <option value="bag">bags</option>
                 <option value="kg">kg</option>
                 <option value="g">g</option>
                 <option value="pc">pcs</option>
                 <option value="fish">fish</option>
-                <option value="bag">bags (80 g breast/beef/octopus · 120 g tongue · 250 g lala)</option>
               </select>
             </span>
           </label>
-          <label className="st-field"><span>Paid (RM, optional)</span>
-            <span className="st-input"><input type="number" name="cost" inputMode="decimal" step="any" min="0" /></span>
-          </label>
-          <label className="st-field"><span>Note</span><span className="st-input"><input type="text" name="note" placeholder="e.g. supplier, reason" /></span></label>
+          <label className="st-field"><span>Note (optional)</span><span className="st-input"><input type="text" name="note" placeholder="e.g. table 4, made spicy by mistake" /></span></label>
           <label className="st-field"><span>Your name</span><span className="st-input"><input type="text" name="by" autoComplete="name" /></span></label>
-          <p className="co-meta">Deliveries by weight lose their trimming automatically (breast 4%, squid 25%, beef 20%).</p>
         </ActionForm>
       </details>
 
@@ -222,7 +222,7 @@ export default async function Stock() {
         <details className="co-card co-fold" id="tofix" open={unsized.size > 0}>
           <summary>
             <span>{unsized.size > 0 ? 'Receipts that didn’t say how much' : 'Receipt lines to check'}</span>
-            <span className="co-dim num">{unsized.size + unknownFood.size}</span>
+            <span className="co-dim num">{unsized.size || unknownFood.size}</span>
           </summary>
           {unsized.size > 0 && (
             <>
@@ -253,13 +253,14 @@ export default async function Stock() {
           {unknownFood.size > 0 && (
             <>
               <details className="st-msize">
-              <summary className="co-dim">{unknownFood.size} other food line{unknownFood.size === 1 ? '' : 's'}: open only if one is actually meat, seafood, eggs or rice</summary>
+              <summary className="co-dim">{unknownFood.size} food line{unknownFood.size === 1 ? '' : 's'} I don&rsquo;t recognise — open only if one is meat, seafood, eggs or rice</summary>
               {[...unknownFood].slice(0, 20).map(name => (
                 <ActionForm key={name} action={teachAlias} submit="Learn" ghost className="st-teach">
                   <input type="hidden" name="text" value={name.toLowerCase().replace(/^\d+\s+/, '').replace(/\s+rm\s.*$/i, '').slice(0, 60)} />
                   <span className="st-teach-name">{name}</span>
                   <select name="item" defaultValue="" required>
                     <option value="" disabled>This is…</option>
+                    <option value={IGNORE_KEY}>Not tracked (veg, sauces, dry goods)</option>
                     {ITEMS.map(i => <option key={i.key} value={i.key}>{i.name}</option>)}
                   </select>
                 </ActionForm>
@@ -270,25 +271,6 @@ export default async function Stock() {
           )}
         </details>
       )}
-
-      {/* ── minimums ─────────────────────────────────────────────────── */}
-      <details className="co-card co-fold">
-        <summary><span>Minimum levels</span><span className="co-dim">for the morning warning</span></summary>
-        <p className="co-sub" style={{ marginTop: 0 }}>
-          Jarvis warns in the 9 am brief when an item drops below its minimum. With no minimum set, he warns at under 2 days left.
-        </p>
-        {state.map(s => (
-          <ActionForm key={s.key} action={setMin} submit="Set" ghost className="st-teach">
-            <input type="hidden" name="item" value={s.key} />
-            <span className="st-teach-name">{s.name}</span>
-            <span className="st-input">
-              <input type="number" name="min" inputMode="decimal" step="any" min="0"
-                defaultValue={s.min === null ? '' : s.unit === 'g' ? s.min / 1000 : s.min} placeholder="auto" />
-              <span className="co-dim">{s.unit === 'g' ? 'kg' : s.unit === 'fish' ? 'fish' : 'pcs'}</span>
-            </span>
-          </ActionForm>
-        ))}
-      </details>
 
       {/* ── history ──────────────────────────────────────────────────── */}
       <details className="co-card co-fold">

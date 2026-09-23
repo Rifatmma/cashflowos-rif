@@ -32,6 +32,7 @@ export type Recipe = {
 export const RICE_G = 110 // per portion; from "a 10 kg bag lasts about RM 2,500 of sales"
 const L = (item: string, qty: number): Line => ({ item, qty })
 const rice = L('rice', RICE_G)
+// Fried rice uses FROZEN shrimp; every other shrimp dish uses fresh (owner, 23 Sep 2026).
 
 type Seed = Omit<Recipe, 'sort'>
 const S = (key: string, label: string, pattern: string, s: Line[], more: Partial<Seed> = {}): Seed =>
@@ -52,14 +53,14 @@ const SEED: Seed[] = [
   S('shrimp-petai', 'Udang masak petai', '(udang|shrimp|prawn).*petai', [L('shrimp', 6)]),
   S('fr-petai', 'Nasi goreng petai', 'petai', [L('leg', 1), rice]),
   S('fr-belacan', 'Nasi goreng belacan', 'nasi goreng belacan|belacan fried rice|nasi kerabu belacan', [L('breast', 80), rice]),
-  S('fr-seafood', 'Seafood fried rice', 'seafood fried rice|nasi goreng seafood', [L('shrimp', 3), L('squid', 40), rice]),
-  S('fr-thai-seafood', 'Thai fried rice, seafood', 'nasi goreng thai|thai fried rice', [L('shrimp', 3), L('squid', 40), rice], { variant: 'seafood|udang|sotong' }),
+  S('fr-seafood', 'Seafood fried rice', 'seafood fried rice|nasi goreng seafood', [L('shrimp_frozen', 3), L('squid', 40), rice]),
+  S('fr-thai-seafood', 'Thai fried rice, seafood', 'nasi goreng thai|thai fried rice', [L('shrimp_frozen', 3), L('squid', 40), rice], { variant: 'seafood|udang|sotong' }),
   S('fr-thai-crab', 'Thai fried rice, crab meat', 'nasi goreng thai|thai fried rice', [rice], { variant: 'crab|ketam' }),
   S('fr-thai', 'Thai fried rice, chicken', 'nasi goreng thai|thai fried rice', [L('leg', 1), rice]),
   S('khao-mok', 'Nasi khao mok', 'khao ?mok|nasi mok', [L('leg', 1), rice]),
   S('katsu', 'Green curry chicken katsu (half breast)', 'katsu', [L('breast', 100), rice]),
   S('nasi-krapao-beef', 'Nasi pad krapao, beef', '^nasi pad kra', [L('beef', 80), L('egg', 1), rice], { variant: 'beef|daging' }),
-  S('nasi-krapao-seafood', 'Nasi pad krapao, seafood', '^nasi pad kra', [L('shrimp', 3), L('squid', 40), L('egg', 1), rice], { variant: 'seafood', guess: true }),
+  S('nasi-krapao-seafood', 'Nasi pad krapao, seafood', '^nasi pad kra', [L('shrimp_frozen', 3), L('squid', 40), L('egg', 1), rice], { variant: 'seafood', guess: true }),
   S('nasi-krapao', 'Nasi pad krapao, chicken', '^nasi pad kra', [L('breast', 80), L('egg', 1), rice]),
 
   // ── noodles ────────────────────────────────────────────────────────────────

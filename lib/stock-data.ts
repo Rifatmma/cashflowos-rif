@@ -73,6 +73,17 @@ export async function getMoves(sinceDays = 400): Promise<Move[]> {
 export const aliasMap = (items: ItemRow[]) =>
   Object.fromEntries(items.filter(i => i.aliases?.length).map(i => [i.key, i.aliases]))
 
+/**
+ * Every taught alias, including the "not stock" list (vegetables, sauces) which
+ * lives on an inactive row so it never shows up as an ingredient.
+ */
+export async function taughtAliases(): Promise<Record<string, string[]>> {
+  if (!supabaseConfigured) return {}
+  await ensureSeeded()
+  const { data } = await supabase.from('stock_items').select('key, aliases')
+  return Object.fromEntries((data ?? []).filter((i: any) => i.aliases?.length).map((i: any) => [i.key, i.aliases]))
+}
+
 // ---------------------------------------------------------------------------
 // The picture of stock the pages and Jarvis read.
 // ---------------------------------------------------------------------------
@@ -213,8 +224,7 @@ export async function importDay(rep: DishReport, by: string, fileName?: string) 
 export async function receiptStockIn(recordId: number | null, lines: ReceiptLine[], by?: string) {
   try {
     if (!supabaseConfigured || !lines?.length) return { added: [], unsized: [] }
-    const items = await getItems()
-    const aliases = aliasMap(items)
+    const aliases = await taughtAliases()
     const rows: any[] = []
     const unsized: string[] = []
     for (const l of lines) {

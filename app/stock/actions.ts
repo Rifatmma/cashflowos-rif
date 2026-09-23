@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
-import { ITEM } from '@/lib/stock-items'
+import { ITEM, IGNORE_KEY } from '@/lib/stock-items'
 import { getItems, getMoves, importDay } from '@/lib/stock-data'
 import { normName } from '@/lib/recipes'
 import { isSalesRow, salesDayOf } from '@/lib/sales'
@@ -61,6 +61,7 @@ export async function addMove(_prev: Result, form: FormData): Promise<Result> {
   if (!def) return { ok: false, message: 'Pick an item.' }
   const kind = String(form.get('kind') || 'purchase')
   if (!['purchase', 'waste', 'add', 'remove'].includes(kind)) return { ok: false, message: 'Pick what happened.' }
+  const reason = String(form.get('reason') || '').trim().slice(0, 60)
   const amount = numOf(form.get('amount'))
   if (amount === null || Number.isNaN(amount) || amount <= 0) return { ok: false, message: 'Type how much.' }
   const unit = String(form.get('unit') || '')
@@ -86,7 +87,8 @@ export async function addMove(_prev: Result, form: FormData): Promise<Result> {
     item: key, qty: sign * q,
     kind: kind === 'add' || kind === 'remove' ? 'correction' : kind,
     unit_cost: kind === 'purchase' && cost && cost > 0 ? cost / q : null,
-    by: who(form), note: String(form.get('note') || '').trim().slice(0, 200) || null,
+    by: who(form),
+    note: [reason, String(form.get('note') || '').trim()].filter(Boolean).join(' — ').slice(0, 200) || null,
   }
   const { error } = await supabase.from('stock_moves').insert(row)
   if (error) return { ok: false, message: error.message }
@@ -103,7 +105,23 @@ export async function teachAlias(_prev: Result, form: FormData): Promise<Result>
   if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
   const key = String(form.get('item') || '')
   const text = String(form.get('text') || '').trim().toLowerCase().slice(0, 80)
-  if (!ITEM[key] || !text) return { ok: false, message: 'Pick an item.' }
+  // IGNORE_KEY = "not stock" (vegetables, sauces, dry goods): learned the same
+  // way, so the line is never asked about again.
+  if ((key !== IGNORE_KEY && !ITEM[key]) || !text) return { ok: false, message: 'Pick an item.' }
+  if (key === IGNORE_KEY) {
+    const { data: row } = await supabase.from('stock_items').select('aliases').eq('key', IGNORE_KEY).maybeSingle()
+    if (!row) {
+      const { error } = await supabase.from('stock_items').insert({
+        key: IGNORE_KEY, name: 'Not tracked (veg, sauces, dry goods)', unit: 'g', sort: 999, active: false, aliases: [text],
+      })
+      if (error) return { ok: false, message: error.message }
+    } else if (!(row.aliases ?? []).includes(text)) {
+      const { error } = await supabase.from('stock_items').update({ aliases: [...(row.aliases ?? []), text] }).eq('key', IGNORE_KEY)
+      if (error) return { ok: false, message: error.message }
+    }
+    refresh()
+    return { ok: true, message: 'Noted — I will not ask about that one again.' }
+  }
   const items = await getItems()
   const clash = items.find(i => i.key !== key && i.aliases?.includes(text))
   if (clash) return { ok: false, message: `"${text}" is already taught as ${clash.name}. Remove it there first.` }
@@ -115,19 +133,9 @@ export async function teachAlias(_prev: Result, form: FormData): Promise<Result>
   return { ok: true, message: `Learned: "${text}" is ${it.name}. Applies to receipts from now on.` }
 }
 
-export async function setMin(_prev: Result, form: FormData): Promise<Result> {
-  if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
-  const key = String(form.get('item') || '')
-  const def = ITEM[key]
-  if (!def) return { ok: false, message: 'Pick an item.' }
-  const v = numOf(form.get('min'))
-  if (v !== null && (Number.isNaN(v) || v < 0)) return { ok: false, message: 'Type a number, or leave it empty.' }
-  const min = v === null ? null : def.unit === 'g' ? v * 1000 : v
-  const { error } = await supabase.from('stock_items').update({ min_level: min }).eq('key', key)
-  if (error) return { ok: false, message: error.message }
-  refresh()
-  return { ok: true, message: 'Saved.' }
-}
+// setMin used to live here. Removed 23 Sep 2026: the owner shouldn't have to
+// configure a minimum per ingredient. Low = under 2 days at the current pace,
+// worked out from the last 7 trading days.
 
 // ---------------------------------------------------------------------------
 // Recipes
