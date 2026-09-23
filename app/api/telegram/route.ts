@@ -1299,6 +1299,8 @@ async function answerAmount(msg: any, p: any): Promise<void> {
   form.set('amount', String(n))
   form.set('unit', unit)
   form.set('note', `From receipt line: ${line.name}`)
+  form.set('line', line.name)              // closes it on the Stock page too
+  if (p.record_id) form.set('record_id', String(p.record_id))
   form.set('by', filer.name)
   const res = await addMove(null, form)
 

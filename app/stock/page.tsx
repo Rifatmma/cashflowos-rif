@@ -13,7 +13,7 @@ import { getItems, getMoves, stockState, wasteBetween, unitCosts, taughtAliases 
 import { ITEM, ITEMS, IGNORE_KEY, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
 import { addDays, daysBetween, dayLabel, mytDate } from '@/lib/period'
 import ActionForm from './ActionForm'
-import { saveCount, addMove, teachAlias, ignoreAll } from './actions'
+import { saveCount, addMove, teachAlias, ignoreAll, skipLine } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,24 +50,26 @@ export default async function Stock() {
   // on this list after he had answered them (23 Sep 2026).
   const ignored = (aliases[IGNORE_KEY] ?? []).map(a => a.toLowerCase())
   const isIgnored = (name: string) => ignored.some(a => a && name.toLowerCase().includes(a))
-  // Only the last week: an amount nobody filled in days ago is not worth asking
-  // about -- by then the receipt is gone and the count fixes it faster (owner,
-  // 23 Sep 2026: "I don't have the image, am I supposed to track that?").
-  const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -7))
+  // Every receipt line still waiting for an amount stays here until someone
+  // answers it or closes it -- staff may never reply in the chat, and the owner
+  // will not be reading the chat all day (owner, 23 Sep 2026). 60 days is plenty.
+  const resolved = new Set(moves.filter(m => m.meta?.resolved_line).map(m => String(m.meta.resolved_line)))
+  const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -60))
   const unsized = new Map<string, { item: string; recordId: number; from: string; when: string; total: number }>()
   const unknownFood = new Set<string>()
   for (const r of recent) {
     for (const l of (Array.isArray(r.meta?.items) ? r.meta.items : []) as ReceiptLine[]) {
       if (!l?.name) continue
       const got = stockFromLine(l, aliases)
-      if (!Array.isArray(got)) unsized.set(l.name, {
-        item: got.item,
-        recordId: r.id,
-        from: String(r.meta?.merchant || r.title),
-        when: String(r.due_date || r.created_at.slice(0, 10)),
-        total: Number(r.amount || 0),
-      })
-      else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) &&
+      if (!Array.isArray(got)) {
+        if (!resolved.has(l.name)) unsized.set(l.name, {
+          item: got.item,
+          recordId: r.id,
+          from: String(r.meta?.merchant || r.title),
+          when: String(r.due_date || r.created_at.slice(0, 10)),
+          total: Number(r.amount || 0),
+        })
+      } else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) &&
         !DRY_GOODS.test(l.name) && !isIgnored(l.name)) unknownFood.add(l.name)
     }
   }
@@ -233,6 +235,12 @@ export default async function Stock() {
       </details>
 
       {/* ── receipts that need a human ───────────────────────────────── */}
+      {unsized.size > 0 && (
+        <div className="co-needs" role="status" style={{ marginTop: 12 }}>
+          <span aria-hidden="true">●</span>
+          <a href="#tofix">{unsized.size} item{unsized.size === 1 ? '' : 's'} waiting for a quantity</a>
+        </div>
+      )}
       {(unsized.size > 0 || unknownFood.size > 0) && (
         <details className="co-card co-fold" id="tofix" open={unsized.size > 0}>
           <summary>
@@ -242,19 +250,20 @@ export default async function Stock() {
           {unsized.size > 0 && (
             <>
               <p className="co-sub" style={{ marginTop: 0 }}>
-                The receipt printed no weight or count, so Jarvis asked in the chat when it arrived. Still unanswered
-                from the last week &mdash; fill it in if you can still see the receipt, or leave it and correct the
-                figure by counting instead.
+                The receipt printed no weight or count. Jarvis asks in the chat when it arrives; anything nobody
+                answered waits here until you fill it in or close it. Open the receipt to check what it says.
               </p>
               {[...unsized].map(([name, u]) => (
                 <ActionForm key={name} action={addMove} submit="Add" ghost className="st-teach">
                   <input type="hidden" name="kind" value="purchase" />
                   <input type="hidden" name="item" value={u.item === 'bird' ? 'leg' : u.item} />
                   <input type="hidden" name="note" value={`From receipt line: ${name}`.slice(0, 200)} />
+                  <input type="hidden" name="line" value={name} />
+                  <input type="hidden" name="record_id" value={u.recordId} />
                   <span className="st-teach-name">{name}
                     <span className="co-dim"> &middot; {u.item === 'bird' ? 'whole chicken' : ITEM[u.item]?.name}</span>
                     <span className="co-meta">{displayShop(u.from)} &middot; {dayLabel(u.when, today)} &middot; {money2(u.total)} &middot;{' '}
-                      <Link href={`/vault#r-${u.recordId}`}>see the receipt</Link></span>
+                      <Link href={`/vault/${u.recordId}`}>see the receipt</Link></span>
                   </span>
                   <span className="st-input">
                     <input type="number" name="amount" inputMode="decimal" step="any" min="0" required aria-label={`How much ${name}`} />
@@ -268,6 +277,16 @@ export default async function Stock() {
                   </span>
                 </ActionForm>
               ))}
+              <div className="st-skips">
+                {[...unsized].map(([name, u]) => (
+                  <ActionForm key={'skip-' + name} action={skipLine} submit={`Not needed: ${name.slice(0, 22)}${name.length > 22 ? '…' : ''}`} ghost>
+                    <input type="hidden" name="line" value={name} />
+                    <input type="hidden" name="item" value={u.item === 'bird' ? 'leg' : u.item} />
+                    <input type="hidden" name="record_id" value={u.recordId} />
+                    <span />
+                  </ActionForm>
+                ))}
+              </div>
             </>
           )}
           {unknownFood.size > 0 && (

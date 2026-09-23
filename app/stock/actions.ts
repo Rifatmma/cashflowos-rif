@@ -83,12 +83,17 @@ export async function addMove(_prev: Result, form: FormData): Promise<Result> {
   if (unit !== 'bag') q *= usable
 
   const sign = kind === 'waste' || kind === 'remove' ? -1 : 1
+  // When this answers a receipt line whose amount could not be read, say WHICH
+  // line -- that is what takes it off the "waiting for an amount" list.
+  const line = String(form.get('line') || '').trim().slice(0, 120)
+  const recordId = Number(form.get('record_id'))
   const row = {
     item: key, qty: sign * q,
     kind: kind === 'add' || kind === 'remove' ? 'correction' : kind,
     unit_cost: kind === 'purchase' && cost && cost > 0 ? cost / q : null,
     by: who(form),
     note: [reason, String(form.get('note') || '').trim()].filter(Boolean).join(' — ').slice(0, 200) || null,
+    meta: line ? { resolved_line: line, ...(Number.isFinite(recordId) ? { record_id: recordId } : {}) } : {},
   }
   const { error } = await supabase.from('stock_moves').insert(row)
   if (error) return { ok: false, message: error.message }
@@ -146,6 +151,22 @@ export async function ignoreAll(_prev: Result, form: FormData): Promise<Result> 
   if (error) return { ok: false, message: error.message }
   refresh()
   return { ok: true, message: `Done — ${names.length} name${names.length === 1 ? '' : 's'} marked not tracked. I will not ask about them again.` }
+}
+
+/** "Not needed" on a line waiting for an amount: closes it, adds no stock. */
+export async function skipLine(_prev: Result, form: FormData): Promise<Result> {
+  if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
+  const line = String(form.get('line') || '').trim().slice(0, 120)
+  const key = String(form.get('item') || '')
+  if (!line || !ITEM[key]) return { ok: false, message: 'Nothing to close.' }
+  const recordId = Number(form.get('record_id'))
+  const { error } = await supabase.from('stock_moves').insert({
+    item: key, qty: 0, kind: 'correction', by: who(form), note: 'No amount needed for this line',
+    meta: { resolved_line: line, skipped: true, ...(Number.isFinite(recordId) ? { record_id: recordId } : {}) },
+  })
+  if (error) return { ok: false, message: error.message }
+  refresh()
+  return { ok: true, message: 'Closed — it will not be asked about again.' }
 }
 
 // setMin used to live here. Removed 23 Sep 2026: the owner shouldn't have to

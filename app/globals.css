@@ -659,3 +659,6 @@ code {
 .rf .rf-missing { border-color: var(--bad); }
 .rf-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .rf-btns .btn { min-height: 40px; }
+.st-skips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.st-skips .btn { font-size: 12px; padding: 6px 10px; min-height: 34px; }
+.rcpt-img { display: block; width: 100%; height: auto; border-radius: 12px; }
