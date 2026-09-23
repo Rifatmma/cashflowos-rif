@@ -1549,8 +1549,11 @@ async function importSalesFile(msg: any): Promise<void> {
   try {
     rep = parseDishReport(await readReportRows(bytes, name, String(msg.document?.mime_type || '')), name)
   } catch (e: any) {
+    // Every failure says something AND is written to memory, so a file can never
+    // again disappear without trace (23 Sep 2026).
     await say(e instanceof ReportError ? `📊 ${esc(e.message)}` :
-      '📊 I couldn\'t read that file. Is it the EasyEat <b>Dish Report Over Time</b>, exported as CSV or Excel?')
+      `📊 I couldn't read <b>${esc(name)}</b> as a sales report. From EasyEat: Reports → ` +
+      `<b>Dish Report Over Time</b> → one day → Excel or CSV. You can also upload it on the Cash In tab.`)
     return
   }
   // No date in the file or its name: take one from the caption ("21/09").
