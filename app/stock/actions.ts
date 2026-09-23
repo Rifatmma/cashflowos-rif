@@ -133,6 +133,21 @@ export async function teachAlias(_prev: Result, form: FormData): Promise<Result>
   return { ok: true, message: `Learned: "${text}" is ${it.name}. Applies to receipts from now on.` }
 }
 
+/** "None of these are stock" -- learn a whole list of names at once. */
+export async function ignoreAll(_prev: Result, form: FormData): Promise<Result> {
+  if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
+  const names = String(form.get('names') || '').split(String.fromCharCode(10)).map(n => n.trim().toLowerCase().slice(0, 80)).filter(Boolean)
+  if (!names.length) return { ok: false, message: 'Nothing to learn.' }
+  const { data: row } = await supabase.from('stock_items').select('aliases').eq('key', IGNORE_KEY).maybeSingle()
+  const merged = [...new Set([...(row?.aliases ?? []), ...names])]
+  const { error } = row
+    ? await supabase.from('stock_items').update({ aliases: merged }).eq('key', IGNORE_KEY)
+    : await supabase.from('stock_items').insert({ key: IGNORE_KEY, name: 'Not tracked (veg, sauces, dry goods)', unit: 'g', sort: 999, active: false, aliases: merged })
+  if (error) return { ok: false, message: error.message }
+  refresh()
+  return { ok: true, message: `Done — ${names.length} name${names.length === 1 ? '' : 's'} marked not tracked. I will not ask about them again.` }
+}
+
 // setMin used to live here. Removed 23 Sep 2026: the owner shouldn't have to
 // configure a minimum per ingredient. Low = under 2 days at the current pace,
 // worked out from the last 7 trading days.

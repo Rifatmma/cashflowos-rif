@@ -96,7 +96,7 @@ export default async function Vault() {
       ) : (
         <div className="vgrid">
           {cards.map(c => (
-            <div className="vcard" key={c.id}>
+            <div className="vcard" key={c.id} id={c.record_id ? `r-${c.record_id}` : `f-${c.id}`}>
               {c.url && c.isImage ? (
                 // Signed image → show the thumbnail. Opens the full file in a new tab.
                 <a href={c.url} target="_blank" rel="noopener noreferrer" className="vthumb">

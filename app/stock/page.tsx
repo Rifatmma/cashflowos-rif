@@ -13,7 +13,7 @@ import { getItems, getMoves, stockState, wasteBetween, unitCosts, taughtAliases 
 import { ITEM, ITEMS, IGNORE_KEY, fmtQty, itemForName, stockFromLine, type ReceiptLine } from '@/lib/stock-items'
 import { addDays, daysBetween, dayLabel, mytDate } from '@/lib/period'
 import ActionForm from './ActionForm'
-import { saveCount, addMove, teachAlias } from './actions'
+import { saveCount, addMove, teachAlias, ignoreAll } from './actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,11 +45,16 @@ export default async function Stock() {
   // Receipt lines from the last 30 days that are stock but couldn't be sized,
   // and food lines that matched nothing (candidates for "this is…").
   const aliases = await taughtAliases()
+  // Lines the owner has already marked "not tracked" must never be asked about
+  // again -- they read as "unknown" otherwise, which is what kept 20 vegetables
+  // on this list after he had answered them (23 Sep 2026).
+  const ignored = (aliases[IGNORE_KEY] ?? []).map(a => a.toLowerCase())
+  const isIgnored = (name: string) => ignored.some(a => a && name.toLowerCase().includes(a))
   // Only the last week: an amount nobody filled in days ago is not worth asking
   // about -- by then the receipt is gone and the count fixes it faster (owner,
   // 23 Sep 2026: "I don't have the image, am I supposed to track that?").
   const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -7))
-  const unsized = new Map<string, { item: string; from: string; when: string; total: number }>()
+  const unsized = new Map<string, { item: string; recordId: number; from: string; when: string; total: number }>()
   const unknownFood = new Set<string>()
   for (const r of recent) {
     for (const l of (Array.isArray(r.meta?.items) ? r.meta.items : []) as ReceiptLine[]) {
@@ -57,11 +62,13 @@ export default async function Stock() {
       const got = stockFromLine(l, aliases)
       if (!Array.isArray(got)) unsized.set(l.name, {
         item: got.item,
+        recordId: r.id,
         from: String(r.meta?.merchant || r.title),
         when: String(r.due_date || r.created_at.slice(0, 10)),
         total: Number(r.amount || 0),
       })
-      else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) && !DRY_GOODS.test(l.name)) unknownFood.add(l.name)
+      else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) &&
+        !DRY_GOODS.test(l.name) && !isIgnored(l.name)) unknownFood.add(l.name)
     }
   }
 
@@ -247,7 +254,7 @@ export default async function Stock() {
                   <span className="st-teach-name">{name}
                     <span className="co-dim"> &middot; {u.item === 'bird' ? 'whole chicken' : ITEM[u.item]?.name}</span>
                     <span className="co-meta">{displayShop(u.from)} &middot; {dayLabel(u.when, today)} &middot; {money2(u.total)} &middot;{' '}
-                      <Link href="/vault">see the receipt</Link></span>
+                      <Link href={`/vault#r-${u.recordId}`}>see the receipt</Link></span>
                   </span>
                   <span className="st-input">
                     <input type="number" name="amount" inputMode="decimal" step="any" min="0" required aria-label={`How much ${name}`} />
@@ -265,6 +272,10 @@ export default async function Stock() {
           )}
           {unknownFood.size > 0 && (
             <>
+              <ActionForm action={ignoreAll} submit={`None of these are stock — stop asking (${unknownFood.size})`} ghost>
+                <input type="hidden" name="names" value={[...unknownFood].join(String.fromCharCode(10))} />
+                <span />
+              </ActionForm>
               <details className="st-msize">
               <summary className="co-dim">{unknownFood.size} food line{unknownFood.size === 1 ? '' : 's'} I don&rsquo;t recognise — open only if one is meat, seafood, eggs or rice</summary>
               {[...unknownFood].slice(0, 20).map(name => (
