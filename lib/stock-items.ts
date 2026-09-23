@@ -107,6 +107,9 @@ export type StockIn = { item: string; qty: number; unit_cost: number | null; fro
 // mean "stop asking me about this one".
 export const IGNORE_KEY = '__ignore'
 
+const FROZEN = /(^|[^a-z])(frz|fzn|frozen|beku|iqf)([^a-z]|$)/
+const SHRIMP_WORD = /(udang|prawn|shrimp)/
+
 /** Which stock item a receipt name means, if any. Owner-taught aliases win. */
 export function itemForName(name: string, extraAliases: Record<string, string[]> = {}): string | 'bird' | null {
   const n = ' ' + String(name || '').toLowerCase() + ' '
@@ -118,6 +121,11 @@ export function itemForName(name: string, extraAliases: Record<string, string[]>
   }
   if (WHOLE_BIRD.test(n)) return 'bird'
   if (NOT_STOCK.test(n)) return null
+  // Frozen shrimp, checked on its own. On a supplier line the frozen marker and
+  // the shrimp word sit at opposite ends -- "FRZ SHUDANG PRAWN SIZE 41/50 IQF
+  // 1KG JPK" -- so an alias that wants them side by side misses it and the bag
+  // lands in fresh shrimp (owner, 23 Sep 2026). Udang galah is never frozen stock.
+  if (FROZEN.test(n) && SHRIMP_WORD.test(n) && !/galah/.test(n)) return 'shrimp_frozen'
   // Most specific first: "udang galah" must not land on shrimp, "kaki ayam" not on breast.
   for (const key of ['galah', 'feet', 'tongue', 'breast', 'leg', 'shrimp_frozen', 'shrimp', 'crab', 'squid', 'mussel', 'lala', 'siakap', 'beef', 'egg', 'rice']) {
     if (ITEM[key].aliases.some(a => new RegExp(a).test(n))) return key
