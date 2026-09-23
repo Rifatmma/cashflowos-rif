@@ -19,6 +19,8 @@ import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
 import { hasOpenQuestion, applyAnswer } from '@/lib/email-payments'
+import { taughtAliases } from '@/lib/stock-data'
+import { addMove } from '@/app/stock/actions'
 import { parseAnswer, looksLikeAnswer, plainAnswer } from '@/lib/payment-answer'
 import { importDay, getItems, getMoves, unitCosts, costOfUse } from '@/lib/stock-data'
 import { type SupplierRule } from '@/lib/supplier-rules'
@@ -447,10 +449,13 @@ async function handleMessage(msg: any): Promise<Response> {
   const looksLikeAttempt = !!typedText && !typedText.startsWith('/') && !SKIP_PHOTO.test(typedText) &&
     (/(shop|kedai|supplier|pembekal|ร้าน|date|tarikh|วันที่|total|jumlah|รวม|rm\s*\d)/i.test(typedText) ||
       (typedText.split(NL).length === 1 && typedText.trim().length <= 60))
-  const fieldsWaiting = looksLikeAttempt && !isTyped
+  const waiting = typedText && !isTyped
     ? await getPending(chatId, isGroupChat(msg.chat) ? 'chat' : filedBy(msg).id) : null
-  const fieldsAnswer = fieldsWaiting?.type === 'need_fields' ? fieldsWaiting : null
-  const staffFields = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!fieldsAnswer
+  const fieldsAnswer = waiting?.type === 'need_fields' && looksLikeAttempt ? waiting : null
+  // "2 kg" answering "how much came in?" -- a bare amount, nothing else.
+  const isAmountReply = /^\s*[\d.,]+\s*(kg|kilo|g|gram|pcs?|pieces?|biji|ekor|bags?|fish|ikan)?\s*\.?\s*$/i.test(typedText)
+  const amountAnswer = waiting?.type === 'need_amount' && (isAmountReply || SKIP_PHOTO.test(typedText)) ? waiting : null
+  const staffFields = isGroupChat(msg.chat) && isReceiptChat(chatId) && (!!fieldsAnswer || !!amountAnswer)
 
   if (isGroupChat(msg.chat)) {
     // A receipt dropped in the designated group needs no @mention and no
@@ -508,6 +513,17 @@ async function handleMessage(msg: any): Promise<Response> {
     // Nothing waiting: say nothing. It came in through the receipts letterbox,
     // which must never open onto questions about the books.
     if (staffSkip) return Response.json({ ok: true, ignored: 'skip: nothing pending' })
+  }
+
+  // "2 kg" for a receipt line whose amount wasn't printed.
+  if (amountAnswer) {
+    if (SKIP_PHOTO.test(typedText)) {
+      await clearPending(chatId, isGroupChat(msg.chat) ? 'chat' : filedBy(msg).id)
+      await sendMessage(chatId, '👍 Left it — the stock figure for that one stays as it is.')
+      return Response.json({ ok: true })
+    }
+    after(() => answerAmount(msg, amountAnswer).catch(e => console.error('[CFO] amount answer threw:', e)))
+    return Response.json({ ok: true })
   }
 
   // The filled-in template for a receipt that was missing something.
@@ -1179,8 +1195,9 @@ async function decideAndFile(a: {
     }
     const what = `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
       `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
+    const ask = await askAmounts(chatId, staffFiling ? 'chat' : filer.id, payload.items, (done.result as any)?.record_id ?? null)
     if (staffFiling) {
-      await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${FIX_HINT_STAFF}`)
+      await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${ask}${FIX_HINT_STAFF}`)
       await remember(chatId, `[${filer.name} filed a receipt]`, `Filed ${what} as record #${done.row.id}.${detail}`)
       if (OWNER) {
         await remember(OWNER, `[${filer.name} filed a receipt in the group]`, `Filed ${what} as record #${done.row.id}.${detail}`)
@@ -1191,7 +1208,7 @@ async function decideAndFile(a: {
           `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
       }
     } else {
-      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}
+      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${ask}
 
 Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
       await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${done.row.id}.${detail}`)
@@ -1226,6 +1243,74 @@ Sent by ${esc(filer.name)} in the receipts group.` : '')
     await sendMessage(chatId, `📸 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.`)
   } else if (!row) {
     await sendMessage(chatId, '📁 Already waiting on your YES for this one — check the buttons above.')
+  }
+}
+
+/**
+ * A receipt line that IS tracked stock but printed no weight or count. Ask right
+ * here, right now -- the photo is three messages up. Returns the question to
+ * append, or ''. (Owner, 23 Sep 2026: asking days later on a web page, with no
+ * receipt to look at, is unanswerable.)
+ */
+async function askAmounts(chatId: any, who: string, items: any[], recordId: number | null): Promise<string> {
+  try {
+    if (!Array.isArray(items) || !items.length) return ''
+    const aliases = await taughtAliases()
+    const lines: { name: string; item: string }[] = []
+    for (const l of items) {
+      if (!l?.name) continue
+      const got = stockFromLine(l, aliases)
+      if (!Array.isArray(got)) lines.push({ name: String(l.name), item: got.item })
+    }
+    if (!lines.length) return ''
+    await setPending(chatId, who, { type: 'need_amount', lines, record_id: recordId })
+    const first = lines[0]
+    const label = first.item === 'bird' ? 'whole chicken' : ITEM[first.item]?.name ?? first.item
+    const unit = first.item === 'bird' || ITEM[first.item]?.unit === 'g' ? 'kg' : ITEM[first.item]?.unit === 'fish' ? 'fish' : 'pcs'
+    return NL + NL + `📦 How much <b>${esc(first.name)}</b> (${esc(label)}) came in? The receipt doesn't say. ` +
+      `Reply like <code>2 ${unit}</code>${lines.length > 1 ? ` — there ${lines.length === 2 ? 'is 1 more' : `are ${lines.length - 1} more`} after this` : ''}. ` +
+      `<i>Or ignore this; it only changes the stock figure, not the money.</i>`
+  } catch { return '' }
+}
+
+/** "2 kg" / "3 pcs" / "1.5" answering the question above. */
+async function answerAmount(msg: any, p: any): Promise<void> {
+  const chatId = msg.chat?.id
+  const filer = filedBy(msg)
+  const staffFiling = isGroupChat(msg.chat) && isReceiptChat(chatId)
+  const who = staffFiling ? 'chat' : filer.id
+  const line = p.lines?.[0]
+  if (!line) { await clearPending(chatId, who); return }
+
+  const m = String(msg.text || '').trim().match(/^([\d.,]+)\s*(kg|kilo|g|gram|pcs?|pieces?|biji|ekor|bags?|fish|ikan)?\.?$/i)
+  const n = m ? Number(m[1].replace(/,/g, '')) : NaN
+  if (!Number.isFinite(n) || n <= 0) {
+    await sendMessage(chatId, `I need it like <code>2 kg</code> or <code>3 pcs</code> — or say <i>skip</i> and I'll leave it.`)
+    return
+  }
+  const word = (m?.[2] ?? '').toLowerCase()
+  const unit = /^(kg|kilo)$/.test(word) ? 'kg' : /^(g|gram)$/.test(word) ? 'g'
+    : /^bags?$/.test(word) ? 'bag' : /^(fish|ikan)$/.test(word) ? 'fish'
+    : word ? 'pc' : (line.item === 'bird' || ITEM[line.item]?.unit === 'g' ? 'kg' : ITEM[line.item]?.unit === 'fish' ? 'fish' : 'pc')
+
+  const form = new FormData()
+  form.set('kind', 'purchase')
+  form.set('item', line.item === 'bird' ? 'leg' : line.item)
+  form.set('amount', String(n))
+  form.set('unit', unit)
+  form.set('note', `From receipt line: ${line.name}`)
+  form.set('by', filer.name)
+  const res = await addMove(null, form)
+
+  const rest = (p.lines ?? []).slice(1)
+  if (rest.length) {
+    await setPending(chatId, who, { type: 'need_amount', lines: rest, record_id: p.record_id })
+    const nx = rest[0]
+    const label = nx.item === 'bird' ? 'whole chicken' : ITEM[nx.item]?.name ?? nx.item
+    await sendMessage(chatId, `${res?.ok ? '✅' : '⚠️'} ${res?.message ?? ''}${NL}📦 And <b>${esc(nx.name)}</b> (${esc(label)})?`)
+  } else {
+    await clearPending(chatId, who)
+    await sendMessage(chatId, res?.ok ? `✅ On the shelf — thanks ${esc(filer.name)}.` : `⚠️ ${esc(res?.message ?? 'could not save that')}`)
   }
 }
 
@@ -1308,11 +1393,14 @@ type Pending =
   // A receipt with something unreadable on it -- shop, date, total -- parked here
   // while the GROUP is asked to fill a template (owner, 23 Sep: ask there, not in
   // my chat, and don't file anything until the reply matches the template).
+  // A filed receipt whose line is tracked stock but printed no weight/count:
+  // asked AT THE MOMENT OF FILING, while the photo is still in the chat.
+  | { type: 'need_amount'; lines: { name: string; item: string }[]; record_id: number | null; until: number }
   | { type: 'need_fields'; gaps: string[]; payload: any; v: any; fileId?: string; isPhoto?: boolean; by: string; until: number }
 // How long each link stays open. A held photo waits for someone to type (that
 // can take a while); a typed bill waits only briefly for its photo, so the next
 // receipt someone sends later is read and filed as its own, not swallowed as a bill.
-const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_fields: 12 * 3600_000 }
+const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_fields: 12 * 3600_000, need_amount: 2 * 3600_000 }
 const SKIP_PHOTO = /^\s*(no\s*(photo|pic|picture|bill|receipt)|skip|none|tiada|takde|tak\s*ada|ไม่มี)\s*[.!]?\s*$/i
 
 const safeKey = (k: string) => String(k).replace(/[^a-z0-9_-]/gi, '_').slice(0, 80)

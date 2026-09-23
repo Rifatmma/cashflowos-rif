@@ -23,6 +23,7 @@ const costLabel = (c: number, unit: string) =>
 // Groceries that are obviously not meat, seafood, eggs or rice: never offered
 // for "this is…", or the list becomes sugar and cooking oil every week.
 const DRY_GOODS = /(gula|sugar|minyak|oil|tepung|flour|susu|milk|krimer|creamer|sauce|sos|kicap|mush|cendawan|margarin|butter|milo|kopi|coffee|nescafe|teh|tea|garam|salt|ajinomoto|perasa|stok|stock|knorr|dipping|cili|chili|bawang|onion|garlic|halia|serai|limau|lime|santan|coconut|beg|bag|tisu|tissue|sabun|soap)/i
+const displayShop = (raw: string) => String(raw || '').replace(/\s*\(.*$/, '').replace(/(sdn\.?\s*bhd\.?|berhad)/gi, '').trim().slice(0, 28)
 const KIND: Record<string, string> = { purchase: 'Bought', sale: 'Sold', count: 'Count', waste: 'Wasted', correction: 'Fixed' }
 
 export default async function Stock() {
@@ -44,14 +45,22 @@ export default async function Stock() {
   // Receipt lines from the last 30 days that are stock but couldn't be sized,
   // and food lines that matched nothing (candidates for "this is…").
   const aliases = await taughtAliases()
-  const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -30))
-  const unsized = new Map<string, string>()
+  // Only the last week: an amount nobody filled in days ago is not worth asking
+  // about -- by then the receipt is gone and the count fixes it faster (owner,
+  // 23 Sep 2026: "I don't have the image, am I supposed to track that?").
+  const recent = all.filter(r => r.category === 'cash_out' && (r.due_date || r.created_at.slice(0, 10)) >= addDays(today, -7))
+  const unsized = new Map<string, { item: string; from: string; when: string; total: number }>()
   const unknownFood = new Set<string>()
   for (const r of recent) {
     for (const l of (Array.isArray(r.meta?.items) ? r.meta.items : []) as ReceiptLine[]) {
       if (!l?.name) continue
       const got = stockFromLine(l, aliases)
-      if (!Array.isArray(got)) unsized.set(l.name, got.item)
+      if (!Array.isArray(got)) unsized.set(l.name, {
+        item: got.item,
+        from: String(r.meta?.merchant || r.title),
+        when: String(r.due_date || r.created_at.slice(0, 10)),
+        total: Number(r.amount || 0),
+      })
       else if (!got.length && l.expense_type === 'cogs_food' && !itemForName(l.name, aliases) && !DRY_GOODS.test(l.name)) unknownFood.add(l.name)
     }
   }
@@ -66,11 +75,10 @@ export default async function Stock() {
         <Link href="/stock/recipes" className="co-dim">Recipes →</Link>
       </div>
 
-      {(low.length > 0 || unsized.size > 0) && (
+      {low.length > 0 && (
         <div className="co-needs" role="status">
           <span aria-hidden="true">●</span>
-          {low.length > 0 && <a href="#onhand">{low.length} running low</a>}
-          {unsized.size > 0 && <a href="#tofix">{unsized.size} receipt line{unsized.size === 1 ? '' : 's'} with no amount</a>}
+          <a href="#onhand">{low.length} running low</a>
         </div>
       )}
 
@@ -227,18 +235,23 @@ export default async function Stock() {
           {unsized.size > 0 && (
             <>
               <p className="co-sub" style={{ marginTop: 0 }}>
-                These are stock, but the receipt printed no weight or count. Type how much came in and it goes straight
-                onto the shelf &mdash; this is the only counting you have to do.
+                The receipt printed no weight or count, so Jarvis asked in the chat when it arrived. Still unanswered
+                from the last week &mdash; fill it in if you can still see the receipt, or leave it and correct the
+                figure by counting instead.
               </p>
-              {[...unsized].map(([name, item]) => (
+              {[...unsized].map(([name, u]) => (
                 <ActionForm key={name} action={addMove} submit="Add" ghost className="st-teach">
                   <input type="hidden" name="kind" value="purchase" />
-                  <input type="hidden" name="item" value={item === 'bird' ? 'leg' : item} />
+                  <input type="hidden" name="item" value={u.item === 'bird' ? 'leg' : u.item} />
                   <input type="hidden" name="note" value={`From receipt line: ${name}`.slice(0, 200)} />
-                  <span className="st-teach-name">{name}<span className="co-dim"> &middot; {item === 'bird' ? 'whole chicken' : ITEM[item]?.name}</span></span>
+                  <span className="st-teach-name">{name}
+                    <span className="co-dim"> &middot; {u.item === 'bird' ? 'whole chicken' : ITEM[u.item]?.name}</span>
+                    <span className="co-meta">{displayShop(u.from)} &middot; {dayLabel(u.when, today)} &middot; {money2(u.total)} &middot;{' '}
+                      <Link href="/vault">see the receipt</Link></span>
+                  </span>
                   <span className="st-input">
                     <input type="number" name="amount" inputMode="decimal" step="any" min="0" required aria-label={`How much ${name}`} />
-                    <select name="unit" defaultValue={item !== 'bird' && ITEM[item]?.unit === 'pc' ? 'pc' : 'kg'} aria-label="unit">
+                    <select name="unit" defaultValue={u.item !== 'bird' && ITEM[u.item]?.unit === 'pc' ? 'pc' : 'kg'} aria-label="unit">
                       <option value="kg">kg</option>
                       <option value="g">g</option>
                       <option value="pc">pcs</option>
