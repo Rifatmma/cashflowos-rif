@@ -74,3 +74,32 @@ export function replyIntent(text: string): ReplyIntent {
   if (no) return 'reject'
   return null
 }
+
+// "Approved, shop name is Pasar Borong Selangor" -- a YES with a fact attached.
+// replyIntent() alone returns null for it (too many words), which sent it to the
+// language model, and on 23 Sep the model ANNOUNCED a filing that never happened.
+// So: recognise the yes, and hand back the rest for the caller to apply after the
+// card is approved. Still strict -- a "but", a "not" or a digit means it is a
+// correction, not an approval, and it goes back to conversation.
+const SHOP_LEAD = /^(the\s+)?(shop|store|kedai|supplier|pembekal|merchant|market|pasar)(\s*(name|nama))?\s*(is|was|=|:|ialah|adalah)?\s*/i
+const FROM_LEAD = /^(from|dari|at|di)\s+/i
+
+export function approveWithInfo(text: string): { info: string } | null {
+  const raw = String(text ?? '').trim()
+  if (!raw || /\d/.test(raw)) return null
+  const clean = raw.toLowerCase().replace(/[’']/g, '')
+  if (TWISTED.some(t => clean.includes(t))) return null
+
+  // It must OPEN with a yes word (optionally "ok approved"), then say something.
+  const m = raw.match(/^\s*([a-zA-Z]+)[\s,.!-]+(.{2,120})$/)
+  if (!m) return null
+  const first = m[1].toLowerCase()
+  if (!YES.has(first)) return null
+
+  const restRaw = m[2].trim().replace(/[.!]+$/, '')
+  const restWords = restRaw.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean)
+  if (restWords.some(w => NO.has(w) || HEDGE.has(w) || PERSONAL.has(w))) return null
+
+  const info = restRaw.replace(SHOP_LEAD, '').replace(FROM_LEAD, '').trim()
+  return info.length >= 2 && info.length <= 60 ? { info } : null
+}

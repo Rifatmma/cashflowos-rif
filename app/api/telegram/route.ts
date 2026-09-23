@@ -22,7 +22,7 @@ import { hasOpenQuestion, applyAnswer } from '@/lib/email-payments'
 import { parseAnswer, looksLikeAnswer, plainAnswer } from '@/lib/payment-answer'
 import { importDay, getItems, getMoves, unitCosts, costOfUse } from '@/lib/stock-data'
 import { type SupplierRule } from '@/lib/supplier-rules'
-import { replyIntent } from '@/lib/reply-intent'
+import { replyIntent, approveWithInfo } from '@/lib/reply-intent'
 import { BOT_TOOLS, runBotTool } from '@/lib/bot-tools'
 import { BOT_ACTION_TOOLS, ACTION_TOOL_NAMES, runBotAction } from '@/lib/bot-actions'
 import { SCHEDULED } from '@/agents/registry'
@@ -243,6 +243,7 @@ async function decideAction(opts: {
   verdict: 'approve' | 'reject' | 'drawings'
   chatId?: number
   messageId?: number
+  shop?: string            // "approved, shop name is X" -- named on the way through
   toast?: (t: string) => Promise<unknown>  // the button's little popup, when there is one
 }): Promise<void> {
   const { actionId, fromId, verdict, chatId, messageId } = opts
@@ -303,9 +304,27 @@ async function decideAction(opts: {
   if (chatId && messageId) await editMessageReplyMarkup(chatId, messageId) // strip buttons
 
   const outcome = await executeClaimed(claimed)
-  const msg = outcome.ok
+  let msg = outcome.ok
     ? summarizeResult(outcome.result)
     : `⚠️ It was approved but the action failed: ${outcome.error}. It's logged in Activity — nothing half-happened.`
+
+  // The owner approved AND named the shop in one message. The payload is written
+  // once and never edited, so the name goes on afterwards -- and only onto a
+  // receipt that had none, never over one that was read off the paper.
+  const shop = String(opts.shop ?? '').trim().slice(0, 60)
+  const recordId = outcome.ok ? Number((outcome.result as any)?.record_id) : NaN
+  if (shop && Number.isFinite(recordId)) {
+    const { data: rec } = await supabase.from('records').select('title, meta').eq('id', recordId).maybeSingle()
+    const had = String((rec?.meta as any)?.merchant ?? '').trim()
+    if (rec && (!had || /^unknown$/i.test(had))) {
+      const label = String(rec.title).split(' — ').slice(1).join(' — ') || 'expense'
+      await supabase.from('records').update({
+        title: `${shop} — ${label}`,
+        meta: { ...((rec.meta as any) ?? {}), merchant: shop },
+      }).eq('id', recordId)
+      msg += `${NL}🏪 Shop set to <b>${esc(shop)}</b>.`
+    }
+  }
   if (chatId) await sendMessage(chatId, msg)
   await remember(
     chatId,
@@ -596,23 +615,35 @@ async function handleMessage(msg: any): Promise<Response> {
   // guessing which one they meant. replyIntent() is strict: anything like "yes but
   // it's RM30" comes back null and falls through to conversation instead.
   const repliedTo = msg.reply_to_message
-  if (repliedTo?.message_id && supabaseConfigured) {
-    const verdict = replyIntent(text)
-    if (verdict) {
-      const { data: cards } = await supabase
-        .from('agent_actions')
-        .select('id, status')
-        .eq('notify_chat_id', chatId)
-        .eq('notify_message_id', repliedTo.message_id)
-        .limit(1)
-      const card = cards?.[0]
+  const withInfo = approveWithInfo(text)
+  const verdictNow = replyIntent(text) ?? (withInfo ? 'approve' as const : null)
+  if (verdictNow && supabaseConfigured) {
+    let card: { id: number; notify_message_id: number | null } | undefined
+    if (repliedTo?.message_id) {
+      const { data } = await supabase.from('agent_actions')
+        .select('id, notify_message_id').eq('notify_chat_id', chatId)
+        .eq('notify_message_id', repliedTo.message_id).limit(1)
+      card = data?.[0] as any
+    }
+    // Not a reply, but exactly ONE card is open in this chat: that is the one
+    // they mean. (23 Sep: "Approved, shop name is …" was sent as a new message,
+    // reached the language model instead, and it announced a filing that never
+    // happened.) Two or more open cards => ambiguous, so fall through and ask.
+    if (!card) {
+      const { data: open } = await supabase.from('agent_actions')
+        .select('id, notify_message_id').eq('notify_chat_id', chatId).eq('status', 'proposed')
+        .gt('expires_at', new Date().toISOString()).limit(2)
+      if (open?.length === 1) card = open[0] as any
+    }
+    {
       if (card) {
         await decideAction({
           actionId: card.id,
           fromId: msg.from?.id,
-          verdict,
+          verdict: verdictNow,
           chatId,
-          messageId: repliedTo.message_id,
+          messageId: card.notify_message_id ?? repliedTo?.message_id,
+          shop: withInfo?.info,
         })
         return Response.json({ ok: true })
       }
@@ -756,6 +787,12 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
     `the card. You cannot approve anything yourself. If the owner says "approved" without ` +
     `replying to the card, tell them which approval is waiting (from memory) and ask them to ` +
     `reply yes to that card or tap Approve — never claim something was filed when it was not.
+` +
+    `NEVER ANNOUNCE A FILING YOU DID NOT DO. Words like "Filed", "Recorded", "Done" or a record ` +
+    `number may only appear if a TOOL RESULT in THIS turn says so. If no tool filed anything, say what ` +
+    `is still waiting and what the owner should tap -- on 23 Sep you replied "Filed RM 112.70 as record ` +
+    `#52" when nothing had been filed, and the owner believed it. A wrong "it's done" is worse than ` +
+    `saying you cannot do it.
 ` +
     `OWNER'S DRAWINGS: business money the owner spends on themselves is recorded as ` +
     `owner_drawings \u2014 never as a business expense. It counts as cash leaving the business but ` +
