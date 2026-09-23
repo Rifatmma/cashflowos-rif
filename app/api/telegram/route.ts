@@ -1082,6 +1082,12 @@ async function decideAndFile(a: {
   if (noMerchant) gaps.push('shop')
   if (!v.date || (v.missing ?? []).includes('date')) gaps.push('date')
   if (!isExpense || (v.missing ?? []).includes('amount')) gaps.push('total')
+  // A DOUBTFUL read counts as unclear too, not just a missing field: a blurry
+  // photo, or lines that don't add up to the printed total (99 Speed Mart, 23 Sep:
+  // lines RM 15.99 vs total RM 10.50). Ask the people who were at the shop to
+  // confirm the total, rather than sending the owner a card he can't check.
+  const doubtful = v.confidence === 'low' || /lines add to/i.test(String(v.items_note ?? ''))
+  if (doubtful && !gaps.includes('total')) gaps.push('total')
   if (gaps.length && v.kind !== 'doc') {
     await setPending(chatId, staffFiling ? 'chat' : filer.id, {
       type: 'need_fields', gaps, payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
@@ -1091,8 +1097,11 @@ async function decideAndFile(a: {
       !gaps.includes('shop') && v.merchant ? esc(String(v.merchant)) : null,
       !gaps.includes('date') && v.date ? v.date : null,
     ].filter(Boolean).join(' · ')
+    const why = doubtful && !(v.missing ?? []).includes('amount') && isExpense
+      ? `, but I'm not sure I read it right${/lines add to/i.test(String(v.items_note ?? '')) ? ` — the item prices add up to a different number than the total I can see (${esc(String(v.items_note))})` : ''}`
+      : `, but I can't see the <b>${gaps.join('</b>, the <b>')}</b>`
     await sendMessage(chatId,
-      `🧾 I read this one${known ? `: ${known}` : ''}, but I can't see the <b>${gaps.join('</b>, the <b>')}</b>.${detail}` +
+      `🧾 I read this one${known ? `: ${known}` : ''}${why}.${detail}` +
       NL + NL + `Please reply with exactly these lines filled in — I won't file it until you do:` +
       NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
     await remember(chatId, staffFiling ? `[${filer.name} sent a receipt missing ${gaps.join(', ')}]` : `[sent a receipt missing ${gaps.join(', ')}]`,
@@ -1192,6 +1201,19 @@ async function answerMissingFields(msg: any, p: any): Promise<void> {
       if (!Number.isFinite(n) || n <= 0) { bad.push('Total (write it like RM 112.70)'); continue }
       v.amount = Math.round(n * 100) / 100; payload.amount = v.amount
       v.kind = 'receipt'; payload.kind = 'receipt'
+      // A human at the shop just confirmed the money. That settles the total --
+      // but if the lines still don't add up to it, the per-line split can't be
+      // trusted, so it is dropped rather than quietly mis-spread across types.
+      const lines = Array.isArray(payload.items) ? payload.items.reduce((t: number, i: any) => t + Number(i.line_total || 0), 0) : 0
+      if (Math.abs(lines - v.amount) > Math.max(0.05, v.amount * 0.02)) {
+        payload.type_split = undefined
+        payload.items_note = `Total ${rm(v.amount)} confirmed by ${filer.name}; the lines read add to ${rm(Math.round(lines * 100) / 100)}, so check them on Cash Out.`
+        v.items_note = payload.items_note
+      } else {
+        payload.items_note = undefined
+        v.items_note = undefined
+      }
+      v.confidence = 'high'
     }
   }
 
