@@ -9,6 +9,7 @@ import { missingSalesDays, isSalesRow, salesDayOf } from '@/lib/sales'
 import { getItems, getMoves, stockState, unitCosts, costOfUse } from '@/lib/stock-data'
 import { fmtQty, stockFromLine } from '@/lib/stock-items'
 import { refreshAds } from '@/lib/ads-refresh'
+import { ensureFixedFiled } from '@/lib/fixed-costs'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // THE ONE daily cron (Vercel Hobby allows 2; we ship 1, reserve the other).
@@ -50,7 +51,14 @@ export async function GET(req: Request) {
   if (!authed) return new Response('forbidden', { status: 401 })
 
   const today = todayISO()
-  const rows = await getRecords()
+  let rows = await getRecords()
+
+  // Wages and rent are paid in cash, so nobody photographs them: Jarvis files a
+  // day's share himself (lib/fixed-costs.ts). Here rather than only on a page
+  // load, so the books stay complete whether or not the owner opens the app.
+  const firstSalesDay = rows.filter(isSalesRow).map(salesDayOf).filter(Boolean).sort()[0]
+  const fixed = await ensureFixedFiled(mytDate(), firstSalesDay).catch(() => ({ filed: 0 }))
+  if (fixed.filed) rows = await getRecords()
 
   // ① THE MONEY ROW (mirrors the Dashboard).
   const cashIn = sum(rows.filter((r) => r.category === 'cash_in'))
