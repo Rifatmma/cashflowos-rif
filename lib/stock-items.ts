@@ -61,7 +61,7 @@ export const ITEMS: ItemDef[] = [
   // Owner, 23 Sep 2026: frozen sotong is its own item -- it goes into the fried
   // squid dish only; every other sotong dish uses fresh. Rings come cleaned and
   // cut, so nothing is trimmed off (ASK if that is wrong).
-  { key: 'squid_frozen', name: 'Squid (frozen rings)', unit: 'g', sort: 33, fallbackCost: 0.02, bagG: 80,
+  { key: 'squid_frozen', name: 'Squid (frozen rings)', unit: 'pc', sort: 33, perKg: 18, fallbackCost: 0.43,
     aliases: ['(frz|fzn|frozen|beku|iqf)[^a-z]*(sotong|squid|calamari)', '(sotong|squid|calamari)[^a-z]*(frz|fzn|frozen|beku|iqf)'] },
   { key: 'mussel', name: 'Mussels', unit: 'pc', sort: 34, perKg: 20, fallbackCost: 0.25,
     // A Sri Ternak bag is about 20 pieces; treated as a 1 kg bag when no weight prints.
@@ -154,6 +154,9 @@ function kgOf(l: ReceiptLine, def?: ItemDef): number | null {
   return null
 }
 
+/** 4 -> "4", 1.078 -> "1.078", 3.2900 -> "3.29": no trailing zeros in the working. */
+const fmtNum = (n: number) => String(Math.round(n * 1000) / 1000)
+
 /** Pieces printed on a pack: "TELUR GRED A 30S", "10 BIJI". */
 function packCount(name: string): number | null {
   const m = String(name).match(/(\d+)\s*(s|biji|pcs|pc|ekor|keping)\b/i)
@@ -180,29 +183,41 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
     // Split the bird's cost by weight: a leg quarter weighs about 300 g.
     const perKg = total > 0 ? total / kg : null
     return [
-      { item: 'leg', qty: legs, unit_cost: perKg ? perKg * 0.3 : null, from: l.name, note: `${birds.toFixed(1)} birds (est. ${BIRD_KG} kg each)` },
-      { item: 'breast', qty: breast, unit_cost: perKg ? perKg / 1000 : null, from: l.name, note: `${birds.toFixed(1)} birds` },
+      { item: 'leg', qty: legs, unit_cost: perKg ? perKg * 0.3 : null, from: l.name,
+        note: `${fmtNum(kg)} kg / ${BIRD_KG} kg a bird = ${birds.toFixed(1)} birds x ${BIRD_YIELD.leg} legs` },
+      { item: 'breast', qty: breast, unit_cost: perKg ? perKg / 1000 : null, from: l.name,
+        note: `${fmtNum(kg)} kg / ${BIRD_KG} kg a bird = ${birds.toFixed(1)} birds x ${BIRD_YIELD.breast} g breast` },
     ]
   }
 
   const def = ITEM[key]
   const usable = (def.usablePct ?? 100) / 100
+  // The working, in the owner's words. A printed name like "B/BREAST 2KG" is the
+  // PACK size, so "2 kg" on the line and 4 kg in the fridge both look right and
+  // the number seems to come from nowhere. Every purchase now says how it got
+  // there, and the Stock page prints it (owner, 23 Sep 2026).
+  const trim = usable < 1 ? `, less ${Math.round((1 - usable) * 100)}% trimmed off` : ''
   let q: number | null = null
+  let how = ''
   if (def.unit === 'g') {
     const kg = kgOf(l, def)
     q = kg ? kg * 1000 * usable : null
+    if (kg) how = `${qty > 1 ? `${fmtNum(qty)} x ` : ''}${fmtNum(kg / (qty > 1 ? qty : 1))} kg = ${fmtNum(kg)} kg${trim}`
   } else if (def.unit === 'fish') {
     // Bought by the fish, or by weight at ~550 g a fish.
     const kg = l.unit && /^kg$/i.test(l.unit) ? qty : null
     q = kg ? kg / 0.55 : qty
+    how = kg ? `${fmtNum(kg)} kg at about 550 g a fish` : `${fmtNum(qty)} fish on the bill`
   } else {
     const pack = packCount(l.name)
-    if (key === 'egg') q = (pack ?? 1) * qty
+    if (key === 'egg') { q = (pack ?? 1) * qty; how = pack ? `${fmtNum(qty)} x ${pack} per tray` : `${fmtNum(qty)} on the bill` }
     else {
       const kg = kgOf(l, def)
-      q = kg && def.perKg ? kg * def.perKg * usable : pack ? pack * qty : null
+      if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
+      else if (pack) { q = pack * qty; how = `${fmtNum(qty)} x ${pack} per pack` }
+      else q = null
     }
   }
   if (!q || !Number.isFinite(q)) return { unknownQty: l.name, item: key }
-  return [{ item: key, qty: q, unit_cost: total > 0 ? total / q : null, from: l.name }]
+  return [{ item: key, qty: q, unit_cost: total > 0 ? total / q : null, from: l.name, note: how || undefined }]
 }

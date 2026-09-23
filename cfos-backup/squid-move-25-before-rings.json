@@ -1,0 +1,17 @@
+[
+  {
+    "id": 25,
+    "item": "squid_frozen",
+    "qty": 1078,
+    "kind": "purchase",
+    "unit_cost": 0.007690166975881261,
+    "record_id": 95,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "Was filed as fresh squid with a 25% trim; frozen rings come cleaned, so the full 1.078 kg counts (fixed 23 Sep 2026).",
+    "meta": {
+      "from": "FRZ SOTONG RING SKIN ON IQF*KG"
+    },
+    "created_at": "2026-09-22T05:17:23.655375+00:00"
+  }
+]

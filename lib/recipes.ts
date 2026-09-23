@@ -108,6 +108,10 @@ const SEED: Seed[] = [
   S('galah-dish', 'Udang galah dishes', 'udang galah|galah', [L('galah', 5)]),
   S('shrimp-donut', 'Donat udang', 'donat udang|shrimp donut|tod ?man', [L('breast', 160), L('shrimp', 4), L('egg', 1)], { guess: true }),
   S('shrimp-dish', 'Shrimp dishes (6 shrimp)', 'udang|shrimp|prawn', [L('shrimp', 6)]),
+  // Owner, 23 Sep 2026: the fried squid dish is the ONLY one made from the frozen
+  // rings -- 10 rings, one size (a 1 kg bag is a little under two dishes). Every
+  // other sotong dish, including the calamari inside a set, uses fresh.
+  S('fried-squid', 'Fried squid (10 rings)', 'fried squid|squid fried|sotong goreng', [L('squid_frozen', 10)]),
   SM('squid-dish', 'Sotong / calamari dishes', 'sotong|calamari|squid|octopus', 'squid', 80, 160),
 
   // ── chicken & beef ala carte ───────────────────────────────────────────────
