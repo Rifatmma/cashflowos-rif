@@ -1050,6 +1050,27 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
 
 const NL = String.fromCharCode(10)
 
+/**
+ * Show the working when the lines don't match the total. "Lines add to RM 15.99"
+ * is an assertion; the owner can only correct what he can see, so spell out
+ * every line's qty x price, the sum, and what was read as the total -- then the
+ * wrong line is obvious (23 Sep: a creamer line read as 3 x 2.50 instead of 1).
+ */
+function showWorking(v: VisionResult): string {
+  const items = v.items ?? []
+  if (!items.length) return ''
+  const sum = Math.round(items.reduce((t, i) => t + i.line_total, 0) * 100) / 100
+  const lines = items.map((i, n) =>
+    `${n + 1}. ${esc(i.name)} — ${i.qty}${i.unit && i.unit !== 'unit' ? ' ' + esc(i.unit) : ''} × ${rm(i.unit_price)} = <b>${rm(i.line_total)}</b>`)
+  const printed: string[] = []
+  if (typeof v.subtotal === 'number' && v.subtotal > 0) printed.push(`subtotal ${rm(v.subtotal)}`)
+  if (typeof v.tax === 'number' && v.tax > 0) printed.push(`tax ${rm(v.tax)}`)
+  return NL + NL + `<b>How I got that:</b>` + NL + lines.join(NL) +
+    NL + `= <b>${rm(sum)}</b> altogether, but the total I read is <b>${rm(Number(v.amount))}</b>` +
+    (printed.length ? ` (${printed.join(' + ')})` : '') + '.' +
+    NL + `<i>So I've misread at least one line — most likely a quantity. Confirm the total below; you can fix the line afterwards by telling me, e.g. "line 2 is 1 x 2.50".</i>`
+}
+
 // The lines the staff must send back, one per thing that could not be read.
 const FIELD_LINE: Record<string, string> = { shop: 'Shop: ', date: 'Date: ', total: 'Total: RM ' }
 const fieldTemplate = (gaps: string[]) => gaps.map(g => FIELD_LINE[g] ?? `${g}: `).join(NL)
@@ -1097,11 +1118,12 @@ async function decideAndFile(a: {
       !gaps.includes('shop') && v.merchant ? esc(String(v.merchant)) : null,
       !gaps.includes('date') && v.date ? v.date : null,
     ].filter(Boolean).join(' · ')
+    const mismatch = /lines add to/i.test(String(v.items_note ?? ''))
     const why = doubtful && !(v.missing ?? []).includes('amount') && isExpense
-      ? `, but I'm not sure I read it right${/lines add to/i.test(String(v.items_note ?? '')) ? ` — the item prices add up to a different number than the total I can see (${esc(String(v.items_note))})` : ''}`
+      ? `, but I'm not sure I read it right`
       : `, but I can't see the <b>${gaps.join('</b>, the <b>')}</b>`
     await sendMessage(chatId,
-      `🧾 I read this one${known ? `: ${known}` : ''}${why}.${detail}` +
+      `🧾 I read this one${known ? `: ${known}` : ''}${why}.${mismatch ? showWorking(v) : detail}` +
       NL + NL + `Please reply with exactly these lines filled in — I won't file it until you do:` +
       NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
     await remember(chatId, staffFiling ? `[${filer.name} sent a receipt missing ${gaps.join(', ')}]` : `[sent a receipt missing ${gaps.join(', ')}]`,
