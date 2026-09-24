@@ -90,14 +90,26 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
     `answers as options with a total for each. Order them small to large. Ask nothing when the food ` +
     `is plain enough to be sure (a banana, a black coffee), and never ask more than one question.\n\n` +
     `A NUTRITION LABEL. When the photo shows the back of a packet, do not estimate anything -- ` +
-    `READ IT. Take the product name, the energy per 100 g (or per 100 ml) and per serving, the ` +
-    `serving size, and the net weight or the servings per pack. Energy in kJ divides by 4.18 to give ` +
-    `kcal. Put those figures in lines, exactly as printed, so he can check them against the packet. ` +
-    `Then set kcal to ONE SERVING as the label defines it, and ALWAYS ask how much he ate, with ` +
-    `options covering one serving, half the pack and the whole pack, each with its own total. ` +
-    `If the label is blurred or cropped, say so in note and give what you can read.
-
-` +
+    `READ IT. Take the product name, the energy per serving, the energy per 100 g or 100 ml when the ` +
+    `label prints one, the serving size, and the net weight or the servings per pack. Energy in kJ ` +
+    `divides by 4.18 to give kcal. Put those figures in lines, exactly as printed, so he can check ` +
+    `them against the packet. Then set kcal to ONE SERVING as the label defines it, and ALWAYS ask ` +
+    `how much he ate, with options covering one serving, half the pack and the whole pack, each ` +
+    `with its own total. If the label is blurred or cropped, say so in note and give what you can read. ` +
+    `Work out which style of label you are looking at from the words on it; never ask him. ` +
+    `MALAYSIAN ("NUTRITION INFORMATION", "MAKLUMAT PEMAKANAN"): TWO columns, per 100 g and per ` +
+    `serving ("Per 100 g" / "Setiap 100 g", "Per serving" / "Setiap hidangan"), with the serving ` +
+    `size and "Servings per package" / "Hidangan setiap bungkusan" above them; energy is "Energy" ` +
+    `or "Tenaga". ` +
+    `THAI ("ข้อมูลโภชนาการ"): usually ONE column, per serving only -- do not invent a per-100 g ` +
+    `figure when none is printed. "หนึ่งหน่วยบริโภค" is the serving size, ` +
+    `"จำนวนหน่วยบริโภคต่อภาชนะบรรจุ" the servings per pack, ` +
+    `"พลังงานทั้งหมด" the total energy in กิโลแคลอรี (kcal). Also: ไขมันทั้งหมด fat, ` +
+    `โปรตีน protein, คาร์โบไฮเดรต carbohydrate, น้ำตาล sugar, โซเดียม sodium. ` +
+    `The percentages beside them are Thai RDI, not calories -- ignore them. ` +
+    `THAI GDA, the front-of-pack strip with พลังงาน in a box: that energy is for the WHOLE PACK, and ` +
+    `"ควรแบ่งกิน X ครั้ง" means the pack should be split into X servings -- so one serving is ` +
+    `that energy divided by X. Say which reading you used in portion.\n\n` +
     `HOW TO COUNT. Malaysian and Thai restaurant food. Be realistic, not optimistic: ` +
     `count the cooking oil, the coconut milk, the sauce and the sugar in the drink -- these are where the calories hide. ` +
     `A restaurant plate of fried rice is 600-800 kcal, not 300. Nasi lemak with fried chicken is about 950. ` +
@@ -158,12 +170,14 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
     ? (stated || summed)
     : summed > 0 && (stated === 0 || Math.abs(stated - summed) > stated * 0.5) ? summed : (stated || summed)
 
-  const options: FoodOption[] = Array.isArray(p.options)
-    ? p.options
-        .filter((o: any) => o && typeof o.label === 'string' && num(o.kcal, 5000) > 0)
-        .slice(0, 4)
-        .map((o: any) => ({ label: shortLabel(String(o.label)), kcal: Math.round(num(o.kcal, 5000) / 10) * 10 }))
-    : []
+  // Two buttons with the same number are one button: on a 2-serving Thai pack,
+  // "one serving" and "half the pack" are the same 90 kcal (24 Sep 2026).
+  const seenKcal = new Set<number>()
+  const options: FoodOption[] = (Array.isArray(p.options) ? p.options : [])
+    .filter((o: any) => o && typeof o.label === 'string' && num(o.kcal, 5000) > 0)
+    .map((o: any) => ({ label: shortLabel(String(o.label)), kcal: Math.round(num(o.kcal, 5000) / 10) * 10 }))
+    .filter((o: FoodOption) => (seenKcal.has(o.kcal) ? false : (seenKcal.add(o.kcal), true)))
+    .slice(0, 4)
   const question = p.question && options.length >= 2 ? String(p.question).slice(0, 120) : undefined
 
   return {
