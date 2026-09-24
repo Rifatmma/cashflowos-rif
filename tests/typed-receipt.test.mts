@@ -24,10 +24,11 @@ const CASES: Case[] = [
     stock: ['shrimp', 40],
   },
   {
-    what: 'siakap: 4 kg at 500 g a fish = 8, which is what was counted',
+    what: 'siakap: 4 kg, hand-counted at 8, filed at 7.3',
     text: 'Item Name: Ikan siakap \nWeight: 4 kilo \nQuantity: 8 ekor \nPrice: RM 68',
-    // The weight decides, at the owner's 500 g a fish -- and it agrees.
-    totalKg: 4, perKg: 17, stock: ['siakap', 8],
+    // The weight decides, at the owner's 550 g a fish: fish are never exactly
+    // 500 g, so his middle figure stands and a hand count does not override it.
+    totalKg: 4, perKg: 17, stock: ['siakap', 7.27],
   },
   {
     what: 'oil: 3 separate 1 kg packs, so it still multiplies',
@@ -92,7 +93,7 @@ for (const [what, line, want] of EGGS) {
 // (24 Sep 2026): a weight on the bill decides, a hand count only fills in when
 // there is no weight.
 const SEAFOOD: [string, any, string, number][] = [
-  ['siakap, 4 kg typed as 8 fish', { name: 'Ikan siakap (8 pcs)', qty: 8, unit: 'pcs', base_qty: 4, base_unit: 'kg', line_total: 68 }, 'siakap', 8],
+  ['siakap, 4 kg typed as 8 fish', { name: 'Ikan siakap (8 pcs)', qty: 8, unit: 'pcs', base_qty: 4, base_unit: 'kg', line_total: 68 }, 'siakap', 7.27],
   ['siakap, 3 fish and no weight', { name: 'Siakap', qty: 3, unit: 'ekor', line_total: 45 }, 'siakap', 3],
   ['udang, 2 kg typed as 50', { name: 'Udang (50 pcs)', qty: 50, unit: 'pcs', base_qty: 2, base_unit: 'kg', line_total: 54 }, 'shrimp', 66],
   ['sotong beku, 1.078 kg', { name: 'FRZ SOTONG RING SKIN ON IQF*KG', qty: 1.078, unit: 'kg', base_qty: 1.078, base_unit: 'kg', line_total: 8.29 }, 'squid_frozen', 19.4],

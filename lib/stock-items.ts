@@ -116,10 +116,10 @@ export type StockIn = { item: string; qty: number; unit_cost: number | null; fro
 // mean "stop asking me about this one".
 const WEIGHT_UNIT = /^(kg|kilo|kilos|g|gm|gram|grams)$/i
 
-// A siakap weighs about 500 g, so 4 kg is 8 fish -- the owner's own division
-// (24 Sep 2026). 0.55 came from reading his "500-600 g" as a middle figure and
-// it made 4 kg read as 7.3.
-export const FISH_KG = 0.5
+// A siakap weighs 500-600 g. The owner settled on 550: "cannot be exactly 5
+// every time" (24 Sep 2026), so the middle of his range it is -- 4 kg reads as
+// 7.3 fish rather than a flattering 8, and the weekly count keeps it honest.
+export const FISH_KG = 0.55
 
 export const IGNORE_KEY = '__ignore'
 
@@ -240,7 +240,7 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
     if (kg) how = `${qty > 1 ? `${fmtNum(qty)} x ` : ''}${fmtNum(kg / (qty > 1 ? qty : 1))} kg = ${fmtNum(kg)} kg${trim}`
   } else if (def.unit === 'fish') {
     // Same rule as the pieces below: if the bill gives a WEIGHT, the weight
-    // decides at 500 g a fish, and a count typed by hand is only shown
+    // decides at 550 g a fish, and a count typed by hand is only shown
     // for comparison. The owner asked for this on udang, sotong and siakap
     // alike (24 Sep 2026).
     const kg = kgOf(l, def)
