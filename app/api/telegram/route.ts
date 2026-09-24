@@ -470,15 +470,26 @@ async function logAndReplyMeal(
  */
 async function mealCorrection(chatId: number, text: string): Promise<boolean> {
   const t = text.trim().toLowerCase()
-  if (t.length > 40) return false
+  if (t.length > 60) return false
   const last = await latestMeal()
   // Only the meal just logged: an hour later, "half" means something else.
   if (!last || Date.now() - new Date(last.eaten_at).getTime() > 2 * 3600_000) return false
 
+  // "Quarter of that", "half", "I only ate a third", "1/4", "two plates".
+  // Everything here is arithmetic on the last meal, so it needs no model turn
+  // and cannot be answered with a number nothing wrote down.
+  const SHARES: [RegExp, number, string][] = [
+    [/\b(a )?quarter\b|\b1\s*\/\s*4\b|\b0?\.25\b/, 0.25, 'a quarter of it'],
+    [/\b(a )?third\b|\b1\s*\/\s*3\b/, 1 / 3, 'a third of it'],
+    [/\btwo[- ]thirds?\b|\b2\s*\/\s*3\b/, 2 / 3, 'two thirds of it'],
+    [/\bthree[- ]quarters?\b|\b3\s*\/\s*4\b/, 0.75, 'three quarters of it'],
+    [/\b(half|separuh|setengah|\u0e04\u0e23\u0e36\u0e48\u0e07)\b|\b1\s*\/\s*2\b/, 0.5, 'half of it'],
+    [/\b(double|twice|2x|x2|two plates?|dua pinggan)\b/, 2, 'twice the portion'],
+  ]
   let kcal: number | null = null
   let why = t
-  if (/^(half|separuh|setengah|\u0e04\u0e23\u0e36\u0e48\u0e07)( of)?( (that|it))?$/i.test(t)) { kcal = last.kcal / 2; why = 'half of it' }
-  else if (/^(double|twice|2x|x2|two plates?|dua pinggan)$/i.test(t)) { kcal = last.kcal * 2; why = 'twice the portion' }
+  const share = SHARES.find(([re]) => re.test(t))
+  if (share) { kcal = last.kcal * share[1]; why = share[2] }
   else if (/^(\d{2,4})( ?kcal| ?cal| ?calories)?$/i.test(t)) { kcal = Number(t.match(/\d{2,4}/)![0]); why = 'you gave the number' }
   else return false
 
@@ -517,6 +528,10 @@ async function typedMeal(chatId: number, text: string): Promise<boolean> {
 // Private chats are unaffected and behave exactly as before.
 // ------------------------------------------------------------
 const isGroupChat = (chat: any) => chat?.type === 'group' || chat?.type === 'supergroup'
+/** The owner's own chat: where the food diary lives and stays. */
+const isOwnerChat = (chatId: number | string) => !!OWNER && String(chatId) === OWNER
+const PRIVATE_TOOLS = new Set(['get_food_today', 'log_food', 'fix_last_meal'])
+const privateOnly = (name: string) => PRIVATE_TOOLS.has(name)
 
 let cachedBotUsername: string | null = null
 async function botUsername(): Promise<string> {
@@ -926,6 +941,12 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
     `tool returns status "ambiguous", show the candidates and ask which one. NEVER say a customer was ` +
     `messaged — draft_followup only gives text for the OWNER to send; end such replies making the ` +
     `draft nature clear.\n` +
+    `FOOD DIARY — his own eating, and PRIVATE: never mention it in a group chat, whoever asks. ` +
+    `get_food_today reads it, log_food logs a typed meal, fix_last_meal changes the one just logged ` +
+    `("quarter of that" is share 0.25, "half" is 0.5, "two plates" is 2). A calorie number in your ` +
+    `reply must come from one of those tool results. NEVER work it out yourself and NEVER say ` +
+    `"logged" or quote a new total unless the tool returned it — saying "452 kcal" while the diary ` +
+    `still holds 1810 is worse than saying nothing (owner, 24 Sep 2026).\n` +
     `RECEIPTS — correcting and teaching: when the owner says a filed receipt was read wrong ` +
     `("the rice was 2 at 45.90, not 6 at 15.30"), call correct_receipt. The owner is the ground ` +
     `truth about their own receipt — do not argue the reading. AFTER the correction lands you ` +
@@ -978,7 +999,9 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
         model: 'claude-haiku-4-5',
         max_tokens: 1024,
         system,
-        tools: [...BOT_TOOLS, ...BOT_ACTION_TOOLS] as any,
+        // The food diary is the owner's alone: in a group the tools are not
+        // even offered, so there is nothing to leak or be talked into.
+        tools: [...BOT_TOOLS.filter(t => privateOnly(t.name) ? isOwnerChat(chatId) : true), ...BOT_ACTION_TOOLS] as any,
         messages,
       })
 

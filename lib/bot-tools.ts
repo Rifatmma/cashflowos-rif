@@ -12,6 +12,7 @@ import { verdict, alerts } from './ads-verdict'
 import { readMarketing } from '@/agents/head-marketing/definition'
 import { getItems, getMoves, stockState, unitCosts, costOfUse } from './stock-data'
 import { fmtQty } from './stock-items'
+import { getMeals, getBudget, kcalOn, latestMeal, correctMeal, logMeal, costTyped } from './meals'
 import { isSalesRow, salesDayOf } from './sales'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -181,6 +182,46 @@ export const BOT_TOOLS = [
     input_schema: {
       type: 'object' as const,
       properties: { item: { type: 'string', description: 'Optional: one ingredient, e.g. "shrimp".' } },
+    },
+  },
+  {
+    name: 'get_food_today',
+    description:
+      "The owner's OWN food diary (private, never mentioned in the group): what he has eaten today, " +
+      'the calories of each meal, his daily budget and what is left. Use for "what have I eaten?", ' +
+      '"how many calories left?", "how did I do this week?". Read-only.',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'log_food',
+    description:
+      'Log a meal the owner TYPED (no photo): "I ate nasi lemak", "had two roti canai". ' +
+      'Costs it from his own recipe book first, then a table of common dishes. ' +
+      'Returns what was logged. NEVER claim a meal was logged without calling this.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        what: { type: 'string', description: 'The dish as he said it, e.g. "nasi lemak ayam".' },
+        portions: { type: 'number', description: 'How many servings. Default 1. Half a plate = 0.5.' },
+        kcal: { type: 'number', description: 'Only if HE gave the calories himself.' },
+      },
+      required: ['what'],
+    },
+  },
+  {
+    name: 'fix_last_meal',
+    description:
+      'Change the calories of the meal just logged, when he says it was a different amount: ' +
+      '"quarter of that", "half", "I only ate a third", "two plates", "make it 600". ' +
+      'Give EITHER share (0.25 for a quarter, 0.5 for half, 2 for double) OR kcal, never both. ' +
+      'This is the ONLY way to change a meal -- never state a new number without calling it.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        share: { type: 'number', description: 'Fraction of what was logged: 0.25, 0.5, 2 …' },
+        kcal: { type: 'number', description: 'An exact calorie figure instead.' },
+        why: { type: 'string', description: 'His words, e.g. "quarter of the pizza".' },
+      },
     },
   },
   {
@@ -562,6 +603,67 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
           'Compose a SHORT, warm follow-up message (2-3 sentences) for the OWNER to copy and send. ' +
           'Do not include placeholders they must fill. NEVER say it has been sent — end your reply making clear ' +
           'it is a draft for them to send themselves.',
+      })
+    }
+
+    // ---- the owner's food diary. Private: these never run for anyone else,
+    // and nothing about them is ever said in the staff group.
+    if (name === 'get_food_today') {
+      const [meals, budget] = await Promise.all([getMeals(8), getBudget()])
+      const today = todayISO()
+      const day = meals.filter(m => m.day === today)
+      const eaten = kcalOn(meals, today)
+      return JSON.stringify({
+        budget: budget.target,
+        eaten,
+        left: budget.target - eaten,
+        meals: day.map(m => ({ id: m.id, title: m.title, kcal: m.kcal, at: m.eaten_at.slice(11, 16), working: m.working })),
+        week: [...new Set(meals.map(m => m.day))].map(d => ({ day: d, kcal: kcalOn(meals, d) })),
+        note: 'Calories only, by his choice. Never mention this in a group chat.',
+      })
+    }
+
+    if (name === 'log_food') {
+      const what = String(input?.what || '').trim()
+      if (!what) return JSON.stringify({ ok: false, say: 'Tell me what you ate.' })
+      const portions = Number(input?.portions) > 0 ? Number(input.portions) : 1
+      const given = Number(input?.kcal)
+      const cost = given > 0
+        ? { title: what, kcal: given, working: 'You gave the calories yourself.', confidence: 'high' as const, lines: [], source: 'typed' as const }
+        : await costTyped(what, portions)
+      if (!cost) {
+        return JSON.stringify({
+          ok: false,
+          say: `I do not know "${what}" yet. Send a photo of it, or tell me the calories and I will take your number.`,
+        })
+      }
+      const meal = await logMeal({ ...cost, source: cost.source, items: cost.lines })
+      if (!meal) return JSON.stringify({ ok: false, say: 'That one is already logged.' })
+      const [budget, meals] = await Promise.all([getBudget(), getMeals(2)])
+      const eaten = kcalOn(meals, todayISO())
+      return JSON.stringify({
+        ok: true, logged: { id: meal.id, title: meal.title, kcal: meal.kcal, working: meal.working },
+        eaten, left: budget.target - eaten, budget: budget.target,
+      })
+    }
+
+    if (name === 'fix_last_meal') {
+      const last = await latestMeal()
+      if (!last) return JSON.stringify({ ok: false, say: 'Nothing is logged yet today.' })
+      const share = Number(input?.share)
+      const exact = Number(input?.kcal)
+      const kcal = exact > 0 ? exact : share > 0 ? last.kcal * share : NaN
+      if (!Number.isFinite(kcal)) {
+        return JSON.stringify({ ok: false, say: 'Tell me the share (half, a quarter) or the calories.' })
+      }
+      const why = String(input?.why || '').slice(0, 80) || (share > 0 ? `${share} of it` : 'corrected')
+      const fixed = await correctMeal(last.id, kcal, why)
+      if (!fixed) return JSON.stringify({ ok: false, say: 'That meal is gone.' })
+      const [budget, meals] = await Promise.all([getBudget(), getMeals(2)])
+      const eaten = kcalOn(meals, todayISO())
+      return JSON.stringify({
+        ok: true, was: last.kcal, now: fixed.kcal, title: fixed.title, why,
+        eaten, left: budget.target - eaten, budget: budget.target,
       })
     }
 
