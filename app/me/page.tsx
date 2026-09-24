@@ -126,7 +126,7 @@ export default async function Me() {
         )}
       </section>
 
-      <AddMeal dishes={dishes} />
+      <AddMeal dishes={dishes} today={today} />
 
       {/* ── the week ──────────────────────────────────────────────── */}
       <section className="co-card">

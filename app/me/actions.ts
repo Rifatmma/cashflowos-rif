@@ -13,6 +13,19 @@ import { createHash } from 'node:crypto'
 export type Result = { ok: boolean; message: string } | null
 
 const refresh = () => revalidatePath('/me')
+/**
+ * Which day a meal counts against. A photo taken at lunch and uploaded at
+ * midnight belongs to lunch, so the form carries the day (owner, 24 Sep 2026).
+ * A back-dated meal is timed at noon, since the real time is unknown.
+ */
+function whenFrom(form: FormData): { day: string; eaten_at?: string } {
+  const today = mytDate()
+  const day = String(form.get('day') || '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > today) return { day: today }
+  if (day === today) return { day }
+  return { day, eaten_at: new Date(`${day}T12:00:00+08:00`).toISOString() }
+}
+
 const num = (v: FormDataEntryValue | null) => {
   const s = String(v ?? '').trim().replace(',', '.')
   if (!s) return null
@@ -50,13 +63,15 @@ export async function addPhoto(_prev: Result, form: FormData): Promise<Result> {
     if (!error || /exist/i.test(error.message)) storage_path = path
   }
 
+  const when = whenFrom(form)
   const meal = await logMeal({
-    ...use, source: use.source, items: use.lines, sha256, storage_path, mime,
+    ...use, source: use.source, items: use.lines, sha256, storage_path, mime, ...when,
     meta: { portion: read.portion, note: read.note, from_menu: !!menu },
   })
   if (!meal) return { ok: false, message: 'That photo is already logged.' }
   refresh()
-  return { ok: true, message: `${meal.title} — ${meal.kcal} kcal. ${use.working}` }
+  const on = meal.day === mytDate() ? '' : ` Filed on ${meal.day}.`
+  return { ok: true, message: `${meal.title} — ${meal.kcal} kcal.${on} ${use.working}` }
 }
 
 /** Typed: "nasi lemak", "tomyam seafood x2", or a plain "650" if you know it. */
@@ -69,7 +84,7 @@ export async function addTyped(_prev: Result, form: FormData): Promise<Result> {
   if (kcalTyped && !Number.isNaN(kcalTyped) && kcalTyped > 0) {
     const meal = await logMeal({
       title: text, kcal: kcalTyped, source: 'typed', confidence: 'high',
-      working: 'You typed the calories yourself.',
+      working: 'You typed the calories yourself.', ...whenFrom(form),
     })
     refresh()
     return meal ? { ok: true, message: `${meal.title} — ${meal.kcal} kcal.` } : { ok: false, message: 'Could not save that.' }
@@ -82,7 +97,7 @@ export async function addTyped(_prev: Result, form: FormData): Promise<Result> {
       message: `I do not know "${text}" yet. Type the calories in the box beside it and I will take your number, or send a photo.`,
     }
   }
-  const meal = await logMeal({ ...cost, source: cost.source, items: cost.lines })
+  const meal = await logMeal({ ...cost, source: cost.source, items: cost.lines, ...whenFrom(form) })
   refresh()
   return meal ? { ok: true, message: `${meal.title} — ${meal.kcal} kcal. ${cost.working}` } : { ok: false, message: 'Could not save that.' }
 }
