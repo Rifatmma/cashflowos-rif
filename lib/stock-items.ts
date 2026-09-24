@@ -46,18 +46,20 @@ export const ITEMS: ItemDef[] = [
     aliases: ['daging', 'beef', 'buffalo', 'kerbau', 'carabeef'] },
   { key: 'tongue', name: 'Beef tongue', unit: 'g', sort: 21, fallbackCost: 0.03, bagG: 120,
     aliases: ['lidah', 'tongue'] },
+  // Thai names, owner 24 Sep 2026: กุ้งขาว or plain กุ้ง is this one; กุ้งแม่น้ำ
+  // ("river prawn") is udang galah, which is why กุ้ง must not swallow it.
   { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 38, fallbackCost: 0.75,
-    aliases: ['udang(?! galah)', 'prawn', 'shrimp'] },
+    aliases: ['udang(?! galah)', 'prawn', 'shrimp', 'กุ้ง(?!แม่น้ำ)'] },
   // Owner, 23 Sep 2026: frozen shrimp is a different item -- it only goes into
   // fried rice; every other shrimp dish uses fresh. Checked BEFORE 'shrimp'.
   { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 38, fallbackCost: 0.5,
     aliases: ['(frz|frozen|beku|iqf)[^a-z]*(isi )?(udang|prawn|shrimp)', '(udang|prawn|shrimp)[^a-z]*(frz|frozen|beku|iqf)'] },
   { key: 'galah', name: 'Udang galah', unit: 'pc', sort: 31, perKg: 20, fallbackCost: 3,
-    aliases: ['udang galah', 'river prawn', 'galah'] },
+    aliases: ['udang galah', 'river prawn', 'galah', 'กุ้งแม่น้ำ'] },
   { key: 'crab', name: 'Crab', unit: 'pc', sort: 32, perKg: 6, fallbackCost: 6,
     aliases: ['ketam', 'crab'] },
   { key: 'squid', name: 'Squid / octopus', unit: 'g', sort: 33, usablePct: 75, fallbackCost: 0.03, bagG: 80,
-    aliases: ['sotong', 'squid', 'calamari', 'octopus'] },
+    aliases: ['sotong', 'squid', 'calamari', 'octopus', 'หมึก'] },
   // Owner, 23 Sep 2026: frozen sotong is its own item -- it goes into the fried
   // squid dish only; every other sotong dish uses fresh. Rings come cleaned and
   // cut, so nothing is trimmed off (ASK if that is wrong).
@@ -70,7 +72,7 @@ export const ITEMS: ItemDef[] = [
   { key: 'lala', name: 'Lala', unit: 'g', sort: 35, fallbackCost: 0.015, bagG: 250,
     aliases: ['lala', 'clam', 'kepah'] },
   { key: 'siakap', name: 'Siakap', unit: 'fish', sort: 36, fallbackCost: 12,
-    aliases: ['siakap', 'barramundi', 'sea ?bass', 'kerapu'] },
+    aliases: ['siakap', 'barramundi', 'sea ?bass', 'kerapu', 'ปลากระพง'] },
   { key: 'egg', name: 'Eggs', unit: 'pc', sort: 40, fallbackCost: 0.45,
     aliases: ['telur(?! masin)', '\\begg'] },
   { key: 'rice', name: 'Rice (uncooked)', unit: 'g', sort: 50, fallbackCost: 0.0046,
@@ -112,9 +114,9 @@ export type StockIn = { item: string; qty: number; unit_cost: number | null; fro
 // mean "stop asking me about this one".
 export const IGNORE_KEY = '__ignore'
 
-const FROZEN = /(^|[^a-z])(frz|fzn|frozen|beku|iqf)([^a-z]|$)/
-const SHRIMP_WORD = /(udang|prawn|shrimp)/
-const SQUID_WORD = /(sotong|squid|calamari)/
+const FROZEN = /(^|[^a-z])(frz|fzn|frozen|beku|iqf)([^a-z]|$)|แช่แข็ง/
+const SHRIMP_WORD = /(udang|prawn|shrimp|กุ้ง)/
+const SQUID_WORD = /(sotong|squid|calamari|หมึก)/
 
 /** Which stock item a receipt name means, if any. Owner-taught aliases win. */
 export function itemForName(name: string, extraAliases: Record<string, string[]> = {}): string | 'bird' | null {
@@ -132,7 +134,7 @@ export function itemForName(name: string, extraAliases: Record<string, string[]>
   // IQF 1KG JPK" -- so an alias that wants them side by side misses it and the
   // bag lands in the fresh item (owner, 23 Sep 2026). Galah is never frozen stock.
   if (FROZEN.test(n)) {
-    if (SHRIMP_WORD.test(n) && !/galah/.test(n)) return 'shrimp_frozen'
+    if (SHRIMP_WORD.test(n) && !/galah|แม่น้ำ/.test(n)) return 'shrimp_frozen'
     if (SQUID_WORD.test(n)) return 'squid_frozen'
   }
   // Most specific first: "udang galah" must not land on shrimp, "kaki ayam" not on breast.
