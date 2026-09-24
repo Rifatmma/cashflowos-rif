@@ -1,0 +1,95 @@
+{
+  "before": {
+    "id": 126,
+    "title": "CHOP CHANG JIANG TRADING SDN BHD — Eggs",
+    "status": "filed",
+    "amount": 69,
+    "category": "cash_out",
+    "due_date": "2026-09-24",
+    "notes": "Auto-filed by the Vault 🤖",
+    "meta": {
+      "tax": 0,
+      "items": [
+        {
+          "key": "eggs",
+          "qty": 1,
+          "name": "AA Eggs (Brown)",
+          "unit": "unit",
+          "group": "protein",
+          "line_total": 0,
+          "unit_price": 0,
+          "expense_type": "cogs_food"
+        },
+        {
+          "key": "eggs",
+          "qty": 1,
+          "name": "A Eggs (Brown)",
+          "unit": "unit",
+          "group": "protein",
+          "line_total": 0,
+          "unit_price": 0,
+          "expense_type": "cogs_food"
+        },
+        {
+          "key": "eggs",
+          "qty": 1,
+          "name": "B Eggs (Brown)",
+          "unit": "unit",
+          "group": "protein",
+          "line_total": 0,
+          "unit_price": 0,
+          "expense_type": "cogs_food"
+        },
+        {
+          "key": "eggs",
+          "qty": 5,
+          "name": "C Eggs (Brown)",
+          "unit": "dozen",
+          "group": "protein",
+          "line_total": 69.2,
+          "unit_price": 13.84,
+          "expense_type": "cogs_food"
+        },
+        {
+          "key": "eggs",
+          "qty": 1,
+          "name": "D Eggs (Brown)",
+          "unit": "unit",
+          "group": "protein",
+          "line_total": 0,
+          "unit_price": 0,
+          "expense_type": "cogs_food"
+        }
+      ],
+      "sha256": "8dd59d425bb73cca0f1529a904899d93dbbce3086be8e0668c3a84abc927a791",
+      "source": "vault",
+      "category": "Eggs",
+      "filed_by": "Tina Kuno",
+      "merchant": "CHOP CHANG JIANG TRADING SDN BHD",
+      "subtotal": 69.2,
+      "auto_filed": true,
+      "receipt_no": "793928",
+      "filed_by_id": "8880775629",
+      "expense_type": "cogs_food",
+      "filed_in_group": true
+    },
+    "created_at": "2026-09-24T06:14:38.077334+00:00"
+  },
+  "mvB": [
+    {
+      "id": 213,
+      "item": "egg",
+      "qty": 60,
+      "kind": "purchase",
+      "unit_cost": 1.1533333333333333,
+      "record_id": 126,
+      "sales_date": null,
+      "by": "Tina Kuno",
+      "note": "5 dozen x 12",
+      "meta": {
+        "from": "C Eggs (Brown)"
+      },
+      "created_at": "2026-09-24T06:14:40.09892+00:00"
+    }
+  ]
+}

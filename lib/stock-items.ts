@@ -167,11 +167,21 @@ const fmtNum = (n: number) => String(Math.round(n * 1000) / 1000)
 const packIsTotal = (l: ReceiptLine) => /^(pcs|pieces?)$/i.test(String(l.unit ?? ''))
 
 /**
- * A dozen is twelve. "C Eggs (Brown) · 5 dozen" put FIVE eggs in the fridge
- * instead of sixty (owner, 24 Sep 2026). Malay "dzn", Thai โหล count too.
+ * How many eggs one unit holds.
+ *
+ * Chop Chang Jiang's bill says "5 papan" by hand -- papan telur, the Malay egg
+ * tray of 30 -- and it was read as 5 dozen, then as 5 eggs (owner, 24 Sep 2026).
+ * A dozen is twelve, a papan/tray/dulang is thirty.
  */
+const EGGS_PER_TRAY = 30
+const wordsOf = (l: ReceiptLine) => `${l.unit ?? ''} ${l.name ?? ''}`
 const dozensOf = (l: ReceiptLine) =>
-  /(^|[^a-z])(doz|dozen|dozens|dzn|dz)([^a-z]|$)|โหล/i.test(`${l.unit ?? ''} ${l.name ?? ''}`) ? 12 : 1
+  /(^|[^a-z])(doz|dozen|dozens|dzn|dz)([^a-z]|$)|โหล/i.test(wordsOf(l)) ? 12 : 1
+const traysOf = (l: ReceiptLine) =>
+  /(^|[^a-z])(papan|tray|trays|dulang|แผง)([^a-z]|$)/i.test(wordsOf(l)) ? EGGS_PER_TRAY : 1
+// Loose eggs, said out loud. Anything else is a tray -- see the egg branch.
+const looseEggs = (l: ReceiptLine) =>
+  /(^|[^a-z])(pcs?|pieces?|biji|butir|ulas)([^a-z]|$)/i.test(wordsOf(l))
 
 /** Pieces printed on a pack: "TELUR GRED A 30S", "10 BIJI". */
 function packCount(name: string): number | null {
@@ -227,10 +237,18 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
   } else {
     const pack = packCount(l.name)
     const dozens = dozensOf(l)
+    const trays = traysOf(l)
     if (key === 'egg') {
-      q = (pack ?? dozens) * qty
-      how = pack ? `${fmtNum(qty)} x ${pack} per tray`
-        : dozens > 1 ? `${fmtNum(qty)} dozen x 12` : `${fmtNum(qty)} on the bill`
+      // A count printed on the pack ("GRED A 30S") wins, then what the bill
+      // calls it. With nothing to go on it is a TRAY: "in a restaurant we'll
+      // always order a tray, so keep that as the default" (owner, 24 Sep 2026).
+      // Only "pcs / biji / butir" means single eggs.
+      const per = pack ?? (dozens > 1 ? 12 : looseEggs(l) ? 1 : EGGS_PER_TRAY)
+      q = per * qty
+      how = pack ? `${fmtNum(qty)} x ${pack} printed on the pack`
+        : per === 12 ? `${fmtNum(qty)} dozen x 12`
+        : per === 1 ? `${fmtNum(qty)} on the bill`
+        : `${fmtNum(qty)} trays x ${EGGS_PER_TRAY}${trays > 1 ? '' : ' (eggs come by the tray)'}`
     }
     else {
       const kg = kgOf(l, def)

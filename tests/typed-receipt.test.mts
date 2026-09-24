@@ -62,9 +62,13 @@ if (bad) process.exitCode = 1
 
 // ---------------------------------------------------------------------------
 // Receipt lines, not typed bills: a dozen is twelve (owner, 24 Sep 2026).
+// Owner, 24 Sep 2026: "in a restaurant we'll always order a tray, so keep that
+// as the default for the egg". Only a printed count, the word dozen, or pieces
+// said out loud override it.
 const EGGS: [string, any, number][] = [
-  ['5 dozen', { name: 'C Eggs (Brown)', qty: 5, unit: 'dozen', line_total: 69.2 }, 60],
-  ['2 trays of 30', { name: 'TELUR GRED A 30S', qty: 2, unit: 'tray', line_total: 27 }, 60],
+  ['5 papan (the Chop Chang Jiang bill)', { name: 'C Eggs (Brown)', qty: 5, unit: 'papan', line_total: 69 }, 150],
+  ['5 with no unit at all', { name: 'C Eggs (Brown)', qty: 5, unit: 'unit', line_total: 69 }, 150],
+  ['2 trays of 30 printed on the pack', { name: 'TELUR GRED A 30S', qty: 2, unit: 'tray', line_total: 27 }, 60],
   ['3 dzn', { name: 'Telur ayam', qty: 3, unit: 'dzn', line_total: 42 }, 36],
   ['10 loose', { name: 'Eggs', qty: 10, unit: 'pcs', line_total: 6 }, 10],
 ]
