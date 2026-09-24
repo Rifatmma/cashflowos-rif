@@ -1,9 +1,10 @@
 import { sendMessage } from '@/lib/telegram'
 import { getRecords } from '@/lib/records'
 import { appendTurn } from '@/lib/bot-memory'
-import { mytDate, dayLabel } from '@/lib/period'
+import { mytDate, dayLabel, addDays } from '@/lib/period'
 import { salesImportInUse, salesFiledFor } from '@/lib/sales'
 import { scanEmailPayments, buildQuestion } from '@/lib/email-payments'
+import { getMeals, getBudget, kcalOn } from '@/lib/meals'
 
 // The nightly "send me tonight's sales" nudge.
 //
@@ -58,7 +59,17 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, email: scan, asked })
   }
 
-  // ② The sales reminder. The business day that is just closing, in Malaysia.
+  // ② THE FOOD DIARY. The owner asked for an evening summary; Vercel's free plan
+  //    allows two scheduled jobs a day and both were already taken, so he chose
+  //    to fold it into this one rather than pay for a third (24 Sep 2026).
+  let ate = false
+  try {
+    ate = await sendFoodSummary(owner)
+  } catch (e) {
+    console.error('[CFO] food summary failed:', e)
+  }
+
+  // ③ The sales reminder. The business day that is just closing, in Malaysia.
   const today = mytDate()
   const rows = await getRecords()
 
@@ -85,5 +96,37 @@ export async function GET(req: Request) {
     console.error('[CFO] reminder memory write failed:', e)
   }
 
-  return Response.json({ ok: true, email: scan, asked, reminded: today })
+  return Response.json({ ok: true, email: scan, asked, food: ate, reminded: today })
+}
+
+/**
+ * Tonight's eating, in one message. Silent on a day with nothing logged: a
+ * nag about a diary he did not use is how a diary gets abandoned.
+ */
+async function sendFoodSummary(owner: string): Promise<boolean> {
+  const day = mytDate()
+  const [meals, budget] = await Promise.all([getMeals(8), getBudget()])
+  const todays = meals.filter(m => m.day === day)
+  if (!todays.length) return false
+
+  const eaten = kcalOn(meals, day)
+  const left = budget.target - eaten
+  // The week so far, to put one day in its place: one heavy night is nothing,
+  // seven of them are the whole problem.
+  const week = Array.from({ length: 7 }, (_, i) => addDays(day, -i))
+  const logged = week.map(d => ({ d, kcal: kcalOn(meals, d) })).filter(x => x.kcal > 0)
+  const avg = logged.length ? Math.round(logged.reduce((t, x) => t + x.kcal, 0) / logged.length) : eaten
+
+  const text =
+    `\ud83c\udf7d\ufe0f <b>Today's food</b>\n` +
+    todays.map(m => `\u2022 ${m.title} \u2014 ${m.kcal}`).join('\n') +
+    `\n\n<b>${eaten}</b> eaten of ${budget.target} \u2014 ` +
+    (left >= 0 ? `<b>${left} left</b>.` : `<b>${-left} over</b>.`) +
+    (logged.length >= 3 ? `\n${logged.length} days logged this week, ${avg} a day on average.` : '') +
+    (left < 0 ? '\n<i>One day over changes nothing. The average is what moves the scale.</i>' : '')
+
+  await sendMessage(owner, text)
+  await appendTurn(Number(owner), '[nightly food summary]',
+    `${eaten} kcal of ${budget.target} today across ${todays.length} meals.`)
+  return true
 }

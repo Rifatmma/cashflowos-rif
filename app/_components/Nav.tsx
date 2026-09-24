@@ -30,6 +30,9 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
     { href: '/ads/funnel', label: 'Leads & Money' },
     { href: '/ads/playbook', label: 'Playbook' },
   ] },
+  { label: 'Me', tabs: [
+    { href: '/me', label: 'Food diary' },
+  ] },
   { label: 'Robot', tabs: [
     { href: '/approvals', label: 'Approvals' },
     { href: '/employees', label: 'AI Employees' },

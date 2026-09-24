@@ -167,7 +167,7 @@ export function findRecipe(name: string, variation: string, book: Recipe[]): Rec
   return null
 }
 
-const linesFor = (r: Recipe, size: Size): Line[] => r.sizes[size] ?? r.sizes.S ?? []
+export const linesFor = (r: Recipe, size: Size): Line[] => r.sizes[size] ?? r.sizes.S ?? []
 
 export type Use = Record<string, number>
 export type LineResult = {

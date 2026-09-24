@@ -19,6 +19,8 @@ import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
 import { hasOpenQuestion, applyAnswer } from '@/lib/email-payments'
+import { readMeal } from '@/lib/meal-vision'
+import { logMeal, correctMeal, latestMeal, costFromMenu, costTyped, dayLine, getBudget } from '@/lib/meals'
 import { taughtAliases } from '@/lib/stock-data'
 import { addMove } from '@/app/stock/actions'
 import { parseAnswer, looksLikeAnswer, plainAnswer } from '@/lib/payment-answer'
@@ -410,6 +412,102 @@ async function findTwin(v: VisionResult): Promise<{ id: number; meta: any; title
   return null
 }
 
+/**
+ * File a photographed meal and say what it counted.
+ *
+ * The recipe book wins where it can: a plate of the restaurant's own food is
+ * priced from real gram weights rather than from a look at the picture.
+ */
+async function logAndReplyMeal(
+  chatId: number,
+  read: Awaited<ReturnType<typeof readMeal>>,
+  file: { bytes: Buffer; mime: string; sha256: string },
+): Promise<void> {
+  const menu = await costFromMenu(read.title)
+  let storage_path: string | null = null
+  try {
+    if (supabaseConfigured) {
+      const ext = file.mime === 'image/png' ? 'png' : 'jpg'
+      const path = `meals/${file.sha256}.${ext}`
+      const { error } = await supabase.storage.from('vault').upload(path, file.bytes, { contentType: file.mime, upsert: false })
+      if (!error || /exist/i.test(error.message)) storage_path = path
+    }
+  } catch (e) {
+    console.error('[CFO] meal photo store failed:', e)
+  }
+
+  const use = menu ?? {
+    title: read.title, kcal: read.kcal, confidence: read.confidence, source: 'photo' as const,
+    lines: read.lines.map(l => ({ what: l.what + (l.grams ? ` ${Math.round(l.grams)} g` : ''), kcal: l.kcal })),
+    working: [read.portion, read.lines.map(l => `${l.what} ${l.kcal}`).join(' \u00b7 ')].filter(Boolean).join(' \u00b7 '),
+  }
+
+  const meal = await logMeal({
+    ...use, source: use.source, items: use.lines,
+    sha256: file.sha256, storage_path, mime: file.mime,
+    meta: { portion: read.portion, note: read.note, from_menu: !!menu },
+  })
+  if (!meal) {
+    await sendMessage(chatId, '\ud83d\udcc1 Already counted that photo \u2014 nothing logged twice.')
+    return
+  }
+
+  const [budget, today] = await Promise.all([getBudget(), dayLine()])
+  const reply =
+    `\ud83c\udf7d\ufe0f <b>${esc(meal.title)}</b> \u2014 <b>${meal.kcal} kcal</b>` +
+    (menu ? ' <i>(from your own recipe)</i>' : '') +
+    (use.working ? `\n<i>${esc(use.working)}</i>` : '') +
+    (read.note ? `\n\u26a0\ufe0f ${esc(read.note)}` : '') +
+    `\n\n${esc(today)}` +
+    `\n\n<i>Wrong? Say "half that", "two plates", or just the number.</i>`
+  await sendMessage(chatId, reply)
+  await remember(chatId, '[sent a photo of a meal]', `Logged ${meal.title} ${meal.kcal} kcal. Budget ${budget.target}.`)
+}
+
+/**
+ * "Half that" / "double" / "600" / "no rice" -- a correction to the last meal,
+ * in the owner's own chat, without a tool call or a model turn.
+ */
+async function mealCorrection(chatId: number, text: string): Promise<boolean> {
+  const t = text.trim().toLowerCase()
+  if (t.length > 40) return false
+  const last = await latestMeal()
+  // Only the meal just logged: an hour later, "half" means something else.
+  if (!last || Date.now() - new Date(last.eaten_at).getTime() > 2 * 3600_000) return false
+
+  let kcal: number | null = null
+  let why = t
+  if (/^(half|separuh|setengah|\u0e04\u0e23\u0e36\u0e48\u0e07)( of)?( (that|it))?$/i.test(t)) { kcal = last.kcal / 2; why = 'half of it' }
+  else if (/^(double|twice|2x|x2|two plates?|dua pinggan)$/i.test(t)) { kcal = last.kcal * 2; why = 'twice the portion' }
+  else if (/^(\d{2,4})( ?kcal| ?cal| ?calories)?$/i.test(t)) { kcal = Number(t.match(/\d{2,4}/)![0]); why = 'you gave the number' }
+  else return false
+
+  const fixed = await correctMeal(last.id, kcal, why)
+  if (!fixed) return false
+  await sendMessage(chatId, `\u270f\ufe0f <b>${esc(fixed.title)}</b> is now <b>${fixed.kcal} kcal</b> \u2014 ${esc(why)}.\n\n${esc(await dayLine())}`)
+  await remember(chatId, text, `Corrected ${fixed.title} to ${fixed.kcal} kcal.`)
+  return true
+}
+
+/** "I ate nasi lemak" / "ate tomyam seafood" -- typed, no photo. */
+async function typedMeal(chatId: number, text: string): Promise<boolean> {
+  const m = String(text).match(/^\s*(?:i )?(?:ate|eat|makan|had|\u0e01\u0e34\u0e19)\s+(.{2,60})$/i)
+  if (!m) return false
+  const what = m[1].trim().replace(/[.!]+$/, '')
+  const portions = /\b(2|two|dua)\s*(plates?|pinggan|bowls?)\b/i.test(what) ? 2 : 1
+  const cost = await costTyped(what, portions)
+  if (!cost) {
+    await sendMessage(chatId, `\ud83e\udd14 I do not know "${esc(what)}" yet. Send a photo, or tell me the calories: "${esc(what)} 600".`)
+    return true
+  }
+  const meal = await logMeal({ ...cost, source: cost.source, items: cost.lines })
+  if (!meal) return true
+  await sendMessage(chatId,
+    `\ud83c\udf7d\ufe0f <b>${esc(meal.title)}</b> \u2014 <b>${meal.kcal} kcal</b>\n<i>${esc(cost.working)}</i>\n\n${esc(await dayLine())}`)
+  await remember(chatId, text, `Logged ${meal.title} ${meal.kcal} kcal.`)
+  return true
+}
+
 // ------------------------------------------------------------
 // GROUP ETIQUETTE. In a group the bot is a guest: it speaks only when spoken to,
 // and it never calls anyone out in front of the team.
@@ -539,6 +637,14 @@ async function handleMessage(msg: any): Promise<Response> {
       runVaultPipeline(msg, staffFiling).catch(e => console.error('[CFO] vault pipeline threw:', e)),
     )
     return Response.json({ ok: true })
+  }
+
+  // THE FOOD DIARY, in the owner's chat only. "ate nasi lemak" logs a meal;
+  // "half that" or "600" corrects the one just logged. Checked before the model
+  // so a one-word answer is instant and costs nothing (owner, 24 Sep 2026).
+  if (typedText && !isGroupChat(msg.chat) && OWNER && String(chatId) === OWNER) {
+    if (await mealCorrection(chatId, typedText)) return Response.json({ ok: true })
+    if (await typedMeal(chatId, typedText)) return Response.json({ ok: true })
   }
 
   // Typed bill → file it (same dial as a photo). ACK-first, like the photo path.
@@ -1012,6 +1118,21 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // A typed bill waiting for its photo belongs to the whole chat: one person
   // types, another photographs (owner, 24 Sep 2026).
   const waitingBill = waiting?.type === 'need_photo' ? waiting : await anyWaitingBill(chatId)
+
+  // THE OWNER'S OWN PLATE. In his private chat a photo of food is a meal for
+  // his diary, not a receipt for the Vault -- so he never has to say which it
+  // is (owner, 24 Sep 2026). Never in the staff group: their photos are bills,
+  // and his eating is nobody else's business.
+  if (!staffFiling && !isGroupChat(msg.chat) && OWNER && String(chatId) === OWNER && msg.photo?.length) {
+    const seen = await bumpDailyCounter(chatId, 'vision', todayISO())
+    if (seen <= VISION_DAILY_CAP) {
+      const meal = await readMeal(bytes.toString('base64'), mime)
+      if (meal.is_food) {
+        await logAndReplyMeal(chatId, meal, { bytes, mime, sha256 })
+        return
+      }
+    }
+  }
 
   // ASSESS — daily vision cap (per chat). Over the cap ⇒ friendly stop, no spend.
   const used = await bumpDailyCounter(chatId, 'vision', todayISO())
