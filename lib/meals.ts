@@ -189,12 +189,11 @@ export async function getMeals(days = 30): Promise<Meal[]> {
 export async function logMeal(m: {
   title: string; kcal: number; working?: string; confidence?: string; source: string
   items?: any[]; sha256?: string | null; storage_path?: string | null; mime?: string | null
-  day?: string; eaten_at?: string; meta?: any
+  day?: string; meta?: any
 }): Promise<Meal | null> {
   if (!supabaseConfigured) return null
   const row = {
     day: m.day ?? mytDate(),
-    ...(m.eaten_at ? { eaten_at: m.eaten_at } : {}),
     title: m.title.slice(0, 120),
     kcal: Math.max(0, Math.round(m.kcal)),
     source: m.source,
