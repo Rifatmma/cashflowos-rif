@@ -114,6 +114,11 @@ export type StockIn = { item: string; qty: number; unit_cost: number | null; fro
 // Names the owner has marked "not stock" -- vegetables, sauces, dry goods. Kept
 // under this key in the taught-alias map so the same "this is…" picker can also
 // mean "stop asking me about this one".
+const WEIGHT_UNIT = /^(kg|kilo|kilos|g|gm|gram|grams)$/i
+
+// A siakap weighs 500-600 g (owner, 22 Sep 2026), so a kilo is not quite two.
+export const FISH_KG = 0.55
+
 export const IGNORE_KEY = '__ignore'
 
 const FROZEN = /(^|[^a-z])(frz|fzn|frozen|beku|iqf)([^a-z]|$)|แช่แข็ง/
@@ -232,10 +237,21 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
     q = kg ? kg * 1000 * usable : null
     if (kg) how = `${qty > 1 ? `${fmtNum(qty)} x ` : ''}${fmtNum(kg / (qty > 1 ? qty : 1))} kg = ${fmtNum(kg)} kg${trim}`
   } else if (def.unit === 'fish') {
-    // Bought by the fish, or by weight at ~550 g a fish.
-    const kg = l.unit && /^kg$/i.test(l.unit) ? qty : null
-    q = kg ? kg / 0.55 : qty
-    how = kg ? `${fmtNum(kg)} kg at about 550 g a fish` : `${fmtNum(qty)} fish on the bill`
+    // Same rule as the pieces below: if the bill gives a WEIGHT, the weight
+    // decides at about 550 g a fish, and a count typed by hand is only shown
+    // for comparison. The owner asked for this on udang, sotong and siakap
+    // alike (24 Sep 2026).
+    const kg = kgOf(l, def)
+    if (kg) {
+      q = kg / FISH_KG
+      how = `${fmtNum(kg)} kg at about ${FISH_KG * 1000} g a fish` +
+        // ...but "the bill said 5.6" is nonsense when the 5.6 IS the weight.
+        (!WEIGHT_UNIT.test(String(l.unit ?? '')) && qty > 1 && Math.abs(qty - q) > 0.5
+          ? ` (the bill said ${fmtNum(qty)})` : '')
+    } else {
+      q = qty
+      how = `${fmtNum(qty)} fish on the bill`
+    }
   } else {
     const pack = packCount(l.name)
     const dozens = dozensOf(l)

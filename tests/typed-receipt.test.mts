@@ -24,9 +24,10 @@ const CASES: Case[] = [
     stock: ['shrimp', 40],
   },
   {
-    what: 'siakap: 8 fish weighing 4 kg between them',
+    what: 'siakap: 4 kg, hand-counted at 8, filed at 7.3',
     text: 'Item Name: Ikan siakap \nWeight: 4 kilo \nQuantity: 8 ekor \nPrice: RM 68',
-    totalKg: 4, perKg: 17, stock: ['siakap', 8],
+    // 4 kg decides, not the 8 counted by hand: about 550 g a fish.
+    totalKg: 4, perKg: 17, stock: ['siakap', 7.27],
   },
   {
     what: 'oil: 3 separate 1 kg packs, so it still multiplies',
@@ -84,4 +85,25 @@ for (const [what, line, want] of EGGS) {
   const n = Array.isArray(got) ? (got[0]?.qty ?? 0) : 0
   if (Math.abs(n - want) > 0.01) { console.log(`FAIL eggs, ${what}: ${n}, wanted ${want}`); process.exitCode = 1 }
   else console.log(`ok   eggs, ${what} -> ${want}`)
+}
+
+// ---------------------------------------------------------------------------
+// The same rule everywhere the owner asked for it -- udang, sotong, siakap
+// (24 Sep 2026): a weight on the bill decides, a hand count only fills in when
+// there is no weight.
+const SEAFOOD: [string, any, string, number][] = [
+  ['siakap, 4 kg typed as 8 fish', { name: 'Ikan siakap (8 pcs)', qty: 8, unit: 'pcs', base_qty: 4, base_unit: 'kg', line_total: 68 }, 'siakap', 7.27],
+  ['siakap, 3 fish and no weight', { name: 'Siakap', qty: 3, unit: 'ekor', line_total: 45 }, 'siakap', 3],
+  ['udang, 2 kg typed as 50', { name: 'Udang (50 pcs)', qty: 50, unit: 'pcs', base_qty: 2, base_unit: 'kg', line_total: 54 }, 'shrimp', 66],
+  ['sotong beku, 1.078 kg', { name: 'FRZ SOTONG RING SKIN ON IQF*KG', qty: 1.078, unit: 'kg', base_qty: 1.078, base_unit: 'kg', line_total: 8.29 }, 'squid_frozen', 19.4],
+  ['sotong segar, 5.2 kg', { name: 'Octopus', qty: 5.2, unit: 'kg', base_qty: 5.2, base_unit: 'kg', line_total: 171.6 }, 'squid', 3900],
+  ['udang galah, 1 kg', { name: 'Udang galah', qty: 1, unit: 'kg', base_qty: 1, base_unit: 'kg', line_total: 60 }, 'galah', 20],
+]
+for (const [what, line, item, want] of SEAFOOD) {
+  const got = stockFromLine(line)
+  const hit = Array.isArray(got) ? got.find(g => g.item === item) : null
+  if (!hit || Math.abs(hit.qty - want) > 0.05) {
+    console.log(`FAIL ${what}: ${hit ? `${item} ${hit.qty.toFixed(2)}` : 'nothing'}, wanted ${want}`)
+    process.exitCode = 1
+  } else console.log(`ok   ${what} -> ${item} ${want}`)
 }

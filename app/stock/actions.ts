@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
-import { ITEM, IGNORE_KEY } from '@/lib/stock-items'
+import { ITEM, IGNORE_KEY, FISH_KG } from '@/lib/stock-items'
 import { getItems, getMoves, importDay } from '@/lib/stock-data'
 import { normName } from '@/lib/recipes'
 import { isSalesRow, salesDayOf } from '@/lib/sales'
@@ -74,7 +74,7 @@ export async function addMove(_prev: Result, form: FormData): Promise<Result> {
     if (!def.bagG) return { ok: false, message: `${def.name} isn't bagged. Use kg or g.` }
     q = amount * def.bagG
   } else if (def.unit === 'g') q = unit === 'g' ? amount : amount * 1000
-  else if (def.unit === 'fish') q = unit === 'kg' ? amount / 0.55 : amount
+  else if (def.unit === 'fish') q = unit === 'kg' ? amount / FISH_KG : amount
   else if (unit === 'kg') {
     if (!def.perKg) return { ok: false, message: `${def.name} is counted in pieces. Type pieces.` }
     q = amount * def.perKg
