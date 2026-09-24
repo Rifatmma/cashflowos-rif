@@ -963,23 +963,14 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     }
   }
 
-  // A typed bill is waiting for its photo from this person? Then this IS that
-  // photo: attach it for the record and stop. Nothing to read, nothing to spend.
+  // A typed bill may be waiting for its photo from this person. It used to be
+  // stapled on the spot, unread -- and Tina's next photo was a DIFFERENT siakap
+  // invoice (RM 95.20, dated today) that went silently onto yesterday's RM 68
+  // bill, so today's shopping was never filed at all (owner, 24 Sep 2026).
+  // Now the photo is read first and the decision is made below, once we know
+  // what is on it.
   const waiting = await getPending(chatId, filer.id)
-  if (waiting?.type === 'need_photo') {
-    const path = await storeFile(bytes, mime, `bills/${safeKey(waiting.key)}-${sha256.slice(0, 12)}`)
-    if (supabaseConfigured) {
-      await supabase.from('vault_files').upsert({
-        sha256, storage_path: path, mime, size_bytes: bytes.length,
-        uploaded_by_chat_id: chatId, record_id: waiting.record_id ?? null,
-      }, { onConflict: 'sha256', ignoreDuplicates: true })
-    }
-    await clearPending(chatId, filer.id)
-    const reply = `📎 Bill photo saved with ${waiting.what}. Thanks${staffFiling ? ' ' + esc(filer.name) : ''}!`
-    await sendMessage(chatId, reply)
-    await remember(chatId, '[sent the bill photo for a typed receipt]', reply)
-    return
-  }
+  const waitingBill = waiting?.type === 'need_photo' ? waiting : null
 
   // ASSESS — daily vision cap (per chat). Over the cap ⇒ friendly stop, no spend.
   const used = await bumpDailyCounter(chatId, 'vision', todayISO())
@@ -1020,13 +1011,43 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // Keep the photo, ask the sender to type it in the template, and attach this
   // photo to what they type. The typed numbers are the record; the photo is proof.
   const unreadable = mime !== 'application/pdf' && v.confidence === 'low' && !(typeof v.amount === 'number' && v.amount > 0)
+
+  // THE PHOTO A TYPED BILL WAS WAITING FOR -- or another bill entirely?
+  // It is the same bill when it cannot be read (the usual case: that is why it
+  // was typed) or when the total matches. Anything else is filed on its own.
+  if (waitingBill) {
+    const sameTotal = typeof waitingBill.amount === 'number' && typeof v.amount === 'number' &&
+      Math.abs(v.amount - waitingBill.amount) < 0.01
+    if (unreadable || sameTotal) {
+      const path = await storeFile(bytes, mime, `bills/${safeKey(waitingBill.key)}-${sha256.slice(0, 12)}`)
+      if (supabaseConfigured) {
+        await supabase.from('vault_files').upsert({
+          sha256, storage_path: path, mime, size_bytes: bytes.length,
+          uploaded_by_chat_id: chatId, record_id: waitingBill.record_id ?? null,
+        }, { onConflict: 'sha256', ignoreDuplicates: true })
+      }
+      await clearPending(chatId, filer.id)
+      const reply = `📎 Bill photo saved with ${waitingBill.what}. Thanks${staffFiling ? ' ' + esc(filer.name) : ''}!`
+      await sendMessage(chatId, reply)
+      await remember(chatId, '[sent the bill photo for a typed receipt]', reply)
+      return
+    }
+    await clearPending(chatId, filer.id)
+    const note =
+      `📄 This is a different bill from ${waitingBill.what} — it reads ${rm(v.amount ?? 0)}` +
+      `${v.merchant ? ` · ${esc(v.merchant)}` : ''}${v.date ? ` · ${esc(v.date)}` : ''}. ` +
+      `I'll file it on its own. ${waitingBill.what} still has no photo — send it any time.`
+    await sendMessage(chatId, note)
+    await remember(chatId, '[sent a photo while a typed bill waited for one]', note)
+  }
+
   if (unreadable) {
     const path = await storeFile(bytes, mime, `receipts/${sha256}`)
     await setPending(chatId, filer.id, { type: 'have_photo', sha256, storage_path: path, mime, size_bytes: bytes.length })
     const ask =
       `🤔 I can't read this bill${staffFiling ? `, ${esc(filer.name)}` : ''}. Please type it for me like this ` +
       `(one Item Name / Weight / Quantity / Price per item):\n\n<code>${esc(TEMPLATE)}</code>\n\n` +
-      `<i>Weight = one pack (2 kg, 500 g, 30 pcs). Price = total for that item. I'll keep this photo with it.</i>`
+      `<i>Weight = ONE item or pack, not the total for all of them (8 fish of 500 g each → write 500 g). Price = total for that item. I'll keep this photo with it.</i>`
     await sendMessage(chatId, ask)
     await remember(chatId, '[sent a bill photo that could not be read]', ask)
     // So an unreadable bill can't quietly go missing if nobody types it.
@@ -1391,7 +1412,7 @@ async function answerMissingFields(msg: any, p: any): Promise<void> {
 //   have_photo -- a photo couldn't be read; the next typed bill from them gets it.
 // ============================================================
 type Pending =
-  | { type: 'need_photo'; key: string; record_id?: number | null; what: string; until: number }
+  | { type: 'need_photo'; key: string; record_id?: number | null; what: string; amount?: number; until: number }
   | { type: 'have_photo'; sha256: string; storage_path: string | null; mime: string; size_bytes: number; until: number }
   // A receipt with something unreadable on it -- shop, date, total -- parked here
   // while the GROUP is asked to fill a template (owner, 23 Sep: ask there, not in
@@ -1499,7 +1520,7 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     const done = await runAutopilot('expense', { ...payload, auto: true })
     if (!done) { await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.'); return }
     const recordId = (done.result as any)?.record_id ?? null
-    if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: recordId, what: `the ${rm(amount)} bill` })
+    if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: recordId, what: `the ${rm(amount)} bill`, amount })
     const hint = staffTyped ? FIX_HINT_STAFF : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`
     const reply = `✅ Filed <b>${what}</b>${staffTyped ? ` — thanks ${esc(filer.name)}` : ''}.${detail}${askPhoto}${hint}`
     await sendMessage(chatId, reply)
@@ -1524,7 +1545,7 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     await remember(approvalChatId, '[a bill was typed]',
       `${text}\n\n(Waiting for the owner's approval — approval #${row.id}. Nothing is filed until they approve.)`)
     // The photo can arrive before the approval; fileReceipt links it on filing.
-    if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: null, what: `the ${rm(amount)} bill` })
+    if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: null, what: `the ${rm(amount)} bill`, amount })
   }
   if (staffTyped) await sendMessage(chatId, `📝 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.${askPhoto}`)
   else if (!row) await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
@@ -1617,6 +1638,15 @@ const MAX_SHOWN = 200
 function receiptSummary(v: VisionResult): string {
   const items = v.items ?? []
   const bits: string[] = []
+
+  // WHICH DAY. A bill typed today can be yesterday's shopping, and the owner
+  // could not tell which day it landed on ("I'm not sure which date you file
+  // it", 24 Sep 2026). So the day is always on the card, and said out loud when
+  // it is not today.
+  if (v.date) {
+    const t = mytDate()
+    bits.push(v.date === t ? 'Today' : `<b>Dated ${esc(dayLabel(v.date, t))}</b>`)
+  }
 
   // A mixed receipt shows the SPLIT, not one label -- the whole reason the split
   // exists is that "RM 71.95 food" hid RM 8.75 of bin bags. If it is only ever
