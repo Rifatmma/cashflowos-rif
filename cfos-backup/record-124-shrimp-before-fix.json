@@ -1,0 +1,57 @@
+{
+  "before": [
+    {
+      "id": 124,
+      "title": "Pasar borong — Typed bill",
+      "status": "filed",
+      "amount": 54,
+      "category": "cash_out",
+      "due_date": "2026-09-23",
+      "notes": "Auto-filed by the Vault 🤖",
+      "meta": {
+        "items": [
+          {
+            "qty": 50,
+            "name": "Udang",
+            "unit": "bag",
+            "base_qty": 100,
+            "base_unit": "kg",
+            "pack_size": 2,
+            "pack_unit": "kg",
+            "line_total": 54,
+            "unit_price": 1.08,
+            "expense_type": "cogs_food",
+            "price_per_base": 0.54
+          }
+        ],
+        "source": "typed",
+        "category": "Typed bill",
+        "filed_by": "Tina Kuno",
+        "merchant": "Pasar borong",
+        "auto_filed": true,
+        "typed_text": "Supplier: Pasar borong \nDate: 23/09/2026\nItem Name: Udang \nWeight: 2 kilo \nQuantity: 50 pieces \nPrice: RM 54",
+        "filed_by_id": "8880775629",
+        "expense_type": "cogs_food",
+        "filed_in_group": true
+      },
+      "created_at": "2026-09-24T05:35:53.185974+00:00"
+    }
+  ],
+  "mvB": [
+    {
+      "id": 206,
+      "item": "shrimp",
+      "qty": 3800,
+      "kind": "purchase",
+      "unit_cost": 0.014210526315789474,
+      "record_id": 124,
+      "sales_date": null,
+      "by": "Tina Kuno",
+      "note": "100 kg at 38 per kg",
+      "meta": {
+        "from": "Udang"
+      },
+      "created_at": "2026-09-24T05:35:56.790623+00:00"
+    }
+  ]
+}

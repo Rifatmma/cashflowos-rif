@@ -24,7 +24,7 @@ const costLabel = (c: number, unit: string) =>
 // Groceries that are obviously not meat, seafood, eggs or rice: never offered
 // for "this is…", or the list becomes sugar and cooking oil every week.
 const DRY_GOODS = /(gula|sugar|minyak|oil|tepung|flour|susu|milk|krimer|creamer|sauce|sos|kicap|mush|cendawan|margarin|butter|milo|kopi|coffee|nescafe|teh|tea|garam|salt|ajinomoto|perasa|stok|stock|knorr|dipping|cili|chili|bawang|onion|garlic|halia|serai|limau|lime|santan|coconut|beg|bag|tisu|tissue|sabun|soap)/i
-const displayShop = (raw: string) => String(raw || '').replace(/\s*\(.*$/, '').replace(/(sdn\.?\s*bhd\.?|berhad)/gi, '').trim().slice(0, 28)
+const displayShop = (raw: string) => String(raw || '').replace(/\s*\(.*$/, '').replace(/\b(sdn\.?\s*bhd\.?|berhad)\b/gi, '').trim().slice(0, 28)
 const KIND: Record<string, string> = { purchase: 'Bought', sale: 'Sold', count: 'Count', waste: 'Wasted', correction: 'Fixed' }
 
 export default async function Stock() {

@@ -98,6 +98,11 @@ export function parseTypedReceipt(text: string, today: string): Typed | null {
     const price = b.price !== undefined ? money(b.price) : null
     if (price === null || price <= 0) { problems.push(`${label} has no Price`); return }
     let qty = 1
+    // "Quantity: 50 pieces" is a COUNT of things, not 50 packs -- and then the
+    // Weight beside it is the weight of all of them together. Tina typed
+    // "Weight: 2 kilo / Quantity: 50 pieces" for RM 54 of shrimp and it was read
+    // as 50 bags of 2 kg = 100 kg (owner, 24 Sep 2026).
+    const countedInPieces = /\b(pcs?|pieces?|biji|ekor|keping|fish|ikan|tail)\b/i.test(String(b.qty ?? ''))
     if (b.qty !== undefined && b.qty !== '') {
       const q = money(b.qty)
       if (q === null || q <= 0) { problems.push(`${label}: Quantity "${b.qty}" isn't a number`); return }
@@ -111,15 +116,19 @@ export function parseTypedReceipt(text: string, today: string): Typed | null {
     if (w && !/^[-–—\s]*$/.test(w)) {
       if (!wm) { problems.push(`${label}: Weight "${b.weight}" — write it like 2 kg, 500 g or 30 pcs`); return }
       const n = Number(wm[1]), u = wm[2] ?? 'kg'
-      if (/^(kg|kilo)$/.test(u)) { pack_size = n; pack_unit = 'kg' }
-      else if (/^(g|gm|gram|grams)$/.test(u)) { pack_size = n; pack_unit = 'g' }
+      // Counted in pieces: the weight covers the lot, so one piece weighs
+      // weight / count, and the count rides in the name for the stock reader.
+      const per = countedInPieces && qty > 0 ? n / qty : n
+      if (/^(kg|kilo)$/.test(u)) { pack_size = per; pack_unit = 'kg' }
+      else if (/^(g|gm|gram|grams)$/.test(u)) { pack_size = per; pack_unit = 'g' }
       // Pieces have no weight; they ride in the name, where the stock reader
       // looks for "(30 pcs)".
       else name = `${name} (${n} pcs)`
     }
 
+    if (countedInPieces && !/\(\d+\s*pcs\)/.test(name)) name = `${name} (${qty} pcs)`
     lines.push({
-      name, qty, unit: 'bag',
+      name, qty, unit: countedInPieces ? 'pcs' : 'bag',
       unit_price: Math.round((price / qty) * 10000) / 10000,
       line_total: price,
       pack_size, pack_unit,

@@ -157,6 +157,13 @@ function kgOf(l: ReceiptLine, def?: ItemDef): number | null {
 /** 4 -> "4", 1.078 -> "1.078", 3.2900 -> "3.29": no trailing zeros in the working. */
 const fmtNum = (n: number) => String(Math.round(n * 1000) / 1000)
 
+/**
+ * Is the count on the line the count for the WHOLE line rather than per pack?
+ * True when the staff typed it as a quantity in pieces ("Quantity: 50 pieces"),
+ * which the typed-bill parser marks by unit and by putting it in the name.
+ */
+const packIsTotal = (l: ReceiptLine) => /^(pcs|pieces?)$/i.test(String(l.unit ?? ''))
+
 /** Pieces printed on a pack: "TELUR GRED A 30S", "10 BIJI". */
 function packCount(name: string): number | null {
   const m = String(name).match(/(\d+)\s*(s|biji|pcs|pc|ekor|keping)\b/i)
@@ -213,8 +220,10 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
     if (key === 'egg') { q = (pack ?? 1) * qty; how = pack ? `${fmtNum(qty)} x ${pack} per tray` : `${fmtNum(qty)} on the bill` }
     else {
       const kg = kgOf(l, def)
-      if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
-      else if (pack) { q = pack * qty; how = `${fmtNum(qty)} x ${pack} per pack` }
+      // A count printed or typed on the line beats an estimate from the weight:
+      // "2 kilo / 50 pieces" of shrimp is 50, not 2 kg x 38 a kg (owner, 24 Sep 2026).
+      if (pack) { q = pack * (packIsTotal(l) ? 1 : qty); how = `${pack} on the bill` }
+      else if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
       else q = null
     }
   }
