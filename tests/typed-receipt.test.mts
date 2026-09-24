@@ -12,9 +12,16 @@ type Case = { what: string; text: string; totalKg?: number; perKg?: number; stoc
 
 const CASES: Case[] = [
   {
-    what: 'shrimp: 50 pieces weighing 2 kg between them',
+    // The owner's conversion decides, not a count made by eye: Tina typed 50
+    // for 2 kg and he said "I don't think that's accurate" (24 Sep 2026).
+    what: 'shrimp: 2 kg, hand-counted at 50, filed at 66',
     text: 'Item Name: Udang \nWeight: 2 kilo \nQuantity: 50 pieces \nPrice: RM 54',
-    totalKg: 2, perKg: 27, stock: ['shrimp', 50],
+    totalKg: 2, perKg: 27, stock: ['shrimp', 66],
+  },
+  {
+    what: 'shrimp: no weight given, so the count is all there is',
+    text: 'Item Name: Udang \nQuantity: 40 pieces \nPrice: RM 33',
+    stock: ['shrimp', 40],
   },
   {
     what: 'siakap: 8 fish weighing 4 kg between them',

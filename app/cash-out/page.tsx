@@ -115,6 +115,12 @@ function typeOf(r: Rec): string {
   return TYPE_LABEL[parts[0]] ?? 'Unclassified'
 }
 
+// A receipt is "to check" when JARVIS could not read part of it -- not when a
+// human has already been through it and left a note saying what was corrected
+// (those kept the RM 68 siakap bill and the egg bill flagged after they were
+// fixed, owner 24 Sep 2026).
+const checkNote = (r: any) => (r?.meta?.fixed_note ? null : r?.meta?.items_note ?? null)
+
 export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
   const { p } = await searchParams
   const today = mytDate()
@@ -190,7 +196,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
       .order('proposed_at', { ascending: false })
     waiting = (data ?? []) as any[]
   }
-  const unreadable = cur.filter(r => r.meta?.items_note).length
+  const unreadable = cur.filter(r => checkNote(r)).length
   const needs = [
     waiting.length && { href: '/approvals', text: `${waiting.length} waiting for approval` },
     unreadable && { href: '#to-check', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
@@ -275,7 +281,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   // Receipts behind the "needs you" links: a total that doesn't match its lines,
   // or money not yet put in a category. Shown OPEN at the top of the list, so the
   // link lands on the receipt itself rather than on a list of forty.
-  const toCheck = cur.filter(r => r.meta?.items_note || (spendByType(r).unclassified ?? 0) > 0)
+  const toCheck = cur.filter(r => checkNote(r) || (spendByType(r).unclassified ?? 0) > 0)
 
   const Receipt = ({ r, open }: { r: Rec; open?: boolean }) => {
     const items = itemsOf(r)
@@ -289,7 +295,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             <span className="co-rx-name">{merchantOf(r)}</span>
             <span className="co-rx-sub">
               {bits}
-              {r.meta?.items_note && <span className="co-flag"> · check</span>}
+              {checkNote(r) && <span className="co-flag"> · check</span>}
             </span>
           </span>
           <span className="co-rx-amt num">{plain2(Number(r.amount))}</span>
@@ -322,7 +328,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             </p>
           )}
           {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
-          {r.meta?.items_note && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
+          {checkNote(r) && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
           {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
           {open && items.length > 0 && (
             <ReceiptFix id={r.id} total={Number(r.amount)}

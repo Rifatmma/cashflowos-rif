@@ -48,11 +48,13 @@ export const ITEMS: ItemDef[] = [
     aliases: ['lidah', 'tongue'] },
   // Thai names, owner 24 Sep 2026: กุ้งขาว or plain กุ้ง is this one; กุ้งแม่น้ำ
   // ("river prawn") is udang galah, which is why กุ้ง must not swallow it.
-  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 38, fallbackCost: 0.75,
+  // Owner, 24 Sep 2026: "a kilo of shrimp is about 30-35 pieces". 33 it is --
+  // the interview figure of 38 was too many.
+  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 33, fallbackCost: 0.75,
     aliases: ['udang(?! galah)', 'prawn', 'shrimp', 'กุ้ง(?!แม่น้ำ)'] },
   // Owner, 23 Sep 2026: frozen shrimp is a different item -- it only goes into
   // fried rice; every other shrimp dish uses fresh. Checked BEFORE 'shrimp'.
-  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 38, fallbackCost: 0.5,
+  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 33, fallbackCost: 0.5,
     aliases: ['(frz|frozen|beku|iqf)[^a-z]*(isi )?(udang|prawn|shrimp)', '(udang|prawn|shrimp)[^a-z]*(frz|frozen|beku|iqf)'] },
   { key: 'galah', name: 'Udang galah', unit: 'pc', sort: 31, perKg: 20, fallbackCost: 3,
     aliases: ['udang galah', 'river prawn', 'galah', 'กุ้งแม่น้ำ'] },
@@ -254,7 +256,19 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
       const kg = kgOf(l, def)
       // A count printed or typed on the line beats an estimate from the weight:
       // "2 kilo / 50 pieces" of shrimp is 50, not 2 kg x 38 a kg (owner, 24 Sep 2026).
-      if (pack) { q = pack * (packIsTotal(l) ? 1 : qty); how = `${pack} on the bill` }
+      // WEIGHT BEATS A HAND-TYPED COUNT. Staff count by eye; the owner gave the
+      // conversion and would rather it were used: "I remember telling you that
+      // a kilo of shrimp is about 30-35 pieces, so you should know that
+      // already" (24 Sep 2026). A count only decides when no weight was given,
+      // and when both are there the note shows what the bill said.
+      const counted = pack ? pack * (packIsTotal(l) ? 1 : qty) : null
+      const byWeight = kg && def.perKg ? kg * def.perKg * usable : null
+      if (byWeight !== null) {
+        q = byWeight
+        how = `${fmtNum(kg!)} kg at ${def.perKg} per kg${trim}` +
+          (counted !== null && Math.abs(counted - byWeight) > 1 ? ` (the bill said ${fmtNum(counted)})` : '')
+      }
+      else if (counted !== null) { q = counted; how = `${fmtNum(counted)} on the bill` }
       else if (dozens > 1) { q = qty * 12; how = `${fmtNum(qty)} dozen x 12` }
       else if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
       else q = null
