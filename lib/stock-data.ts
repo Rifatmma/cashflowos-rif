@@ -227,8 +227,15 @@ export async function receiptStockIn(recordId: number | null, lines: ReceiptLine
     const aliases = await taughtAliases()
     const rows: any[] = []
     const unsized: string[] = []
+    // Some suppliers print their whole price list and charge for one line of it
+    // -- Chop Chang Jiang listed egg grades AA/A/B/C/D, and the four with no
+    // money against them each added an egg to the fridge (owner, 24 Sep 2026).
+    // If anything on this receipt was paid for, the free-of-charge lines are
+    // not purchases.
+    const anyPriced = lines.some(l => Number(l.line_total) > 0)
     for (const l of lines) {
       if (l.expense_type && l.expense_type === 'owner_drawings') continue
+      if (anyPriced && !(Number(l.line_total) > 0)) continue
       const r = stockFromLine(l, aliases)
       if (!Array.isArray(r)) { unsized.push(r.unknownQty); continue }
       for (const s of r) {

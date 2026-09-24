@@ -1,0 +1,77 @@
+[
+  {
+    "id": 210,
+    "item": "egg",
+    "qty": 1,
+    "kind": "purchase",
+    "unit_cost": null,
+    "record_id": 126,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "1 on the bill",
+    "meta": {
+      "from": "AA Eggs (Brown)"
+    },
+    "created_at": "2026-09-24T06:14:40.09892+00:00"
+  },
+  {
+    "id": 211,
+    "item": "egg",
+    "qty": 1,
+    "kind": "purchase",
+    "unit_cost": null,
+    "record_id": 126,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "1 on the bill",
+    "meta": {
+      "from": "A Eggs (Brown)"
+    },
+    "created_at": "2026-09-24T06:14:40.09892+00:00"
+  },
+  {
+    "id": 212,
+    "item": "egg",
+    "qty": 1,
+    "kind": "purchase",
+    "unit_cost": null,
+    "record_id": 126,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "1 on the bill",
+    "meta": {
+      "from": "B Eggs (Brown)"
+    },
+    "created_at": "2026-09-24T06:14:40.09892+00:00"
+  },
+  {
+    "id": 213,
+    "item": "egg",
+    "qty": 5,
+    "kind": "purchase",
+    "unit_cost": 13.84,
+    "record_id": 126,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "5 on the bill",
+    "meta": {
+      "from": "C Eggs (Brown)"
+    },
+    "created_at": "2026-09-24T06:14:40.09892+00:00"
+  },
+  {
+    "id": 214,
+    "item": "egg",
+    "qty": 1,
+    "kind": "purchase",
+    "unit_cost": null,
+    "record_id": 126,
+    "sales_date": null,
+    "by": "Tina Kuno",
+    "note": "1 on the bill",
+    "meta": {
+      "from": "D Eggs (Brown)"
+    },
+    "created_at": "2026-09-24T06:14:40.09892+00:00"
+  }
+]

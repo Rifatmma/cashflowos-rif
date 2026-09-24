@@ -166,6 +166,13 @@ const fmtNum = (n: number) => String(Math.round(n * 1000) / 1000)
  */
 const packIsTotal = (l: ReceiptLine) => /^(pcs|pieces?)$/i.test(String(l.unit ?? ''))
 
+/**
+ * A dozen is twelve. "C Eggs (Brown) · 5 dozen" put FIVE eggs in the fridge
+ * instead of sixty (owner, 24 Sep 2026). Malay "dzn", Thai โหล count too.
+ */
+const dozensOf = (l: ReceiptLine) =>
+  /(^|[^a-z])(doz|dozen|dozens|dzn|dz)([^a-z]|$)|โหล/i.test(`${l.unit ?? ''} ${l.name ?? ''}`) ? 12 : 1
+
 /** Pieces printed on a pack: "TELUR GRED A 30S", "10 BIJI". */
 function packCount(name: string): number | null {
   const m = String(name).match(/(\d+)\s*(s|biji|pcs|pc|ekor|keping)\b/i)
@@ -219,12 +226,18 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
     how = kg ? `${fmtNum(kg)} kg at about 550 g a fish` : `${fmtNum(qty)} fish on the bill`
   } else {
     const pack = packCount(l.name)
-    if (key === 'egg') { q = (pack ?? 1) * qty; how = pack ? `${fmtNum(qty)} x ${pack} per tray` : `${fmtNum(qty)} on the bill` }
+    const dozens = dozensOf(l)
+    if (key === 'egg') {
+      q = (pack ?? dozens) * qty
+      how = pack ? `${fmtNum(qty)} x ${pack} per tray`
+        : dozens > 1 ? `${fmtNum(qty)} dozen x 12` : `${fmtNum(qty)} on the bill`
+    }
     else {
       const kg = kgOf(l, def)
       // A count printed or typed on the line beats an estimate from the weight:
       // "2 kilo / 50 pieces" of shrimp is 50, not 2 kg x 38 a kg (owner, 24 Sep 2026).
       if (pack) { q = pack * (packIsTotal(l) ? 1 : qty); how = `${pack} on the bill` }
+      else if (dozens > 1) { q = qty * 12; how = `${fmtNum(qty)} dozen x 12` }
       else if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
       else q = null
     }

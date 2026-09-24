@@ -58,5 +58,19 @@ for (const c of CASES) {
   if (problems.length) { console.log(`FAIL ${c.what}: ${problems.join(' · ')}`); bad++ }
   else console.log(`ok   ${c.what}`)
 }
-console.log(bad ? `${bad} failing` : 'all good')
-process.exit(bad ? 1 : 0)
+if (bad) process.exitCode = 1
+
+// ---------------------------------------------------------------------------
+// Receipt lines, not typed bills: a dozen is twelve (owner, 24 Sep 2026).
+const EGGS: [string, any, number][] = [
+  ['5 dozen', { name: 'C Eggs (Brown)', qty: 5, unit: 'dozen', line_total: 69.2 }, 60],
+  ['2 trays of 30', { name: 'TELUR GRED A 30S', qty: 2, unit: 'tray', line_total: 27 }, 60],
+  ['3 dzn', { name: 'Telur ayam', qty: 3, unit: 'dzn', line_total: 42 }, 36],
+  ['10 loose', { name: 'Eggs', qty: 10, unit: 'pcs', line_total: 6 }, 10],
+]
+for (const [what, line, want] of EGGS) {
+  const got = stockFromLine(line)
+  const n = Array.isArray(got) ? (got[0]?.qty ?? 0) : 0
+  if (Math.abs(n - want) > 0.01) { console.log(`FAIL eggs, ${what}: ${n}, wanted ${want}`); process.exitCode = 1 }
+  else console.log(`ok   eggs, ${what} -> ${want}`)
+}
