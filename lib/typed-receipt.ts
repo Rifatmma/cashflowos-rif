@@ -41,8 +41,14 @@ type Fields = { item: string; weight: string; qty: string; price: string; suppli
 const PACKAGING = /(box|kotak|bekas|container|cup|cawan|straw|straw|plastik|plastic bag|beg plastik|polystyrene|foil tray|takeaway|tapau|lid|penutup)/i
 const CLEANING = /(sabun|soap|detergent|bleach|clorox|sampah|garbage|rubbish|bin bag|glove|sarung tangan|tisu|tissue|span|sponge|mop|penyapu|broom)/i
 const DRINKS = /(air mineral|mineral water|soft drink|coke|pepsi|100 ?plus|sirap|syrup|jus|juice concentrate)/i
+// Gas, water and electricity get typed like anything else, and they are not food.
+const UTILITIES = /(\bgas\b|silinder|cylinder|lpg|elektrik|electric|tnb|air selangor|water bill|bil air)/i
 const typeOf = (name: string) =>
-  CLEANING.test(name) ? 'supplies_cleaning' : PACKAGING.test(name) ? 'cogs_packaging' : DRINKS.test(name) ? 'cogs_beverage' : 'cogs_food'
+  UTILITIES.test(name) ? 'utilities'
+    : CLEANING.test(name) ? 'supplies_cleaning'
+    : PACKAGING.test(name) ? 'cogs_packaging'
+    : DRINKS.test(name) ? 'cogs_beverage'
+    : 'cogs_food'
 
 const money = (s: string): number | null => {
   const m = String(s).replace(/,/g, '').match(/(\d+(?:\.\d+)?)/)

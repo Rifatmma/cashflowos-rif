@@ -371,6 +371,45 @@ async function findDuplicate(receiptNo: string | undefined, amount: number | und
   return null
 }
 
+/** "RAHMAN GAS ENTERPRISE" and "rahman gas enterprise" are the same shop. */
+const shopKey = (s: string) =>
+  String(s || '').toLowerCase().replace(/\(.*$/, '')
+    .replace(/(sdn\.?\s*bhd\.?|berhad|enterprise|trading|holdings?)/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * The same purchase, already filed today by someone else.
+ *
+ * Yuu typed the gas bill and ninety seconds later Tina sent the photo of it.
+ * The photo went in as a second RM 52 record, because the "waiting for a photo"
+ * note belongs to the person who typed it and Tina is a different person
+ * (owner, 24 Sep 2026). Same shop, same money, same day is one purchase.
+ */
+async function findTwin(v: VisionResult): Promise<{ id: number; meta: any; title: string } | null> {
+  if (!supabaseConfigured || typeof v.amount !== 'number' || !v.amount || !v.merchant) return null
+  const key = shopKey(v.merchant)
+  if (key.length < 3) return null
+  try {
+    const { data } = await supabase
+      .from('records')
+      .select('id, title, meta, due_date')
+      .eq('category', 'cash_out')
+      .eq('amount', v.amount)
+      .eq('due_date', v.date ?? mytDate())
+      .limit(20)
+    for (const r of data ?? []) {
+      const theirs = shopKey(String((r.meta as any)?.merchant || r.title))
+      if (!theirs) continue
+      if (theirs === key || theirs.includes(key) || key.includes(theirs)) {
+        return { id: r.id, meta: (r.meta as any) ?? {}, title: r.title as string }
+      }
+    }
+  } catch (e) {
+    console.error('[CFO] twin check failed, continuing:', e)
+  }
+  return null
+}
+
 // ------------------------------------------------------------
 // GROUP ETIQUETTE. In a group the bot is a guest: it speaks only when spoken to,
 // and it never calls anyone out in front of the team.
@@ -970,7 +1009,9 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // Now the photo is read first and the decision is made below, once we know
   // what is on it.
   const waiting = await getPending(chatId, filer.id)
-  const waitingBill = waiting?.type === 'need_photo' ? waiting : null
+  // A typed bill waiting for its photo belongs to the whole chat: one person
+  // types, another photographs (owner, 24 Sep 2026).
+  const waitingBill = waiting?.type === 'need_photo' ? waiting : await anyWaitingBill(chatId)
 
   // ASSESS — daily vision cap (per chat). Over the cap ⇒ friendly stop, no spend.
   const used = await bumpDailyCounter(chatId, 'vision', todayISO())
@@ -1026,13 +1067,13 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
           uploaded_by_chat_id: chatId, record_id: waitingBill.record_id ?? null,
         }, { onConflict: 'sha256', ignoreDuplicates: true })
       }
-      await clearPending(chatId, filer.id)
+      await clearPending(chatId, waitingBill.userId ?? filer.id)
       const reply = `📎 Bill photo saved with ${waitingBill.what}. Thanks${staffFiling ? ' ' + esc(filer.name) : ''}!`
       await sendMessage(chatId, reply)
       await remember(chatId, '[sent the bill photo for a typed receipt]', reply)
       return
     }
-    await clearPending(chatId, filer.id)
+    await clearPending(chatId, waitingBill.userId ?? filer.id)
     const note =
       `📄 This is a different bill from ${waitingBill.what} — it reads ${rm(v.amount ?? 0)}` +
       `${v.merchant ? ` · ${esc(v.merchant)}` : ''}${v.date ? ` · ${esc(v.date)}` : ''}. ` +
@@ -1056,6 +1097,32 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
       await sendMessage(Number(OWNER), heads)
       await remember(OWNER, `[${filer.name} sent an unreadable bill]`, heads)
     }
+    return
+  }
+
+  // Already filed today by someone else -- typically a colleague typed it and
+  // this is the photo of the same bill. Attach the photo, fill in what the
+  // typed version could not know (the receipt number, the shop's own spelling),
+  // and file nothing new.
+  const twin = await findTwin(v)
+  if (twin) {
+    const path = await storeFile(bytes, mime, `receipts/${sha256}`)
+    if (supabaseConfigured) {
+      await supabase.from('vault_files').upsert({
+        sha256, storage_path: path, mime, size_bytes: bytes.length,
+        uploaded_by_chat_id: chatId, record_id: twin.id,
+      }, { onConflict: 'sha256', ignoreDuplicates: true })
+      const meta = { ...twin.meta, sha256, storage_path: path, mime }
+      if (!meta.receipt_no && v.receipt_no) meta.receipt_no = v.receipt_no
+      if (!meta.items?.length && v.items?.length) meta.items = v.items
+      await supabase.from('records').update({ meta }).eq('id', twin.id)
+    }
+    if (waitingBill) await clearPending(chatId, waitingBill.userId ?? filer.id)
+    const reply =
+      `📎 Same bill as <b>#${twin.id}</b> (${esc(twin.title)}) — ${rm(v.amount ?? 0)}, already filed today. ` +
+      `I kept the photo with it instead of filing it twice.`
+    await sendMessage(chatId, reply)
+    await remember(chatId, '[sent the photo of a bill already filed]', reply)
     return
   }
 
@@ -1412,7 +1479,7 @@ async function answerMissingFields(msg: any, p: any): Promise<void> {
 //   have_photo -- a photo couldn't be read; the next typed bill from them gets it.
 // ============================================================
 type Pending =
-  | { type: 'need_photo'; key: string; record_id?: number | null; what: string; amount?: number; until: number }
+  | { type: 'need_photo'; key: string; record_id?: number | null; what: string; amount?: number; userId?: string; until: number }
   | { type: 'have_photo'; sha256: string; storage_path: string | null; mime: string; size_bytes: number; until: number }
   // A receipt with something unreadable on it -- shop, date, total -- parked here
   // while the GROUP is asked to fill a template (owner, 23 Sep: ask there, not in
@@ -1424,6 +1491,29 @@ type Pending =
 // How long each link stays open. A held photo waits for someone to type (that
 // can take a while); a typed bill waits only briefly for its photo, so the next
 // receipt someone sends later is read and filed as its own, not swallowed as a bill.
+/**
+ * Any typed bill in this chat still waiting for its photo, whoever typed it.
+ * Photos and typing are shared work in the staff group.
+ */
+async function anyWaitingBill(chatId: number) {
+  if (!supabaseConfigured) return null
+  try {
+    const { data } = await supabase.from('bot_memory').select('counters').eq('chat_id', chatId).maybeSingle()
+    const counters = (data?.counters ?? {}) as Record<string, any>
+    const now = Date.now()
+    for (const [k, v] of Object.entries(counters)) {
+      if (!k.startsWith('pending:')) continue
+      const p = v as any
+      if (p?.type === 'need_photo' && Number(p.until) > now) {
+        return { ...p, userId: p.userId ?? k.slice('pending:'.length) } as Extract<Pending, { type: 'need_photo' }>
+      }
+    }
+  } catch (e) {
+    console.error('[CFO] waiting-bill lookup failed:', e)
+  }
+  return null
+}
+
 const PENDING_MS = { have_photo: 3 * 3600_000, need_photo: 10 * 60_000, need_fields: 12 * 3600_000, need_amount: 2 * 3600_000 }
 const SKIP_PHOTO = /^\s*(no\s*(photo|pic|picture|bill|receipt)|skip|none|tiada|takde|tak\s*ada|ไม่มี)\s*[.!]?\s*$/i
 
