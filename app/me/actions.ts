@@ -21,7 +21,19 @@ const num = (v: FormDataEntryValue | null) => {
 }
 
 /** A photo from the tab. Same ladder as Telegram: the menu, then the table, then the photo. */
-export async function addPhoto(_prev: Result, form: FormData): Promise<Result> {
+export async function addPhoto(prev: Result, form: FormData): Promise<Result> {
+  // Nothing in here may throw: a thrown server action puts an error page in
+  // front of the owner mid-meal, which is how this looked to him the first
+  // time he used it (24 Sep 2026).
+  try {
+    return await readAndLog(form)
+  } catch (e: any) {
+    console.error('[CFO] meal photo failed:', e)
+    return { ok: false, message: `That did not go through — ${String(e?.message ?? e).slice(0, 120)}. Try again, or type the meal.` }
+  }
+}
+
+async function readAndLog(form: FormData): Promise<Result> {
   const file = form.get('photo') as File | null
   if (!file || !file.size) return { ok: false, message: 'Pick a photo first.' }
   if (file.size > 8_000_000) return { ok: false, message: 'That photo is very large — try a smaller one.' }
@@ -50,13 +62,19 @@ export async function addPhoto(_prev: Result, form: FormData): Promise<Result> {
     if (!error || /exist/i.test(error.message)) storage_path = path
   }
 
+  // The question the photo cannot answer rides along, and the page shows it as
+  // buttons (owner, 24 Sep 2026: "ask an appropriate question until he's sure").
+  const asks = !menu && read.question && read.options?.length ? { q: read.question, options: read.options } : null
   const meal = await logMeal({
     ...use, source: use.source, items: use.lines, sha256, storage_path, mime,
-    meta: { portion: read.portion, note: read.note, from_menu: !!menu },
+    meta: { portion: read.portion, note: read.note, from_menu: !!menu, ...(asks ?? {}) },
   })
   if (!meal) return { ok: false, message: 'That photo is already logged.' }
   refresh()
-  return { ok: true, message: `${meal.title} — ${meal.kcal} kcal. ${use.working}` }
+  return {
+    ok: true,
+    message: `${meal.title} — ${meal.kcal} kcal. ${use.working}` + (asks ? ` · ${asks.q}` : ''),
+  }
 }
 
 /** Typed: "nasi lemak", "tomyam seafood x2", or a plain "650" if you know it. */
@@ -95,6 +113,25 @@ export async function fixMeal(_prev: Result, form: FormData): Promise<Result> {
   const meal = await correctMeal(id, kcal, String(form.get('why') || 'corrected by hand').slice(0, 80))
   refresh()
   return meal ? { ok: true, message: `Changed to ${meal.kcal} kcal.` } : { ok: false, message: 'That meal is gone.' }
+}
+
+/**
+ * The owner answered the question under a photo ("New York, 2 slices"). Each
+ * option carries its own total, so this is a correction with his answer as the
+ * reason -- and the question comes off the card.
+ */
+export async function pickOption(_prev: Result, form: FormData): Promise<Result> {
+  const id = Number(form.get('id'))
+  const index = Number(form.get('index'))
+  if (!supabaseConfigured || !Number.isFinite(id) || !Number.isFinite(index)) return { ok: false, message: 'Nothing to answer.' }
+  const { data: meal } = await supabase.from('meals').select('*').eq('id', id).maybeSingle()
+  const pick = ((meal?.meta?.options ?? []) as { label: string; kcal: number }[])[index]
+  if (!meal || !pick) return { ok: false, message: 'That question is gone.' }
+  const fixed = await correctMeal(id, pick.kcal, pick.label)
+  // Answered: the card stops asking.
+  await supabase.from('meals').update({ meta: { ...(meal.meta ?? {}), q: undefined, options: undefined, answered: pick.label } }).eq('id', id)
+  refresh()
+  return fixed ? { ok: true, message: `${pick.label} — ${fixed.kcal} kcal.` } : { ok: false, message: 'Could not change it.' }
 }
 
 export async function removeMeal(_prev: Result, form: FormData): Promise<Result> {

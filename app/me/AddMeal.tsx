@@ -10,10 +10,55 @@ function Says({ res }: { res: Result }) {
   return <p className={`co-meta ${res.ok ? '' : 'co-flag'}`} role="status">{res.message}</p>
 }
 
+/**
+ * Shrink a photo in the browser before it is sent.
+ *
+ * A phone photo is 2-5 MB and a server action's body is capped at 1 MB, so
+ * "Count it" failed on every real photo (owner, 24 Sep 2026). 1,280 px is far
+ * more than enough to see what is on a plate, and it makes the upload quick on
+ * restaurant wifi. If anything about the resize fails, the original is sent.
+ */
+async function shrink(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.size < 400_000) return file
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, 1280 / Math.max(bitmap.width, bitmap.height))
+    const w = Math.round(bitmap.width * scale)
+    const h = Math.round(bitmap.height * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return file
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close?.()
+    const blob: Blob | null = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.82))
+    if (!blob || blob.size >= file.size) return file
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    return file
+  }
+}
+
 export default function AddMeal({ dishes }: { dishes: string[] }) {
   const [photoRes, photoAction, photoPending] = useActionState<Result, FormData>(addPhoto, null)
   const [typedRes, typedAction, typedPending] = useActionState<Result, FormData>(addTyped, null)
   const [what, setWhat] = useState('')
+  const [preparing, setPreparing] = useState(false)
+
+  async function sendPhoto(form: FormData) {
+    const file = form.get('photo')
+    if (file instanceof File && file.size) {
+      setPreparing(true)
+      try {
+        form.set('photo', await shrink(file))
+      } finally {
+        setPreparing(false)
+      }
+    }
+    photoAction(form)
+  }
+  const busy = preparing || photoPending
 
   return (
     <section className="co-card">
@@ -25,11 +70,13 @@ export default function AddMeal({ dishes }: { dishes: string[] }) {
           No date field either -- he asked for the gallery, not for back-dating:
           "I should have enough discipline to do it myself". Everything logs
           against today. */}
-      <form action={photoAction} className="me-photo">
+      <form action={sendPhoto} className="me-photo">
         <label className="ci-file">
           <input type="file" name="photo" accept="image/*" required />
         </label>
-        <button className="btn" disabled={photoPending}>{photoPending ? 'Looking…' : 'Count it'}</button>
+        <button className="btn" disabled={busy}>
+          {preparing ? 'Preparing…' : photoPending ? 'Looking…' : 'Count it'}
+        </button>
       </form>
       <Says res={photoRes} />
 

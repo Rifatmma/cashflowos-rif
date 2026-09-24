@@ -12,9 +12,12 @@ import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { mytDate, addDays, dayLabel, shortDate } from '@/lib/period'
 import ActionForm from '@/app/stock/ActionForm'
 import AddMeal from './AddMeal'
-import { fixMeal, removeMeal, saveProfile } from './actions'
+import { fixMeal, removeMeal, saveProfile, pickOption } from './actions'
 
 export const dynamic = 'force-dynamic'
+// Reading a plate takes a vision call; the default function timeout is not
+// enough for it, the same as the cron routes.
+export const maxDuration = 60
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const weekdayOf = (iso: string) => WEEKDAY[new Date(iso + 'T12:00:00Z').getUTCDay()]
@@ -102,6 +105,19 @@ export default async function Me() {
                       <img src={photo[m.id]} alt="" className="me-shot" />
                     )}
                     {m.working && <p className="co-meta">{m.working}</p>}
+                    {/* The one thing the photo could not settle -- the style,
+                        the size, how many slices -- answered in one tap. */}
+                    {m.meta?.q && (m.meta?.options ?? []).length > 0 && (
+                      <div className="me-ask">
+                        <p className="me-ask-q">{m.meta.q}</p>
+                        {(m.meta.options as { label: string; kcal: number }[]).map((o, i) => (
+                          <ActionForm key={o.label + i} action={pickOption} submit={`${o.label} · ${o.kcal}`} ghost>
+                            <input type="hidden" name="id" value={m.id} />
+                            <input type="hidden" name="index" value={i} />
+                          </ActionForm>
+                        ))}
+                      </div>
+                    )}
                     <ActionForm action={fixMeal} submit="Change it" ghost>
                       <input type="hidden" name="id" value={m.id} />
                       <div className="me-typed-row">

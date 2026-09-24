@@ -710,3 +710,8 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .me-bar-target { position: absolute; left: 0; right: 0; height: 2px; background: var(--ink); opacity: .55; }
 .me-bar-day { font-size: 11px; color: var(--ink-faint); }
 .me-bar-num { font-size: 11px; color: var(--ink-faint); font-family: var(--font-mono), monospace; }
+/* The question under a photographed meal: answers as buttons, one tap each. */
+.me-ask { margin: 10px 0 4px; }
+.me-ask-q { font-size: 13px; font-weight: 500; color: var(--ink); margin: 0 0 6px; }
+.me-ask form { display: inline-block; margin: 0 6px 6px 0; }
+.me-ask .st-submit { margin: 0; }

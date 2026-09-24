@@ -4,6 +4,7 @@ import { createHash } from 'crypto'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import {
   sendMessage,
+  sendWithButtons,
   answerCallbackQuery,
   editMessageReplyMarkup,
   sendFileTo,
@@ -190,8 +191,15 @@ async function handleCallback(cb: any): Promise<Response> {
     return Response.json({ ok: true })
   }
 
-  const [verb, idStr] = data.split(':')
+  const [verb, idStr, extra] = data.split(':')
   const actionId = Number(idStr)
+
+  // An answer to "how many slices?" on a photographed meal.
+  if (verb === 'meal') {
+    await answerMealQuestion(actionId, Number(extra), chatId, messageId, t => answerCallbackQuery(cbId, t))
+    return Response.json({ ok: true })
+  }
+
   if (!Number.isFinite(actionId) || !['apr', 'rej', 'drw'].includes(verb)) {
     await answerCallbackQuery(cbId, 'Unknown button.')
     return Response.json({ ok: true })
@@ -442,10 +450,16 @@ async function logAndReplyMeal(
     working: [read.portion, read.lines.map(l => `${l.what} ${l.kcal}`).join(' \u00b7 ')].filter(Boolean).join(' \u00b7 '),
   }
 
+  // The question the photo cannot answer -- the style, the size, how many
+  // slices -- rides along as buttons. The meal is logged either way: the owner
+  // asked for a best estimate now and a correction after, not an interrogation
+  // before (24 Sep 2026).
+  const asks = !menu && read.question && read.options?.length ? { q: read.question, options: read.options } : null
+
   const meal = await logMeal({
     ...use, source: use.source, items: use.lines,
     sha256: file.sha256, storage_path, mime: file.mime,
-    meta: { portion: read.portion, note: read.note, from_menu: !!menu },
+    meta: { portion: read.portion, note: read.note, from_menu: !!menu, ...(asks ?? {}) },
   })
   if (!meal) {
     await sendMessage(chatId, '\ud83d\udcc1 Already counted that photo \u2014 nothing logged twice.')
@@ -458,10 +472,55 @@ async function logAndReplyMeal(
     (menu ? ' <i>(from your own recipe)</i>' : '') +
     (use.working ? `\n<i>${esc(use.working)}</i>` : '') +
     (read.note ? `\n\u26a0\ufe0f ${esc(read.note)}` : '') +
-    `\n\n${esc(today)}` +
-    `\n\n<i>Wrong? Say "half that", "two plates", or just the number.</i>`
-  await sendMessage(chatId, reply)
-  await remember(chatId, '[sent a photo of a meal]', `Logged ${meal.title} ${meal.kcal} kcal. Budget ${budget.target}.`)
+    `\n\n${esc(today)}`
+
+  if (asks) {
+    await sendWithButtons(
+      chatId,
+      `${reply}\n\n\u2753 <b>${esc(asks.q)}</b>`,
+      asks.options.map((o, i) => [{ text: `${o.label} \u00b7 ${o.kcal}`, callback_data: `meal:${meal.id}:${i}` }]),
+    )
+  } else {
+    await sendMessage(chatId, `${reply}\n\n<i>Wrong? Say "half that", "two plates", or just the number.</i>`)
+  }
+  await remember(chatId, '[sent a photo of a meal]',
+    `Logged ${meal.title} ${meal.kcal} kcal. Budget ${budget.target}.` +
+    (asks ? ` Asked: ${asks.q}` : ''))
+}
+
+/**
+ * The owner tapped one of the answers under a photographed meal. The option he
+ * chose carries its own total, so this is a correction with his own words as
+ * the reason -- and the buttons come off, so the same meal cannot be answered
+ * twice.
+ */
+async function answerMealQuestion(
+  mealId: number,
+  index: number,
+  chatId: number,
+  messageId: number,
+  toast: (t: string) => Promise<unknown>,
+): Promise<void> {
+  if (!supabaseConfigured || !Number.isFinite(mealId) || !Number.isFinite(index)) {
+    await toast('That button is stale.')
+    return
+  }
+  const { data: meal } = await supabase.from('meals').select('*').eq('id', mealId).maybeSingle()
+  const options = (meal?.meta?.options ?? []) as { label: string; kcal: number }[]
+  const pick = options[index]
+  if (!meal || !pick) {
+    await toast('That meal is gone.')
+    return
+  }
+  const fixed = await correctMeal(mealId, pick.kcal, pick.label)
+  await editMessageReplyMarkup(chatId, messageId, [])
+  if (!fixed) {
+    await toast('Could not change it.')
+    return
+  }
+  await toast(`${pick.label} \u2014 ${fixed.kcal} kcal`)
+  await sendMessage(chatId, `\u270f\ufe0f <b>${esc(fixed.title)}</b> \u2014 ${esc(pick.label)}, <b>${fixed.kcal} kcal</b>.\n\n${esc(await dayLine())}`)
+  await remember(chatId, `[tapped "${pick.label}"]`, `Set ${fixed.title} to ${fixed.kcal} kcal.`)
 }
 
 /**

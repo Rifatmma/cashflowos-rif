@@ -13,6 +13,8 @@ import Anthropic from '@anthropic-ai/sdk'
 const VISION_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
 export type FoodLine = { what: string; grams?: number; kcal: number }
+/** One tappable answer, and what the meal comes to if it is the right one. */
+export type FoodOption = { label: string; kcal: number }
 export type FoodResult = {
   is_food: boolean
   title: string
@@ -22,10 +24,24 @@ export type FoodResult = {
   confidence: 'high' | 'medium' | 'low'
   drink?: boolean
   note?: string
+  /** The one thing that would most change the number, asked in a few words. */
+  question?: string
+  options?: FoodOption[]
 }
 
 const notFood: FoodResult = {
   is_food: false, title: '', kcal: 0, lines: [], portion: '', confidence: 'low',
+}
+
+/** A button's text has to fit a phone: short, and it carries its own number. */
+const OPTION_MAX = 24
+/** Cut at a word, never mid-word: "One person eats the whol" reads as a bug. */
+const shortLabel = (s: string) => {
+  const t = s.trim()
+  if (t.length <= OPTION_MAX) return t
+  const cut = t.slice(0, OPTION_MAX)
+  const space = cut.lastIndexOf(' ')
+  return (space > 10 ? cut.slice(0, space) : cut).replace(/[,;:]$/, '') + '…'
 }
 
 const num = (v: any, max = 5000) => {
@@ -57,7 +73,18 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
     `lines (array of the parts of the meal, each: what (string, e.g. "white rice"), grams (number, your estimate of the cooked weight), kcal (number)), ` +
     `kcal (number, the total for the WHOLE plate as photographed), ` +
     `confidence ("high" | "medium" | "low"), ` +
-    `note (one short sentence ONLY if something important is uncertain, e.g. "cannot tell if the chicken is fried or grilled").\n\n` +
+    `note (one short sentence ONLY if something important is uncertain, e.g. "cannot tell if the chicken is fried or grilled"), ` +
+    `question (string, see ASK below; omit when you are sure), ` +
+    `options (array of 2-4 answers to that question, each: label (AT MOST 20 characters -- it goes on ` +
+    `a phone button, so "NY style, 2 slices" not "New York style pizza, two large slices", ` +
+    `INCLUDING the size or style, e.g. "New York, 2 slices"), kcal (number, the total for the WHOLE ` +
+    `meal if that answer is the right one)).\n\n` +
+    `ASK. A photo cannot show weight or style, and those are where the error lives: a Neapolitan ` +
+    `pizza and a New York slice of the same picture size differ by hundreds of calories. When the ` +
+    `honest range is wider than about 150 kcal, ask the ONE question that would narrow it most -- ` +
+    `the style, the size, how many pieces, fried or grilled, with or without rice -- and give the ` +
+    `answers as options with a total for each. Order them small to large. Ask nothing when the food ` +
+    `is plain enough to be sure (a banana, a black coffee), and never ask more than one question.\n\n` +
     `HOW TO COUNT. Malaysian and Thai restaurant food. Be realistic, not optimistic: ` +
     `count the cooking oil, the coconut milk, the sauce and the sugar in the drink -- these are where the calories hide. ` +
     `A restaurant plate of fried rice is 600-800 kcal, not 300. Nasi lemak with fried chicken is about 950. ` +
@@ -112,6 +139,14 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
   // The lines win when they exist and roughly agree; a wild total is discarded.
   const kcal = summed > 0 && (stated === 0 || Math.abs(stated - summed) > stated * 0.5) ? summed : (stated || summed)
 
+  const options: FoodOption[] = Array.isArray(p.options)
+    ? p.options
+        .filter((o: any) => o && typeof o.label === 'string' && num(o.kcal, 5000) > 0)
+        .slice(0, 4)
+        .map((o: any) => ({ label: shortLabel(String(o.label)), kcal: Math.round(num(o.kcal, 5000) / 10) * 10 }))
+    : []
+  const question = p.question && options.length >= 2 ? String(p.question).slice(0, 120) : undefined
+
   return {
     is_food: true,
     title: String(p.title ?? 'Meal').slice(0, 100) || 'Meal',
@@ -121,5 +156,7 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
     confidence: p.confidence === 'high' ? 'high' : p.confidence === 'low' ? 'low' : 'medium',
     drink: !!p.drink,
     note: p.note ? String(p.note).slice(0, 160) : undefined,
+    question,
+    options: question ? options : undefined,
   }
 }
