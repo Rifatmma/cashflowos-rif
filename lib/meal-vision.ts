@@ -17,6 +17,8 @@ export type FoodLine = { what: string; grams?: number; kcal: number }
 export type FoodOption = { label: string; kcal: number }
 export type FoodResult = {
   is_food: boolean
+  /** A plate of food as served, or the nutrition panel on a packet. */
+  kind: 'plate' | 'label'
   title: string
   kcal: number
   lines: FoodLine[]
@@ -30,7 +32,7 @@ export type FoodResult = {
 }
 
 const notFood: FoodResult = {
-  is_food: false, title: '', kcal: 0, lines: [], portion: '', confidence: 'low',
+  is_food: false, kind: 'plate', title: '', kcal: 0, lines: [], portion: '', confidence: 'low',
 }
 
 /** A button's text has to fit a phone: short, and it carries its own number. */
@@ -65,8 +67,10 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
   const system =
     `You are a dietitian looking at a photo for a man in Malaysia who is counting calories to lose weight. ` +
     `Return ONLY a JSON object (no prose, no markdown) with these keys:\n` +
-    `is_food (true if the photo shows food or a drink someone is about to eat or drink; ` +
-    `FALSE for a receipt, an invoice, a bill, a screenshot, a document, a person, a room, a product on a shelf), ` +
+    `is_food (true if the photo shows food or a drink someone is about to eat or drink, ` +
+    `OR a packet of food showing its NUTRITION LABEL; ` +
+    `FALSE for a receipt, an invoice, a bill, a screenshot, a document, a person, a room), ` +
+    `kind ("plate" for food as served, "label" for a packet's nutrition information), ` +
     `title (short plain name of the meal, e.g. "Nasi goreng ayam with fried egg"), ` +
     `portion (what you assumed about size in plain words, e.g. "one restaurant plate", "half a bowl", "a small handful"), ` +
     `drink (true if it is only a drink), ` +
@@ -85,6 +89,15 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
     `the style, the size, how many pieces, fried or grilled, with or without rice -- and give the ` +
     `answers as options with a total for each. Order them small to large. Ask nothing when the food ` +
     `is plain enough to be sure (a banana, a black coffee), and never ask more than one question.\n\n` +
+    `A NUTRITION LABEL. When the photo shows the back of a packet, do not estimate anything -- ` +
+    `READ IT. Take the product name, the energy per 100 g (or per 100 ml) and per serving, the ` +
+    `serving size, and the net weight or the servings per pack. Energy in kJ divides by 4.18 to give ` +
+    `kcal. Put those figures in lines, exactly as printed, so he can check them against the packet. ` +
+    `Then set kcal to ONE SERVING as the label defines it, and ALWAYS ask how much he ate, with ` +
+    `options covering one serving, half the pack and the whole pack, each with its own total. ` +
+    `If the label is blurred or cropped, say so in note and give what you can read.
+
+` +
     `HOW TO COUNT. Malaysian and Thai restaurant food. Be realistic, not optimistic: ` +
     `count the cooking oil, the coconut milk, the sauce and the sugar in the drink -- these are where the calories hide. ` +
     `A restaurant plate of fried rice is 600-800 kcal, not 300. Nasi lemak with fried chicken is about 950. ` +
@@ -134,10 +147,16 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
         kcal: Math.round(num(l.kcal, 3000)),
       })).filter((l: FoodLine) => l.kcal > 0)
     : []
+  const kind: FoodResult['kind'] = p.kind === 'label' ? 'label' : 'plate'
   const summed = lines.reduce((t, l) => t + l.kcal, 0)
   const stated = Math.round(num(p.kcal, 5000))
-  // The lines win when they exist and roughly agree; a wild total is discarded.
-  const kcal = summed > 0 && (stated === 0 || Math.abs(stated - summed) > stated * 0.5) ? summed : (stated || summed)
+  // On a PLATE the lines are the parts of the meal, so they win when they
+  // disagree with the total. On a LABEL they are reference figures off the
+  // packet -- per 100 g and per serving -- and adding them together gave 670
+  // for a 154 kcal serving of biscuits (24 Sep 2026). Never sum a label.
+  const kcal = kind === 'label'
+    ? (stated || summed)
+    : summed > 0 && (stated === 0 || Math.abs(stated - summed) > stated * 0.5) ? summed : (stated || summed)
 
   const options: FoodOption[] = Array.isArray(p.options)
     ? p.options
@@ -149,6 +168,7 @@ export async function readMeal(base64: string, mime: string): Promise<FoodResult
 
   return {
     is_food: true,
+    kind,
     title: String(p.title ?? 'Meal').slice(0, 100) || 'Meal',
     kcal: Math.round(kcal / 10) * 10,
     lines,

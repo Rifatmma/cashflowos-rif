@@ -102,7 +102,8 @@ export default function AddMeal({ dishes }: { dishes: string[] }) {
       </form>
       <Says res={typedRes} />
       <p className="co-meta">
-        Your own dishes are costed from the recipe book — real grams, not a guess. Everything else is a photo or a known dish.
+        Your own dishes are costed from the recipe book — real grams, not a guess. For a packet, photograph the
+        nutrition panel on the back and it reads the label instead of guessing, then asks how much of it you ate.
       </p>
     </section>
   )
