@@ -578,6 +578,44 @@ async function typedMeal(chatId: number, text: string): Promise<boolean> {
   return true
 }
 
+/**
+ * Does this look like it was meant for Jarvis rather than for a colleague?
+ * Money, a shop, a bill, a weight -- the vocabulary of the receipts letterbox.
+ */
+function meantForJarvis(text: string): boolean {
+  const t = String(text || '').trim()
+  if (!t || t.length > 300 || t.startsWith('/')) return false
+  return /(rm\s*\d|\d+\s*(kg|kilo|gram|g\b|pcs|ekor|biji|papan|dozen)|receipt|resit|bill|invoice|invois|supplier|pembekal|kedai|shop|harga|price|beli|bought|bayar|paid|\u0e23\u0e32\u0e04\u0e32|\u0e1a\u0e34\u0e25)/i.test(t)
+}
+
+/**
+ * The owner's standing rule (23 Sep 2026): anything that is not in the template
+ * is not filed, and staff are told so with the template -- rather than being
+ * left wondering whether it went in.
+ */
+async function refuseOffTemplate(chatId: number, who: string, text: string): Promise<void> {
+  const reply =
+    `\ud83e\udd14 ${esc(who)}, I cannot file that as it is written \u2014 I only read the template. ` +
+    `Please send it exactly like this, one block per item:\n\n<code>${esc(TEMPLATE)}</code>\n\n` +
+    `<i>Or just send a photo of the bill and I will read it myself.</i>`
+  await sendMessage(chatId, reply)
+  await remember(chatId, `[${who}: ${String(text).slice(0, 80)}]`, 'Not in the template, so nothing was filed. Sent them the template.')
+}
+
+/**
+ * A message the gate dropped. Written to memory so "why did Jarvis not answer
+ * Tina?" has an answer next time, instead of a silent hole.
+ */
+async function noteIgnored(chatId: number, msg: any, why: string): Promise<void> {
+  try {
+    const who = filedBy(msg).name
+    const what = msg.photo ? '[photo]' : msg.document ? `[file ${msg.document.file_name ?? ''}]` : String(msg.text || msg.caption || '').slice(0, 120)
+    await remember(chatId, `${who}: ${what}`, `(not answered \u2014 ${why})`)
+  } catch (e) {
+    console.error('[CFO] could not note an ignored message:', e)
+  }
+}
+
 // ------------------------------------------------------------
 // GROUP ETIQUETTE. In a group the bot is a guest: it speaks only when spoken to,
 // and it never calls anyone out in front of the team.
@@ -675,9 +713,19 @@ async function handleMessage(msg: any): Promise<Response> {
     // old gate, so this opens a letterbox, not a door.
     if (!staffFiling && !staffTyped && !staffSkip && !staffFields) {
       if (!(await isAddressedToBot(msg))) {
+        // Silence is right for chatter between colleagues -- but when the
+        // message is plainly MEANT for Jarvis (it names a shop, a price, a
+        // receipt), silence looks like a broken robot. Two of Tina's messages
+        // vanished this way and nobody could tell why (owner, 25 Sep 2026).
+        if (isReceiptChat(chatId) && meantForJarvis(typedText)) {
+          await refuseOffTemplate(chatId, filedBy(msg).name, typedText)
+          return Response.json({ ok: true, ignored: 'group: off-template, template sent' })
+        }
+        await noteIgnored(chatId, msg, 'not addressed')
         return Response.json({ ok: true, ignored: 'group: not addressed' })
       }
       if (!isAllowed(msg.from?.id)) {
+        await noteIgnored(chatId, msg, 'sender not on the allowlist')
         return Response.json({ ok: true, ignored: 'group: sender not allowed' })
       }
     }
