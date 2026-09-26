@@ -6,48 +6,47 @@ import {
   A, n, action, toRow, placementLabel, deviceLabel, genderLabel, ageLabel,
   detectRuns, nameRuns, type AdsNumbers, type InsightRow, type Run, type Totals,
 } from './ads-model'
+import { runTool, connectedAccounts } from './composio-mcp'
 
-// The daily pull from Meta, through Composio's REST API.
+// The daily pull from Meta, through Composio's MCP endpoint -- the same road
+// the nightly email scan already uses, and the only one the owner's key opens.
 //
 // Runs inside the 9 am cron (the Vercel Hobby plan's two scheduled jobs are both
 // in use). About 14 insight calls, in parallel where it can. The result is saved
 // as one ads_snapshots row; any failure is saved as an ok=false row with the
 // reason and the pages keep showing the last good pull. It NEVER throws.
 //
+// WHY IT USED TO FAIL EVERY MORNING (26 Sep 2026). This called the developer
+// REST API at backend.composio.dev with an `x-api-key` header, but the owner's
+// key is a CONSUMER key (ck_…), which only opens connect.composio.dev/mcp with
+// `x-consumer-api-key`. Every run wrote "Composio 401: Invalid API key" and the
+// pages quietly kept showing the snapshot from 20 September.
+//
 // SETUP (the owner does this once):
-//   COMPOSIO_API_KEY           — from composio.dev → Settings → API keys
+//   COMPOSIO_API_KEY           — his consumer key (ck_…), already set
 //   COMPOSIO_META_ACCOUNT_ID   — optional; otherwise the first ACTIVE Meta Ads
 //                                connection on the Composio account is used
 //   META_AD_ACCOUNT_ID         — optional; defaults to the account in the snapshot
 
-const BASE = 'https://backend.composio.dev'
 const LOOKBACK_DAYS = 200     // six-ish months of daily spend, enough to find every recent run
 const KEEP_RUNS = 6
-const CALL_TIMEOUT_MS = 20_000
 
 type Account = { id: string; userId?: string }
-
-async function composio(path: string, init?: RequestInit): Promise<any> {
-  const key = process.env.COMPOSIO_API_KEY?.trim()
-  if (!key) throw new Error('COMPOSIO_API_KEY is not set')
-  const res = await fetch(BASE + path, {
-    ...init,
-    headers: { 'x-api-key': key, 'content-type': 'application/json', ...(init?.headers || {}) },
-    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-  })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(`Composio ${res.status}: ${body?.error?.message ?? body?.message ?? 'request failed'}`)
-  return body
-}
 
 async function metaAccount(): Promise<Account> {
   const pinned = process.env.COMPOSIO_META_ACCOUNT_ID?.trim()
   if (pinned) return { id: pinned }
-  const body = await composio('/api/v3.1/connected_accounts?toolkit_slugs=metaads&statuses=ACTIVE&limit=50')
-  const items: any[] = body?.items ?? body?.data ?? []
-  const live = items.find(i => String(i?.status).toUpperCase() === 'ACTIVE')
+  const list = await connectedAccounts('metaads')
+  const live = list.find(a => a.status.toLowerCase() === 'active')
   if (!live) throw new Error('No ACTIVE Meta Ads connection on Composio — reconnect it at composio.dev')
-  return { id: live.id, userId: live.user_id ?? live.userId }
+  return { id: live.id }
+}
+
+/** Meta's own words, dug out of whatever wrapper they arrive in. */
+function metaSays(e: unknown): string {
+  const raw = String((e as any)?.message ?? e ?? '')
+  const m = raw.match(/"message"\s*:\s*"([^"]+)"/)
+  return m ? m[1] : raw.slice(0, 200)
 }
 
 /** One insights call, following pages. Meta's own errors surface verbatim. */
@@ -55,21 +54,17 @@ async function insights(acct: Account, args: Record<string, any>): Promise<Insig
   const rows: InsightRow[] = []
   let after: string | undefined
   for (let page = 0; page < 6; page++) {
-    const body = await composio('/api/v3.1/tools/execute/METAADS_GET_INSIGHTS', {
-      method: 'POST',
-      body: JSON.stringify({
-        connected_account_id: acct.id,
-        ...(acct.userId ? { user_id: acct.userId } : {}),
-        arguments: { level: 'account', limit: 500, action_attribution_windows: ['7d_click'], ...args, ...(after ? { after } : {}) },
-      }),
-    })
-    if (body?.successful === false) {
-      // e.g. Meta's "API access blocked." -- keep the words, they tell the owner what to fix.
-      const raw = String(body?.error ?? 'Meta refused the request')
-      const m = raw.match(/"message"\s*:\s*"([^"]+)"/)
-      throw new Error(`Meta: ${m ? m[1] : raw.slice(0, 200)}`)
+    let d: any
+    try {
+      d = await runTool('METAADS_GET_INSIGHTS', acct.id, {
+        level: 'account', limit: 500, action_attribution_windows: ['7d_click'],
+        ...args, ...(after ? { after } : {}),
+      })
+    } catch (e) {
+      // e.g. Meta's "API access blocked." -- keep the words, they tell the
+      // owner what to fix, which a wrapped 400 does not.
+      throw new Error(`Meta: ${metaSays(e)}`)
     }
-    const d = body?.data ?? {}
     const list: InsightRow[] = d?.data ?? d?.response_data?.data ?? (Array.isArray(d) ? d : [])
     rows.push(...list)
     after = d?.paging?.next ? d?.paging?.cursors?.after : undefined

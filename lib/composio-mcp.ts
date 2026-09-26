@@ -85,6 +85,17 @@ export async function runWorkbench(code: string): Promise<any> {
 }
 
 /**
+ * The connected accounts for one toolkit ("metaads", "gmail"), so a caller can
+ * find the live one without the owner pinning an id in an env var.
+ */
+export async function connectedAccounts(toolkit: string): Promise<{ id: string; status: string; name?: string }[]> {
+  const out = await callTool('COMPOSIO_MANAGE_CONNECTIONS', { toolkits: [{ name: toolkit, action: 'list' }] })
+  const res = out?.data?.results?.[toolkit]
+  const accounts: any[] = res?.accounts ?? []
+  return accounts.map(a => ({ id: String(a.id), status: String(a.status ?? ''), name: a?.user_info?.name }))
+}
+
+/**
  * Run ONE Composio tool on a named connected account (alias, e.g. the inbox
  * address, or account id). Returns the tool's data. Throws on failure, and when
  * the response was too large and got parked in Composio's sandbox instead.
