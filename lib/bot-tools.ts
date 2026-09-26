@@ -715,11 +715,12 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
         ok: false,
         error: r.message,
         say: blocked
-          ? 'Meta refused: the Composio connection is signed in as the Facebook user "JS-Agent", not the owner, ' +
-            'so it cannot read the Salam Bangkok ad account. Tell him to reconnect Meta Ads in Composio while ' +
-            'logged into Facebook as himself, then ask me to pull again. The pages keep showing the last good pull.'
+          ? 'Meta refused. The ads account cannot be read until a Business Manager SYSTEM USER token is in ' +
+            'place (Business Settings -> System Users -> assign the ad account -> generate a token with ' +
+            'ads_read, then paste it into the app as META_SYSTEM_TOKEN). Until then the pages keep showing ' +
+            'the last good pull. Do not offer to log in for him.'
           : noKey
-            ? 'The Composio key is missing from the app settings; nothing can be pulled until it is set.'
+            ? 'No Meta token and no Composio key are set, so nothing can be pulled until one of them is.'
             : 'Tell him exactly what Meta or Composio said, and that the pages still show the last good pull.',
       })
     }

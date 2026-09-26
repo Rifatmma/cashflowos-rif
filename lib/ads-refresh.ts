@@ -16,18 +16,32 @@ import { runTool, connectedAccounts } from './composio-mcp'
 // as one ads_snapshots row; any failure is saved as an ok=false row with the
 // reason and the pages keep showing the last good pull. It NEVER throws.
 //
-// WHY IT USED TO FAIL EVERY MORNING (26 Sep 2026). This called the developer
-// REST API at backend.composio.dev with an `x-api-key` header, but the owner's
-// key is a CONSUMER key (ck_…), which only opens connect.composio.dev/mcp with
-// `x-consumer-api-key`. Every run wrote "Composio 401: Invalid API key" and the
-// pages quietly kept showing the snapshot from 20 September.
+// TWO ROADS TO META, and it takes whichever is open.
+//
+//   1. META_SYSTEM_TOKEN — a Business Manager SYSTEM USER token. Straight to
+//      graph.facebook.com, no middleman. The token belongs to the business
+//      rather than to a person, so it does not expire with somebody's password
+//      and no one ever logs in again. This is the owner's choice (26 Sep 2026):
+//      "I need automation -- if I have to login to Facebook then why do I set
+//      this up in the first place?"
+//   2. Composio, over the MCP endpoint his consumer key opens. The fallback,
+//      and what the nightly Gmail scan uses.
+//
+// WHY IT FAILED EVERY MORNING BEFORE THIS. It called Composio's DEVELOPER REST
+// API with an `x-api-key` header while his key is a CONSUMER key (ck_…), so
+// every run wrote "Composio 401: Invalid API key" and the pages quietly kept
+// showing the snapshot from 20 September. Composio's own Meta connection then
+// turned out to be signed in as a stranger ("JS-Agent"), which Meta blocks.
 //
 // SETUP (the owner does this once):
+//   META_SYSTEM_TOKEN          — the system user token, if he took road 1
 //   COMPOSIO_API_KEY           — his consumer key (ck_…), already set
 //   COMPOSIO_META_ACCOUNT_ID   — optional; otherwise the first ACTIVE Meta Ads
 //                                connection on the Composio account is used
 //   META_AD_ACCOUNT_ID         — optional; defaults to the account in the snapshot
 
+const GRAPH = 'https://graph.facebook.com/v21.0'
+const GRAPH_TIMEOUT_MS = 25_000
 const LOOKBACK_DAYS = 200     // six-ish months of daily spend, enough to find every recent run
 const KEEP_RUNS = 6
 
@@ -42,6 +56,36 @@ async function metaAccount(): Promise<Account> {
   return { id: live.id }
 }
 
+const systemToken = () => process.env.META_SYSTEM_TOKEN?.trim() || ''
+
+/**
+ * One insights page straight from Meta, with a system user token.
+ *
+ * The token goes in the Authorization header, never in the URL: a query string
+ * ends up in logs, and this one does not expire.
+ */
+async function graphPage(account: string, args: Record<string, any>, after?: string): Promise<any> {
+  const q = new URLSearchParams()
+  for (const [k, v] of Object.entries(args)) {
+    if (v === undefined || v === null) continue
+    // Graph wants fields and breakdowns comma-separated, but time_range and
+    // the attribution windows as JSON. Send the wrong shape and it answers
+    // with an unhelpful "(#100) param fields must be an array".
+    if (Array.isArray(v)) q.set(k, k === 'fields' || k === 'breakdowns' ? v.join(',') : JSON.stringify(v))
+    else if (typeof v === 'object') q.set(k, JSON.stringify(v))
+    else q.set(k, String(v))
+  }
+  if (after) q.set('after', after)
+  const res = await fetch(`${GRAPH}/${account}/insights?${q}`, {
+    headers: { authorization: `Bearer ${systemToken()}` },
+    signal: AbortSignal.timeout(GRAPH_TIMEOUT_MS),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (body?.error) throw new Error(`Meta: ${body.error.message ?? 'refused the request'}`)
+  if (!res.ok) throw new Error(`Meta: HTTP ${res.status}`)
+  return body
+}
+
 /** Meta's own words, dug out of whatever wrapper they arrive in. */
 function metaSays(e: unknown): string {
   const raw = String((e as any)?.message ?? e ?? '')
@@ -53,17 +97,20 @@ function metaSays(e: unknown): string {
 async function insights(acct: Account, args: Record<string, any>): Promise<InsightRow[]> {
   const rows: InsightRow[] = []
   let after: string | undefined
+  const common = { level: 'account', limit: 500, action_attribution_windows: ['7d_click'], ...args }
   for (let page = 0; page < 6; page++) {
     let d: any
-    try {
-      d = await runTool('METAADS_GET_INSIGHTS', acct.id, {
-        level: 'account', limit: 500, action_attribution_windows: ['7d_click'],
-        ...args, ...(after ? { after } : {}),
-      })
-    } catch (e) {
-      // e.g. Meta's "API access blocked." -- keep the words, they tell the
-      // owner what to fix, which a wrapped 400 does not.
-      throw new Error(`Meta: ${metaSays(e)}`)
+    if (systemToken()) {
+      const { object_id, ...rest } = common as any
+      d = await graphPage(String(object_id), rest, after)
+    } else {
+      try {
+        d = await runTool('METAADS_GET_INSIGHTS', acct.id, { ...common, ...(after ? { after } : {}) })
+      } catch (e) {
+        // e.g. Meta's "API access blocked." -- keep the words, they tell the
+        // owner what to fix, which a wrapped 400 does not.
+        throw new Error(`Meta: ${metaSays(e)}`)
+      }
     }
     const list: InsightRow[] = d?.data ?? d?.response_data?.data ?? (Array.isArray(d) ? d : [])
     rows.push(...list)
@@ -88,7 +135,9 @@ function runFrom(r: InsightRow, meta: { id: string; label: string; since: string
 
 /** Build a full AdsNumbers from Meta. Throws on any failure -- refreshAds() records it. */
 export async function pullAds(): Promise<AdsNumbers> {
-  const acct = await metaAccount()
+  // With a system token there is no connection to look up: the token IS the
+  // access, and Composio is not involved at all.
+  const acct: Account = systemToken() ? { id: 'meta-system-token' } : await metaAccount()
   const account = process.env.META_AD_ACCOUNT_ID?.trim() || SNAPSHOT.account.id
   const today = mytDate()
   const range = (since: string, until: string) => ({ object_id: account, time_range: { since, until } })
@@ -172,7 +221,9 @@ function fillDays(since: string, until: string, rows: InsightRow[]) {
  */
 export async function refreshAds(): Promise<{ ok: boolean; message: string }> {
   if (!supabaseConfigured) return { ok: false, message: 'Supabase not configured' }
-  if (!process.env.COMPOSIO_API_KEY?.trim()) return { ok: false, message: 'COMPOSIO_API_KEY not set — ads refresh skipped' }
+  if (!systemToken() && !process.env.COMPOSIO_API_KEY?.trim()) {
+    return { ok: false, message: 'No META_SYSTEM_TOKEN and no COMPOSIO_API_KEY — ads refresh skipped' }
+  }
   try {
     const data = await pullAds()
     const t = data.totals
@@ -180,7 +231,11 @@ export async function refreshAds(): Promise<{ ok: boolean; message: string }> {
       throw new Error('Pulled numbers failed the sanity check (non-numeric spend)')
     }
     await supabase.from('ads_snapshots').insert({ ok: true, data })
-    return { ok: true, message: `ads refreshed: run ${data.runs.at(-1)!.id}, ${data.runs.length} runs, RM ${t.spend.toFixed(2)}` }
+    return {
+      ok: true,
+      message: `ads refreshed via ${systemToken() ? 'the system token' : 'Composio'}: ` +
+        `run ${data.runs.at(-1)!.id}, ${data.runs.length} runs, RM ${t.spend.toFixed(2)}`,
+    }
   } catch (e: any) {
     const message = String(e?.message ?? e).slice(0, 400)
     try { await supabase.from('ads_snapshots').insert({ ok: false, error: message }) } catch {}
