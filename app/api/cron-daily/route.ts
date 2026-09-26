@@ -50,6 +50,14 @@ export async function GET(req: Request) {
   const authed = !!secret && req.headers.get('authorization') === `Bearer ${secret}`
   if (!authed) return new Response('forbidden', { status: 401 })
 
+  // ?only=ads — run JUST the Meta pull and say what happened. No brief, no
+  // Telegram message, nothing filed: a way to test the ads connection without
+  // sending the owner a 9am briefing at 4pm (26 Sep 2026).
+  if (new URL(req.url).searchParams.get('only') === 'ads') {
+    const r = await refreshAds()
+    return Response.json({ ok: r.ok, ads: r.message })
+  }
+
   const today = todayISO()
   let rows = await getRecords()
 
