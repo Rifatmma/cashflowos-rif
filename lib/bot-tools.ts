@@ -13,6 +13,7 @@ import { readMarketing } from '@/agents/head-marketing/definition'
 import { getItems, getMoves, stockState, unitCosts, costOfUse } from './stock-data'
 import { fmtQty } from './stock-items'
 import { getMeals, getBudget, kcalOn, latestMeal, correctMeal, logMeal, costTyped } from './meals'
+import { refreshAds } from './ads-refresh'
 import { isSalesRow, salesDayOf } from './sales'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -223,6 +224,16 @@ export const BOT_TOOLS = [
         why: { type: 'string', description: 'His words, e.g. "quarter of the pizza".' },
       },
     },
+  },
+  {
+    name: 'refresh_ads',
+    description:
+      'Pull the Facebook/Meta numbers from Meta RIGHT NOW, instead of waiting for the 9am job. ' +
+      'Use when the owner says "pull the ads data", "refresh the ads", "get the latest ads numbers", ' +
+      'or when get_ad_performance shows the snapshot is old and he wants it current. ' +
+      'Takes up to a minute. Returns what it pulled, or the reason Meta refused -- report that ' +
+      'reason in his words, never pretend the numbers are fresh.',
+    input_schema: { type: 'object' as const, properties: {} },
   },
   {
     name: 'get_ad_tasks',
@@ -691,6 +702,25 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
             dishes_without_recipe: (r.meta?.unmatched ?? []).length }
         }),
         target_food_cost_pct: 35,
+      })
+    }
+
+    if (name === 'refresh_ads') {
+      const r = await refreshAds()
+      if (r.ok) return JSON.stringify({ ok: true, pulled: r.message, say: 'Pulled just now. Quote the new figures.' })
+      // The two failures that actually happen, each with the one thing to do.
+      const blocked = /api access blocked|oauthexception/i.test(r.message)
+      const noKey = /COMPOSIO_API_KEY/i.test(r.message)
+      return JSON.stringify({
+        ok: false,
+        error: r.message,
+        say: blocked
+          ? 'Meta refused: the Composio connection is signed in as the Facebook user "JS-Agent", not the owner, ' +
+            'so it cannot read the Salam Bangkok ad account. Tell him to reconnect Meta Ads in Composio while ' +
+            'logged into Facebook as himself, then ask me to pull again. The pages keep showing the last good pull.'
+          : noKey
+            ? 'The Composio key is missing from the app settings; nothing can be pulled until it is set.'
+            : 'Tell him exactly what Meta or Composio said, and that the pages still show the last good pull.',
       })
     }
 

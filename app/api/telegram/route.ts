@@ -1036,7 +1036,10 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
     `<b>,<i>,<code> only.\n` +
     `GROUNDING: always base money/pipeline answers on a tool result — never guess a number.\n` +
     `ADS: use get_ad_performance for anything about Facebook/Meta/Instagram ads, spend, CTR, reach or ` +
-    `cost per conversation, and get_ad_tasks for what is overdue on the ads playbook. Ad figures are a ` +
+    `cost per conversation, and get_ad_tasks for what is overdue on the ads playbook. ` +
+    `When he asks you to PULL or REFRESH the ads data, call refresh_ads -- it really fetches from Meta. ` +
+    `Never present numbers as just-pulled unless refresh_ads returned ok; if it failed, say why in one ` +
+    `line and what he has to do about it. Ad figures are a ` +
     `SNAPSHOT, not live — if asked how current they are, say when it was pulled. A cheap cost per ` +
     `conversation is NOT automatically good: quote cost_per_engaged_chat alongside it, because the ` +
     `cheapest run so far was also the worst. Competitor spend and CTR are private and unobtainable — ` +
