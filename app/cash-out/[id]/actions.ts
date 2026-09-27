@@ -112,6 +112,8 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   meta.corrected_by = 'owner'
   meta.corrected_at = new Date().toISOString().slice(0, 10)
   meta.corrected_via = 'web'
+  // Parked from Jarvis with "I'll fix it in the app": this save is that fix.
+  delete meta.fix_later; delete meta.fix_later_note
 
   const { error } = await supabase.from('records').update({ amount, meta }).eq('id', id).eq('category', 'cash_out')
   if (error) return { ok: false, message: error.message }

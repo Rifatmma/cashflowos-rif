@@ -748,3 +748,6 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .cr-stockrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
 @media (max-width: 420px) { .cr-stockrow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cr-stockrow > :first-child { grid-column: 1 / -1; } }
 .cr-stock-warn { color: var(--bad); background: var(--mid-tint); }
+.co-find { display: flex; gap: 8px; margin: 6px 0 10px; }
+.co-find input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; min-height: 40px; }
+.co-find input:focus { outline: 2px solid var(--green); outline-offset: 1px; }

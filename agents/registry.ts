@@ -349,6 +349,8 @@ export const EXECUTORS: Record<string, Executor> = {
   // read wrong. Both are ordinary record writes through the same funnel.
   'teach-supplier': (p) => writeRecord('teach-supplier', p),
   'correct-receipt': (p) => writeRecord('correct-receipt', p),
+  // "I'll fix it in the app": only a flag on the receipt, no money or lines.
+  'fix-in-app': (p) => writeRecord('fix-in-app', p),
   // The department heads — DRAFT-only. A head recommends; you decide.
   'head-marketing': (p) => draftOnly('head-marketing', p),
   // The gallery agents — all DRAFT-only (a human sends).

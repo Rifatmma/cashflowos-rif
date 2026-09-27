@@ -13,6 +13,7 @@
 // expense split in `meta.type_split`, so money totals on every tab stay correct
 // while the detail sits underneath. See lib/vision.ts for how they are read.
 import Link from 'next/link'
+import FindBox from './FindBox'
 import { getRecords, rm, type Rec } from '@/lib/records'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { supplierKey } from '@/lib/supplier-rules'
@@ -118,7 +119,25 @@ function typeOf(r: Rec): string {
 // human has already been through it and left a note saying what was corrected
 // (those kept the RM 68 siakap bill and the egg bill flagged after they were
 // fixed, owner 24 Sep 2026).
-const checkNote = (r: any) => (r?.meta?.fixed_note ? null : r?.meta?.items_note ?? null)
+//
+// Worked out from the lines too, not only from a note: a Jarvis correction
+// cleared Sri Ternak #174's note while its lines still said RM 295.73 against
+// RM 265.10, so it dropped out of this list and got lost below "show more"
+// (27 Sep 2026). And the owner can park one here from Jarvis: "I'll fix it in
+// the app" (meta.fix_later) -- cleared when it is saved on the correction page.
+function checkNote(r: any): string | null {
+  const m = r?.meta ?? {}
+  if (m.fix_later) return `You said you'd fix this one in the app${m.fix_later_note ? `: ${m.fix_later_note}` : '.'}`
+  if (m.fixed_note) return null
+  if (m.items_note) return String(m.items_note)
+  const items: any[] = Array.isArray(m.items) ? m.items : []
+  if (!items.length) return null
+  const lines = items.reduce((t, i) => t + (Number(i?.line_total) || 0), 0) - (Number(m.discount) || 0)
+  const amt = Number(r?.amount) || 0
+  return Math.abs(lines - amt) > Math.max(0.05, amt * 0.02)
+    ? `Lines add to RM ${lines.toFixed(2)} but the receipt total is RM ${amt.toFixed(2)}.`
+    : null
+}
 
 export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
   const { p } = await searchParams
@@ -334,7 +353,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             </p>
           )}
           {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
-          {checkNote(r) && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
+          {checkNote(r) && <p className="co-meta co-flag">{checkNote(r)}</p>}
           {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
           {/* One place to fix any receipt: its photo and every line, with the
               stock it adds shown as you type (owner, 27 Sep 2026). */}
@@ -491,13 +510,15 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           <span className="eyebrow">Receipts</span>
           <span className="co-dim num">{cur.length} in {W.label.toLowerCase().startsWith('this') || W.key === '3m' ? W.label.toLowerCase() : W.label}</span>
         </div>
+        <FindBox />
 
         {toCheck.length > 0 && (
           <div className="co-day" id="to-check">
             <div className="eyebrow co-day-label co-flag"><span>To check</span></div>
             {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
             <p className="co-meta">
-              Correct the line that&rsquo;s wrong and tap Save, or tell Jarvis, e.g. &ldquo;on the FCounter receipt the prawns were RM 32&rdquo;.
+              Tap &ldquo;Correct this receipt&rdquo; to fix it against the photo. From Jarvis, say
+              &ldquo;I&rsquo;ll fix #174 in the app&rdquo; to park one here.
             </p>
           </div>
         )}

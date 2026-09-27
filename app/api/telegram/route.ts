@@ -16,6 +16,7 @@ import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, TYPE_WORD, type VisionResult } from '@/lib/vision'
 import { parseLineEdits, keepLineMoney } from '@/lib/receipt-lines'
+import { fixUrl } from '@/lib/app-url'
 import { parseTypedReceipt, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
 import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
@@ -2083,11 +2084,8 @@ const FIX_HINT =`\n\n<i>Wrong? Just tell me — e.g. "the rice was 2 at 45.90".<
 // chat (Sri Ternak #174, 27 Sep 2026). Vercel sets VERCEL_PROJECT_PRODUCTION_URL;
 // APP_URL overrides it. With neither, there is simply no link.
 function fixHint(recordId: unknown): string {
-  const base = process.env.APP_URL?.replace(/\/+$/, '') ||
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
-  const id = Number(recordId)
-  const link = base && Number.isFinite(id) && id > 0 ? `\n<a href="${base}/cash-out/${id}">✏️ Correct it with the photo</a>` : ''
-  return FIX_HINT + link
+  const url = fixUrl(recordId)
+  return FIX_HINT + (url ? `\n<a href="${url}">✏️ Correct it with the photo</a>` : '')
 }
 const FIX_HINT_STAFF = `\n\n<i>If that looks wrong, tell ${ownerName()} — only they can correct it.</i>`
 

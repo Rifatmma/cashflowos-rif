@@ -9,6 +9,7 @@ import { normaliseRule, sameSupplier, sameRuleText } from './supplier-rules'
 // -- so the owner could not correct anything TO it. Derived, it cannot drift.
 import { EXPENSE_TYPES } from './vision'
 import { applyLineFix, describeLines, describeSplit, keepLineMoney } from './receipt-lines'
+import { fixUrl } from './app-url'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's WRITE hands (V2). Where lib/bot-tools.ts only READS, these
@@ -240,6 +241,24 @@ export const BOT_ACTION_TOOLS = [
     },
   },
   {
+    name: 'fix_in_app',
+    description:
+      'The owner will correct a filed receipt THEMSELVES in the app: "I\'ll fix it in the app", "leave it, ' +
+      'I\'ll correct it on CashFlowOS", "file it, I\'ll sort the lines later". The receipt stays filed exactly ' +
+      'as it is (the total and books are untouched); it is put on the To check list on Cash Out and you get ' +
+      'the link to its correction page, which shows the photo and every line. Use this INSTEAD of correcting ' +
+      'it by chat once they say this -- do not keep asking about the lines.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        record_id: { type: 'number', description: 'The record number, when known (e.g. 174). NOT the /undo code.' },
+        receipt: { type: 'string', description: 'Otherwise the shop name, or "#174".' },
+        amount: { type: 'number', description: 'Optional: the receipt total, to pick the right one.' },
+        note: { type: 'string', description: 'Optional: what they said is wrong, in their words, e.g. "straws and chicken promo".' },
+      },
+    },
+  },
+  {
     name: 'teach_supplier',
     description:
       'Remember how a specific shop lays out its receipts, so every FUTURE photo from them is read ' +
@@ -291,6 +310,47 @@ export const BOT_ACTION_TOOLS = [
 export const ACTION_TOOL_NAMES = new Set(BOT_ACTION_TOOLS.map(t => t.name))
 
 export type BotActionCtx = { chatId: number; thresholdRM: number; rows: Rec[] }
+
+// Which filed receipt the owner means: a record number exactly, else a unique
+// total, else the shop name. Returns the row, or the JSON reply to send back.
+function findFiledReceipt(rows: Rec[], input: any, tool: string): Rec | string {
+  const q = String(input?.receipt || '').trim()
+  // A record number picks the receipt exactly. The fuzzy match below cannot:
+  // "#156" is not a shop name, so a correction by number came back not_found
+  // and Jarvis told the owner a filed receipt was missing (27 Sep 2026).
+  const idAsked = Number(input?.record_id ?? q.match(/^#?\s*(\d+)$/)?.[1])
+  if (!q && !Number.isFinite(idAsked)) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
+  const byId = Number.isFinite(idAsked) ? rows.find(r => Number(r.id) === idAsked && r.category === 'cash_out') : undefined
+  if (Number.isFinite(idAsked) && !byId && !q.replace(/^#?\s*\d+$/, '')) {
+    return JSON.stringify({
+      status: 'not_found',
+      message: `No filed receipt is record #${idAsked}. If that number came after /undo-, it is an undo code, not a record number -- match on the shop and total instead.`,
+    })
+  }
+
+  const wanted = Number(input?.amount)
+  const byAmount = Number.isFinite(wanted)
+    ? rows.filter(r => r.category === 'cash_out' && Math.abs(Number(r.amount) - wanted) <= 0.01)
+    : []
+  // An exact, unique amount IS the identification -- needed for a receipt filed
+  // with no shop name, where there is no name to match on.
+  const candidates = byId ? [byId] : byAmount.length === 1 ? byAmount : (Number.isFinite(wanted) ? byAmount : rows).filter(r => {
+    if (r.category !== 'cash_out') return false
+    const hay = `${r.title} ${r.meta?.merchant || ''}`.toLowerCase()
+    return sameSupplier(q, String(r.meta?.merchant || r.title)) || hay.includes(q.toLowerCase())
+  })
+  if (candidates.length === 0) return JSON.stringify({ status: 'not_found', message: `No filed receipt matching "${q}".` })
+  if (candidates.length > 1) {
+    return JSON.stringify({
+      status: 'ambiguous',
+      message: 'Which one?',
+      candidates: candidates.slice(0, 5).map(r => ({ id: r.id, what: r.title, amount: rm(Number(r.amount)), date: r.due_date })),
+      tell_user: `Ask which receipt they mean, then call ${tool} again with the record number.`,
+    })
+  }
+  return candidates[0]
+}
+
 
 // Find at most a few candidate rows by fuzzy name/title match within a category.
 function matchRows(rows: Rec[], category: string, q: string, unpaidOnly = false): Rec[] {
@@ -493,41 +553,9 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
     // "you read the lines wrong". The previous lines are kept in meta.prev_items
     // instead, so the change stays recoverable.
     if (name === 'correct_receipt') {
-      const q = String(input?.receipt || '').trim()
-      // A record number picks the receipt exactly. The fuzzy match below cannot:
-      // "#156" is not a shop name, so a correction by number came back not_found
-      // and Jarvis told the owner a filed receipt was missing (27 Sep 2026).
-      const idAsked = Number(input?.record_id ?? q.match(/^#?\s*(\d+)$/)?.[1])
-      if (!q && !Number.isFinite(idAsked)) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
-      const byId = Number.isFinite(idAsked) ? rows.find(r => Number(r.id) === idAsked && r.category === 'cash_out') : undefined
-      if (Number.isFinite(idAsked) && !byId && !q.replace(/^#?\s*\d+$/, '')) {
-        return JSON.stringify({
-          status: 'not_found',
-          message: `No filed receipt is record #${idAsked}. If that number came after /undo-, it is an undo code, not a record number -- match on the shop and total instead.`,
-        })
-      }
-
-      const wanted = Number(input?.amount)
-      const byAmount = Number.isFinite(wanted)
-        ? rows.filter(r => r.category === 'cash_out' && Math.abs(Number(r.amount) - wanted) <= 0.01)
-        : []
-      // An exact, unique amount IS the identification -- needed for a receipt filed
-      // with no shop name, where there is no name to match on.
-      const candidates = byId ? [byId] : byAmount.length === 1 ? byAmount : (Number.isFinite(wanted) ? byAmount : rows).filter(r => {
-        if (r.category !== 'cash_out') return false
-        const hay = `${r.title} ${r.meta?.merchant || ''}`.toLowerCase()
-        return sameSupplier(q, String(r.meta?.merchant || r.title)) || hay.includes(q.toLowerCase())
-      })
-      if (candidates.length === 0) return JSON.stringify({ status: 'not_found', message: `No filed receipt matching "${q}".` })
-      if (candidates.length > 1) {
-        return JSON.stringify({
-          status: 'ambiguous',
-          message: 'Which one?',
-          candidates: candidates.slice(0, 5).map(r => ({ id: r.id, what: r.title, amount: rm(Number(r.amount)), date: r.due_date })),
-          tell_user: 'Ask which receipt they mean, then call correct_receipt again with the amount.',
-        })
-      }
-      const target = candidates[0]
+      const found = findFiledReceipt(rows, input, 'correct_receipt')
+      if (typeof found === 'string') return found
+      const target = found
 
       // Rebuild the lines from what the owner said: a line total they state, or
       // qty x unit price. A quantity-only fix keeps the line's money (keepLineMoney).
@@ -710,6 +738,33 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
     // note is only ever switched off when they have explicitly said to replace it
     // (`replaces`), never because this code guessed the two were in conflict --
     // guessing that is how you silently throw away something they said.
+    // ---- fix_in_app -----------------------------------------------------------
+    // "I'll correct it in the app" (owner, 27 Sep 2026): after a chat correction
+    // went round in circles on a 16-line bill, the owner wanted a way to say
+    // "stop, it's filed, I'll fix it with the photo". Only a flag moves -- no
+    // money, no lines -- so it just runs. The correction page clears it on save.
+    if (name === 'fix_in_app') {
+      const found = findFiledReceipt(rows, input, 'fix_in_app')
+      if (typeof found === 'string') return found
+      const note = String(input?.note || '').trim().slice(0, 160)
+      const meta: any = { ...(found.meta || {}), fix_later: true, ...(note ? { fix_later_note: note } : {}) }
+      const done = await runAutopilot('fix-in-app', { op: 'update', record_id: found.id, meta, idempotencyKey: randomUUID() })
+      if (!done) return JSON.stringify({ status: 'noop', message: 'Already on the To check list.' })
+      const url = fixUrl(found.id)
+      return JSON.stringify({
+        status: 'parked',
+        zone: 'green',
+        record_id: found.id,
+        receipt: found.title,
+        total_unchanged: rm(Number(found.amount)),
+        link: url || null,
+        tell_user:
+          `Say record #${found.id} (${found.title}, ${rm(Number(found.amount))}) is filed as it is and is on the ` +
+          'To check list on Cash Out' + (url ? `, and give this link to fix it with the photo: ${url}` : '') +
+          '. Keep it to two lines. Do not ask about the lines again.',
+      })
+    }
+
     if (name === 'teach_supplier') {
       const rule = normaliseRule(String(input?.supplier || ''), String(input?.rule || ''))
       if (!rule) return JSON.stringify({ status: 'error', message: 'I need both a supplier and what to remember about their receipts.' })
