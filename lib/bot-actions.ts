@@ -203,7 +203,13 @@ export const BOT_ACTION_TOOLS = [
             'line_types instead. Use owner_drawings when the owner says it was ' +
             'personal - it stays recorded as money out but is not a business expense.',
         },
-        new_total: { type: 'number', description: 'Only if the TOTAL itself was read wrong. This asks for approval.' },
+        new_total: {
+          type: 'number',
+          description:
+            'ONLY when the owner says the receipt TOTAL itself was printed/read wrong, in so many words. ' +
+            'NEVER work it out from a corrected line: a line fix is a misread, not more money spent, so ' +
+            'the total stays. Ignored when sent together with items or line_types. This asks for approval.',
+        },
       },
     },
   },
@@ -524,11 +530,18 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
           }).filter(Boolean) as any[])
         : undefined
       if (items?.length) {
-        const total = Number.isFinite(Number(input?.new_total)) && Number(input?.new_total) > 0 ? Number(input.new_total) : Number(target.amount)
-        items = keepLineMoney(items, prevLines, total)
+        items = keepLineMoney(items, prevLines, Number(target.amount))
       }
 
-      const newTotal = Number(input?.new_total)
+      // A LINE correction never moves the money. Jarvis read "line 8 is 4.08 kg,
+      // RM 89.76 not RM 29.76" as RM 60 more spent and proposed RM 265.10 ->
+      // RM 325.10; the owner had to refuse it twice and the line fix was lost
+      // with it (#174, 27 Sep 2026). So a total sent alongside lines is dropped:
+      // the lines are fixed now, and a total change must be asked for on its own.
+      const linesSent = !!(rawItems?.length || (Array.isArray(input?.line_types) && input.line_types.length))
+      const newTotal = linesSent ? NaN : Number(input?.new_total)
+      const totalIgnored = linesSent && Number.isFinite(Number(input?.new_total)) &&
+        Math.abs(Number(input.new_total) - Number(target.amount)) > 0.01
       const totalChanges =
         Number.isFinite(newTotal) && newTotal > 0 && Math.abs(newTotal - Number(target.amount)) > 0.01
       const expenseType = typeof input?.expense_type === 'string' ? input.expense_type : undefined
@@ -598,6 +611,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         record_id: target.id,
         receipt: target.title,
         total_unchanged: rm(Number(target.amount)),
+        ...(totalIgnored ? { total_not_changed: `The total stays ${rm(Number(target.amount))}: fixing a line never changes what was paid.` } : {}),
         // What was SAVED, line by line -- Jarvis repeats this, not the request.
         lines: describeLines(meta.items ?? []),
         split: describeSplit(meta.type_split) ?? null,
