@@ -107,6 +107,86 @@ export type ReceiptLine = {
   name: string; qty?: number; unit?: string; line_total?: number
   pack_size?: number; pack_unit?: string; base_qty?: number; base_unit?: string
   expense_type?: string
+  /** The owner's own answer to "what went on the shelf": beats reading the name. */
+  stock?: StockChoice
+}
+
+// ---------------------------------------------------------------------------
+// The owner says what a line is, in the unit they think in.
+//
+// Owner, 27 Sep 2026: "an option to choose whether it's chicken, beef, fresh
+// shrimp, frozen shrimp, then insert the quantity, and also an option to choose
+// a unit, cause not all of the stock are recorded as kg". Reading the item from
+// a receipt name, and its weight from "2KG" in that name, is what went wrong on
+// line after line; a choice made on the correction page is not guessed at.
+// ---------------------------------------------------------------------------
+export type StockUnit = 'kg' | 'g' | 'pcs' | 'fish' | 'tray' | 'dozen'
+export type StockChoice = { item: string; qty: number; unit: StockUnit }
+/** Not stock at all -- e.g. "PRAWN MEE" that the name reader took for shrimp. */
+export const NOT_STOCK_ITEM = 'none'
+export const WHOLE_BIRD_ITEM = 'bird'
+
+const UNIT_WORDS: Record<StockUnit, string> = { kg: 'kg', g: 'g', pcs: 'pieces', fish: 'fish', tray: 'trays (30)', dozen: 'dozen' }
+export const unitWord = (u: StockUnit) => UNIT_WORDS[u]
+
+/** The units that make sense for an item, the one it is usually bought in first. */
+export function unitsFor(item: string): StockUnit[] {
+  if (item === WHOLE_BIRD_ITEM) return ['kg', 'g']
+  if (item === 'egg') return ['tray', 'pcs', 'dozen']
+  const def = ITEM[item]
+  if (!def) return []
+  if (def.unit === 'g') return ['kg', 'g']
+  if (def.unit === 'fish') return ['kg', 'fish']
+  return def.perKg ? ['kg', 'pcs', 'g'] : ['pcs']
+}
+
+/** Stock from an explicit choice. Same conversions and trimming as a read receipt. */
+export function stockFromChoice(c: StockChoice, lineTotal: number, from: string): StockIn[] | { unknownQty: string; item: string } {
+  const qty = Number(c.qty)
+  const total = Number(lineTotal) || 0
+  if (c.item === NOT_STOCK_ITEM) return []
+  if (!(qty > 0) || !unitsFor(c.item).includes(c.unit)) return { unknownQty: from, item: c.item }
+  const kg = c.unit === 'kg' ? qty : c.unit === 'g' ? qty / 1000 : null
+
+  if (c.item === WHOLE_BIRD_ITEM) {
+    return stockFromLine({ name: 'ayam segar', qty: 1, unit: 'kg', base_qty: kg!, base_unit: 'kg', line_total: total })
+  }
+  const def = ITEM[c.item]
+  const usable = (def.usablePct ?? 100) / 100
+  const trim = usable < 1 ? `, less ${Math.round((1 - usable) * 100)}% trimmed off` : ''
+  let q: number
+  let how: string
+  if (def.unit === 'g') { q = kg! * 1000 * usable; how = `${fmtNum(kg!)} kg${trim}` }
+  else if (def.unit === 'fish') {
+    if (kg) { q = kg / FISH_KG; how = `${fmtNum(kg)} kg / ${FISH_KG * 1000} g a fish` }
+    else { q = qty; how = `${fmtNum(qty)} fish` }
+  } else if (kg) { q = kg * def.perKg! * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
+  else if (c.unit === 'tray') { q = qty * EGGS_PER_TRAY; how = `${fmtNum(qty)} trays x ${EGGS_PER_TRAY}` }
+  else if (c.unit === 'dozen') { q = qty * 12; how = `${fmtNum(qty)} dozen x 12` }
+  else { q = qty; how = `${fmtNum(qty)} pieces` }
+  return [{ item: c.item, qty: q, unit_cost: total > 0 ? total / q : null, from, note: `set by owner: ${how}` }]
+}
+
+/**
+ * The reading stockFromLine would make, as a choice the owner can then edit:
+ * "CHN FRZ CHICKEN B/BREAST 2KG" x 2 -> chicken breast, 4 kg. Starting from
+ * this means picking the item only needs the number checked, not retyped.
+ */
+export function choiceFromLine(l: ReceiptLine, extraAliases: Record<string, string[]> = {}): StockChoice | null {
+  const key = itemForName(l.name, extraAliases)
+  if (!key) return null
+  if (key === WHOLE_BIRD_ITEM) { const kg = kgOf(l); return kg ? { item: key, qty: kg, unit: 'kg' } : null }
+  const def = ITEM[key]
+  const r = stockFromLine({ ...l, stock: undefined }, extraAliases)
+  const q = Array.isArray(r) && r[0]?.item === key ? r[0].qty : null
+  if (!q) return null
+  const usable = (def.usablePct ?? 100) / 100
+  const round = (n: number) => Math.round(n * 1000) / 1000
+  if (def.unit === 'g') return { item: key, qty: round(q / 1000 / usable), unit: 'kg' }
+  if (def.unit === 'fish') return { item: key, qty: round(q), unit: 'fish' }
+  if (key === 'egg') return q % EGGS_PER_TRAY === 0 ? { item: key, qty: q / EGGS_PER_TRAY, unit: 'tray' } : { item: key, qty: round(q), unit: 'pcs' }
+  const kg = def.perKg ? kgOf(l, def) : null
+  return kg ? { item: key, qty: round(kg), unit: 'kg' } : { item: key, qty: round(q), unit: 'pcs' }
 }
 
 export type StockIn = { item: string; qty: number; unit_cost: number | null; from: string; note?: string }
@@ -204,6 +284,8 @@ function packCount(name: string): number | null {
  * worked out (shown on the Stock page for a human to fix).
  */
 export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, string[]> = {}): StockIn[] | { unknownQty: string; item: string } {
+  // The owner said what this line is: nothing to read or guess.
+  if (l.stock?.item) return stockFromChoice(l.stock, Number(l.line_total) || 0, l.name)
   const key = itemForName(l.name, extraAliases)
   if (!key) return []
   const total = Number(l.line_total) || 0

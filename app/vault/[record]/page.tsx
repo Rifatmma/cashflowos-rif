@@ -80,6 +80,7 @@ export default async function OneReceipt({ params }: { params: Promise<{ record:
           )}
 
           <p className="co-meta">
+            {row.category === 'cash_out' && <><Link href={`/cash-out/${row.id}`}>✏️ Correct this receipt</Link> · </>}
             <Link href={`/cash-out`}>Cash Out</Link> · <Link href="/vault">All receipts</Link>
           </p>
         </>

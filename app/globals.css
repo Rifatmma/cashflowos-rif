@@ -715,3 +715,36 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .me-ask-q { font-size: 13px; font-weight: 500; color: var(--ink); margin: 0 0 6px; }
 .me-ask form { display: inline-block; margin: 0 6px 6px 0; }
 .me-ask .st-submit { margin: 0; }
+
+/* ---- /cash-out/<id>: correct one receipt ---------------------------------- */
+/* One column on the phone (photo first, then the lines); side by side on a
+   wide screen, with the photo pinned so it stays in view while scrolling lines. */
+.cr-layout { display: grid; gap: 0; }
+@media (min-width: 900px) {
+  .cr-layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+  .cr-photo { position: sticky; top: 12px; }
+  .cr-photo .co-card:first-child { margin-top: 0; }
+  .cr-form { margin-top: 0; }
+}
+.cr-line { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 12px; margin: 10px 0 0; min-width: 0; }
+.cr-head { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0; }
+.cr-x { background: none; border: none; color: var(--ink-faint); font: inherit; font-size: 12px; cursor: pointer; padding: 4px 0 4px 8px; text-decoration: underline; }
+.cr-x:hover { color: var(--bad); }
+.cr-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+@media (min-width: 560px) { .cr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .cr-grid:has(> :nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cr-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cr-field > span { font-size: 11px; color: var(--ink-faint); }
+.cr-wide { margin-top: 4px; }
+.cr input, .cr select { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 9px; min-height: 40px; width: 100%; box-sizing: border-box; }
+.cr input[inputmode="decimal"] { text-align: right; font-family: var(--font-mono), monospace; }
+.cr input:focus, .cr select:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+.cr .rf-missing { border-color: var(--bad); }
+.cr-stock { font-size: 12px; color: var(--clay-deep); background: var(--clay-tint); border-radius: 8px; padding: 6px 8px; margin: 8px 0 0; line-height: 1.45; }
+.cr-add { margin-top: 10px; width: 100%; min-height: 40px; }
+/* Not sticky: pinned to the bottom it slid under the phone's tab bar, and a tap
+   meant for Save opened the Dashboard instead. */
+.cr-foot { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.cr-sum { font-size: 13px; margin: 0; line-height: 1.5; }
+.cr-stockrow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+@media (max-width: 420px) { .cr-stockrow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cr-stockrow > :first-child { grid-column: 1 / -1; } }
+.cr-stock-warn { color: var(--bad); background: var(--mid-tint); }

@@ -22,7 +22,6 @@ import {
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
 import PaceChart from '@/app/_components/PaceChart'
-import ReceiptFix from './ReceiptFix'
 
 export const dynamic = 'force-dynamic'
 
@@ -337,10 +336,13 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
           {checkNote(r) && <p className="co-meta co-flag">{String(r.meta.items_note)}</p>}
           {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
-          {open && items.length > 0 && (
-            <ReceiptFix id={r.id} total={Number(r.amount)}
-              lines={items.map(it => ({ name: it.name, qty: it.qty, unit_price: it.unit_price, expense_type: it.expense_type }))} />
-          )}
+          {/* One place to fix any receipt: its photo and every line, with the
+              stock it adds shown as you type (owner, 27 Sep 2026). */}
+          <p className="co-meta">
+            <Link href={`/cash-out/${r.id}`} className={open ? 'btn' : ''} style={open ? { display: 'inline-block', textDecoration: 'none', marginTop: 4 } : undefined}>
+              ✏️ Correct this receipt
+            </Link>
+          </p>
           <p className="co-meta">
             {shortDate(dateOf(r))}
             {r.meta?.receipt_no ? ` · #${r.meta.receipt_no}` : ''}

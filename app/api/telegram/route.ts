@@ -1549,12 +1549,12 @@ async function decideAndFile(a: {
           `🧾 ${esc(filer.name)} filed <b>${what}</b> from the receipts group.${detail}
 
 ` +
-          `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
+          `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       }
     } else {
       await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${ask}
 
-Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
+Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
     }
     return
@@ -1894,13 +1894,13 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     if (!done) { await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.'); return }
     const recordId = (done.result as any)?.record_id ?? null
     if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: recordId, what: `the ${rm(amount)} bill`, amount })
-    const hint = staffTyped ? FIX_HINT_STAFF : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`
+    const hint = staffTyped ? FIX_HINT_STAFF : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`
     const reply = `✅ Filed <b>${what}</b>${staffTyped ? ` — thanks ${esc(filer.name)}` : ''}.${detail}${askPhoto}${hint}`
     await sendMessage(chatId, reply)
     await remember(chatId, `[${staffTyped ? filer.name + ' ' : ''}typed a bill]`, `Filed ${what} as record #${recordId}.${detail}`)
     if (staffTyped && OWNER) {
       await sendMessage(Number(OWNER),
-        `🧾 ${esc(filer.name)} typed a bill: <b>${what}</b>.${detail}\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
+        `🧾 ${esc(filer.name)} typed a bill: <b>${what}</b>.${detail}\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       await remember(OWNER, `[${filer.name} typed a bill in the group]`, `Filed ${what} as record #${recordId}.${detail}`)
     }
     return
@@ -2078,6 +2078,17 @@ function receiptSummary(v: VisionResult): string {
 // can do that in the group, since a message in the template IS a filing.
 const TYPE_HINT = `\n<i>If I've misread it, type it instead: Item Name / Weight / Quantity / Price.</i>`
 const FIX_HINT =`\n\n<i>Wrong? Just tell me — e.g. "the rice was 2 at 45.90".</i>`
+// The owner's link to the correction page (/cash-out/<id>): the photo and every
+// line on one screen. A long receipt is far easier to put right there than by
+// chat (Sri Ternak #174, 27 Sep 2026). Vercel sets VERCEL_PROJECT_PRODUCTION_URL;
+// APP_URL overrides it. With neither, there is simply no link.
+function fixHint(recordId: unknown): string {
+  const base = process.env.APP_URL?.replace(/\/+$/, '') ||
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+  const id = Number(recordId)
+  const link = base && Number.isFinite(id) && id > 0 ? `\n<a href="${base}/cash-out/${id}">✏️ Correct it with the photo</a>` : ''
+  return FIX_HINT + link
+}
 const FIX_HINT_STAFF = `\n\n<i>If that looks wrong, tell ${ownerName()} — only they can correct it.</i>`
 
 // The 🟡 proposal wording. Low confidence gets the "robot unsure" flag so the human
