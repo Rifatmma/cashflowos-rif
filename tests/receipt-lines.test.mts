@@ -5,7 +5,7 @@
 // was read as drinks; the owner said "line 3 should be food". The old tool
 // wiped every line's type, kept the drinks split, and Jarvis reported a split
 // that was never saved.
-import { applyLineFix, describeLines, describeSplit } from '../lib/receipt-lines'
+import { applyLineFix, describeLines, describeSplit, keepLineMoney, parseLineEdits } from '../lib/receipt-lines'
 
 let failed = 0
 const check = (what: string, ok: boolean, got?: unknown) => {
@@ -44,6 +44,25 @@ const balaji = [
 {
   const r = applyLineFix({ prevItems: balaji, lineTypes: [{ line: 4, expense_type: 'cogs_food' }], amount: 57.2 })
   check('a line that does not exist is refused', !r.ok, r)
+}
+
+// ---- #175: 60 eggs read, 90 bought, RM 43.20 printed and right ----
+const eggs60 = [{ name: 'USIK GL DELI TELUR SEGAR KM', qty: 60, unit: 'pcs', unit_price: 0.72, line_total: 43.2 }]
+{
+  const r = keepLineMoney([{ name: 'USIK GL DELI TELUR SEGAR KM', qty: 90, unit: 'pcs', unit_price: 0.72, line_total: 64.8 }], eggs60, 43.2)
+  check('quantity fix keeps the line money', r[0].line_total === 43.2 && r[0].unit_price === 0.48, r)
+}
+{
+  // A genuine price change that adds up is left alone.
+  const r = keepLineMoney([{ name: 'X', qty: 2, unit: 'pcs', unit_price: 5, line_total: 10 }], [{ name: 'X', qty: 1, unit_price: 5, line_total: 5 }], 10)
+  check('a correction that adds up is untouched', r[0].line_total === 10 && r[0].unit_price === 5, r)
+}
+{
+  const e = parseLineEdits('Line 1 should be 90 pieces of eggs\n\nTotal: rm 43.2')
+  check('reads "Line 1 should be 90 pieces"', JSON.stringify(e) === JSON.stringify([{ line: 1, qty: 90, unit: 'pcs' }]), e)
+  const g = parseLineEdits('Line 1 udang galah 1 kg price rm 41\nLine 2 udang 2 kg price rm 54')
+  check('reads a line with its money', JSON.stringify(g) === JSON.stringify([{ line: 1, qty: 1, unit: 'kg', line_total: 41 }, { line: 2, qty: 2, unit: 'kg', line_total: 54 }]), g)
+  check('ignores a reply with no line fix', parseLineEdits('Shop: pasar borong\nTotal: RM 95').length === 0)
 }
 
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }

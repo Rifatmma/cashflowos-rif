@@ -8,7 +8,7 @@ import { normaliseRule, sameSupplier, sameRuleText } from './supplier-rules'
 // hand-typed copy, which silently fell behind when supplies_cleaning was added
 // -- so the owner could not correct anything TO it. Derived, it cannot drift.
 import { EXPENSE_TYPES } from './vision'
-import { applyLineFix, describeLines, describeSplit } from './receipt-lines'
+import { applyLineFix, describeLines, describeSplit, keepLineMoney } from './receipt-lines'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's WRITE hands (V2). Where lib/bot-tools.ts only READS, these
@@ -169,9 +169,16 @@ export const BOT_ACTION_TOOLS = [
               qty: { type: 'number', description: 'How many units.' },
               unit: { type: 'string', description: 'kg, g, l, ml, pcs, pkt, bottle...' },
               unit_price: { type: 'number', description: 'RM for ONE unit, as printed.' },
+              line_total: {
+                type: 'number',
+                description:
+                  'RM for the whole line, when the owner states it ("RM 43.2 for 90 eggs"). The unit price is ' +
+                  'then worked out. If the owner only corrects a QUANTITY, the money on the line stays: pass the ' +
+                  'existing line total here, not the old unit price.',
+              },
               expense_type: { type: 'string', enum: [...EXPENSE_TYPES], description: 'What this line is for. Leave out to keep what it was.' },
             },
-            required: ['name', 'qty', 'unit_price'],
+            required: ['name', 'qty'],
           },
         },
         line_types: {
@@ -490,25 +497,36 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       }
       const target = candidates[0]
 
-      // Rebuild the lines from what the owner said. qty x unit_price is the truth
-      // here, so we compute the line total rather than asking for one they never
-      // mentioned -- the same rule the photo path uses.
+      // Rebuild the lines from what the owner said: a line total they state, or
+      // qty x unit price. A quantity-only fix keeps the line's money (keepLineMoney).
       const rawItems = Array.isArray(input?.items) ? input.items : null
-      const items = rawItems
+      const prevLines: any[] = Array.isArray(target.meta?.items) ? target.meta.items : []
+      let items = rawItems
         ? (rawItems.map((i: any) => {
             const qty = Number(i?.qty)
-            const price = Number(i?.unit_price)
+            // "RM 43.20 for 90" -- a line total the owner states wins, and the
+            // unit price is worked out from it.
+            const lineTotal = Number(i?.line_total)
+            const price = Number.isFinite(lineTotal) && lineTotal >= 0 && qty > 0 ? lineTotal / qty : Number(i?.unit_price)
             if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price < 0) return null
+            const name = String(i?.name || '').trim().slice(0, 80) || 'Item'
+            // Same line, same product: keep what identifies it for stock and prices.
+            const old = prevLines.find(p => String(p?.name ?? '').trim().toLowerCase() === name.toLowerCase())
             return {
-              name: String(i?.name || '').trim().slice(0, 80) || 'Item',
+              ...(old ? { key: old.key, group: old.group, pack_size: old.pack_size, pack_unit: old.pack_unit } : {}),
+              name,
               qty: Math.round(qty * 1000) / 1000,
               unit: String(i?.unit || 'unit').toLowerCase().slice(0, 12),
-              unit_price: Math.round(price * 100) / 100,
-              line_total: Math.round(qty * price * 100) / 100,
+              unit_price: Math.round(price * 10000) / 10000,
+              line_total: Number.isFinite(lineTotal) && lineTotal >= 0 ? Math.round(lineTotal * 100) / 100 : Math.round(qty * price * 100) / 100,
               expense_type: i?.expense_type,
             }
           }).filter(Boolean) as any[])
         : undefined
+      if (items?.length) {
+        const total = Number.isFinite(Number(input?.new_total)) && Number(input?.new_total) > 0 ? Number(input.new_total) : Number(target.amount)
+        items = keepLineMoney(items, prevLines, total)
+      }
 
       const newTotal = Number(input?.new_total)
       const totalChanges =
@@ -586,11 +604,18 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         expense_type: meta.expense_type,
         // The stock is redone from the corrected lines (agents/registry.ts), so
         // say what went on the shelf -- never "stock only updates at first filing".
+        // Said out loud, never smoothed over: lines that don't add up to the total.
+        lines_mismatch: (() => {
+          const sum = Math.round((meta.items ?? []).reduce((t: number, i: any) => t + (Number(i.line_total) || 0), 0) * 100) / 100
+          return Math.abs(sum - Number(target.amount)) > 0.05 ? `Lines add to ${rm(sum)} but the receipt total is ${rm(Number(target.amount))}.` : null
+        })(),
         stock_added: (done.result as any)?.stock_added ?? [],
         stock_unsized: (done.result as any)?.stock_unsized ?? [],
         tell_user:
           `Confirm what it now says for record #${target.id}, listing every line exactly as in "lines" ` +
           '(each one says what it is filed as) and the "split" if there is one. ' +
+          'If "lines_mismatch" is set, say it plainly and ask the owner which line is wrong -- do NOT ' +
+          'claim the receipt is right. ' +
           'Then say what the stock now has from this receipt, from "stock_added" (item and qty); if it is ' +
           'empty, say none of these lines are stock items. Name anything in "stock_unsized" as needing a ' +
           'weight on the Stock page. ' +

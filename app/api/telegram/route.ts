@@ -15,6 +15,7 @@ import { loadTurns, appendTurn, bumpDailyCounter } from '@/lib/bot-memory'
 import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, TYPE_WORD, type VisionResult } from '@/lib/vision'
+import { parseLineEdits, keepLineMoney } from '@/lib/receipt-lines'
 import { parseTypedReceipt, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
 import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
@@ -1675,6 +1676,34 @@ async function answerMissingFields(msg: any, p: any): Promise<void> {
   const v: VisionResult = { ...p.v }
   const payload = { ...p.payload }
   const bad: string[] = []
+
+  // Line fixes written into the same reply -- "Line 1 should be 90 pieces of
+  // eggs" above "Total: rm 43.2". Only the blanks used to be read, so the fix
+  // was dropped and 60 eggs were filed (#175, 27 Sep 2026). A quantity-only fix
+  // keeps the line's money: the printed RM was right, the count was misread.
+  const edits = parseLineEdits(text)
+  if (edits.length && Array.isArray(payload.items) && payload.items.length) {
+    const before = payload.items
+    const next = before.map((i: any) => ({ ...i }))
+    for (const e of edits) {
+      const it = next[e.line - 1]
+      if (!it) { bad.push(`Line ${e.line} (this receipt has ${next.length} line${next.length === 1 ? '' : 's'})`); continue }
+      it.qty = e.qty
+      if (e.unit) it.unit = e.unit
+      if (e.line_total != null) { it.line_total = e.line_total; it.unit_price = e.line_total / e.qty }
+      else it.line_total = Math.round(e.qty * it.unit_price * 100) / 100
+      delete it.base_qty; delete it.price_per_base   // re-derived below
+    }
+    const totalHint = Number(String(got.total ?? '').replace(/[^0-9.]/g, '')) || Number(v.amount) || 0
+    const kept = totalHint > 0 ? keepLineMoney(next, before, totalHint) : next
+    const s = sanitiseItems(kept, totalHint || undefined)
+    if (s.items?.length) {
+      payload.items = s.items; v.items = s.items
+      payload.type_split = totalHint > 0 ? splitByType(s.items, totalHint, s.reconciles) : undefined
+      v.type_split = payload.type_split
+      payload.items_note = s.items_note; v.items_note = s.items_note
+    }
+  }
 
   for (const gap of gaps) {
     if (gap === 'shop') {

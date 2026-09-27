@@ -83,6 +83,69 @@ export function applyLineFix(f: LineFix): LineFixResult {
   return { ok: true, changed, items, type_split, expense_type }
 }
 
+// A quantity fix keeps the line's MONEY. "Line 1 should be 90 eggs" on a RM 43.20
+// receipt read as 60 x RM 0.72: the printed RM 43.20 was right and the count was
+// misread, so it is 90 x RM 0.48 -- not 90 x RM 0.72 = RM 64.80, which is what
+// carrying the old unit price over produced (#175, 27 Sep 2026).
+//
+// Applied only where it makes the lines add up to the receipt total and the
+// old line did: then the old line's money is known good. Anything else is left
+// as given, for the lines-don't-add-up warning to catch.
+export function keepLineMoney<T extends { name: string; qty: number; unit_price: number; line_total: number }>(
+  items: T[], prevItems: Array<Partial<VisionItem>>, amount: number,
+): T[] {
+  const sum = (xs: Array<{ line_total?: number }>) => xs.reduce((t, i) => t + (Number(i.line_total) || 0), 0)
+  const close = (a: number, b: number) => Math.abs(a - b) <= 0.05
+  if (close(sum(items), amount) || !close(sum(prevItems), amount)) return items
+
+  const fixed = items.map((i, n) => {
+    const old = prevItems.find(p => String(p.name ?? '').trim().toLowerCase() === i.name.trim().toLowerCase())
+      ?? (items.length === prevItems.length ? prevItems[n] : undefined)
+    const oldTotal = Number(old?.line_total)
+    const qtyOnly = old && Number(old.qty) !== i.qty && Math.abs(Number(old.unit_price) - i.unit_price) <= 0.005
+    if (!qtyOnly || !(oldTotal > 0) || !(i.qty > 0)) return i
+    return { ...i, line_total: oldTotal, unit_price: Math.round((oldTotal / i.qty) * 10000) / 10000 }
+  })
+  return close(sum(fixed), amount) ? fixed : items
+}
+
+// "Line 1 should be 90 pieces of eggs", "Line 2 udang 2 kg price rm 54" -- line
+// fixes written into a reply. The receipt card numbers its lines so the owner
+// can do exactly this, and a reply that also fills in the total used to have
+// its line fix silently dropped (#175, 27 Sep 2026).
+export type LineEdit = { line: number; qty: number; unit?: string; line_total?: number }
+const UNIT_WORD: Array<[RegExp, string]> = [
+  [/^(pcs?|pieces?|biji|butir|ekor|nos?)$/i, 'pcs'],
+  [/^(kg|kgs|kilos?)$/i, 'kg'],
+  [/^(g|gm|grams?)$/i, 'g'],
+  [/^(pkts?|packets?)$/i, 'pkt'],
+  [/^(tins?)$/i, 'tin'],
+  [/^(box|boxes)$/i, 'box'],
+  [/^(bottles?|btl)$/i, 'bottle'],
+  [/^(trays?)$/i, 'tray'],
+]
+export function parseLineEdits(text: string): LineEdit[] {
+  const out: LineEdit[] = []
+  for (const row of String(text).split(/\r?\n/)) {
+    const m = row.match(/\bline\s*(\d{1,3})\b(.*)$/i)
+    if (!m) continue
+    const rest = m[2]
+    // The money first, so "rm 54" is never mistaken for the quantity.
+    const money = rest.match(/\brm\s*(\d+(?:\.\d+)?)/i)
+    const noMoney = money ? rest.replace(money[0], ' ') : rest
+    const q = noMoney.match(/(\d+(?:\.\d+)?)\s*([a-z]+)?/i)
+    if (!q) continue
+    const unitWord = q[2] ? UNIT_WORD.find(([re]) => re.test(q[2]!))?.[1] : undefined
+    out.push({
+      line: Number(m[1]),
+      qty: Number(q[1]),
+      ...(unitWord ? { unit: unitWord } : {}),
+      ...(money ? { line_total: Number(money[1]) } : {}),
+    })
+  }
+  return out
+}
+
 // "Line 3 · THAI OMYAM 3KG TIN — RM 39.90 · filed as food" -- the same wording
 // the receipt card uses, so the owner can compare them line for line.
 export function describeLines(items: VisionItem[]): string[] {
