@@ -306,13 +306,20 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
               {items.map((it, i) => (
                 <li key={i}>
                   <span>
+                    <span className="co-dim">Line {i + 1} · </span>
                     {it.name}
                     <span className="co-dim">
                       {' '}· {it.qty} {it.unit !== 'unit' ? it.unit : ''} × {plain2(it.unit_price)}
                       {typeof it.price_per_base === 'number' && ` = ${money2(it.price_per_base)}/${it.base_unit}`}
-                      {it.expense_type && split && Object.keys(split).length > 1 && ` · ${TYPE_LABEL[it.expense_type] ?? it.expense_type}`}
-                      {!it.expense_type && split?.unclassified ? <span className="co-flag"> · not categorised</span> : null}
                     </span>
+                    {/* Every line says what it was filed as, so "line 3 should be food"
+                        can be read straight off the list (owner, 27 Sep 2026). */}
+                    {(() => {
+                      const t = it.expense_type ?? (split ? undefined : (r.meta?.expense_type as string | undefined))
+                      return t
+                        ? <span className="co-dim"> · filed as {(TYPE_LABEL[t] ?? t).toLowerCase()}</span>
+                        : <span className="co-flag"> · not categorised</span>
+                    })()}
                   </span>
                   <span className="num">{plain2(it.line_total)}</span>
                 </li>

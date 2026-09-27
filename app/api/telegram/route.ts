@@ -14,7 +14,7 @@ import {
 import { loadTurns, appendTurn, bumpDailyCounter } from '@/lib/bot-memory'
 import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
-import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, type VisionResult } from '@/lib/vision'
+import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, TYPE_WORD, type VisionResult } from '@/lib/vision'
 import { parseTypedReceipt, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
 import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
@@ -1541,9 +1541,9 @@ async function decideAndFile(a: {
     const ask = await askAmounts(chatId, staffFiling ? 'chat' : filer.id, payload.items, (done.result as any)?.record_id ?? null)
     if (staffFiling) {
       await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${ask}${FIX_HINT_STAFF}`)
-      await remember(chatId, `[${filer.name} filed a receipt]`, `Filed ${what} as record #${done.row.id}.${detail}`)
+      await remember(chatId, `[${filer.name} filed a receipt]`, `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
       if (OWNER) {
-        await remember(OWNER, `[${filer.name} filed a receipt in the group]`, `Filed ${what} as record #${done.row.id}.${detail}`)
+        await remember(OWNER, `[${filer.name} filed a receipt in the group]`, `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
         await sendMessage(Number(OWNER),
           `🧾 ${esc(filer.name)} filed <b>${what}</b> from the receipts group.${detail}
 
@@ -1554,7 +1554,7 @@ async function decideAndFile(a: {
       await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${ask}
 
 Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${FIX_HINT}`)
-      await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${done.row.id}.${detail}`)
+      await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
     }
     return
   }
@@ -1953,14 +1953,6 @@ async function importSalesFile(msg: any): Promise<void> {
   }
 }
 
-// What the money was FOR, in words the owner uses rather than column names.
-const TYPE_WORD: Record<string, string> = {
-  cogs_food: 'food', cogs_beverage: 'drinks', cogs_packaging: 'packaging',
-  supplies_cleaning: 'cleaning & supplies',
-  owner_drawings: "owner's drawings",
-  labour: 'labour', rent: 'rent', utilities: 'utilities', marketing: 'marketing',
-  equipment: 'equipment', services: 'services', other: 'other',
-}
 
 // Item names come from OCR of an UNTRUSTED photo and go out with parse_mode HTML.
 // A receipt line containing "&" or "<" would break Telegram's parser and the whole
@@ -2013,7 +2005,8 @@ function receiptSummary(v: VisionResult): string {
       (v.items_note ? `\n⚠️ ${esc(v.items_note)}` : '')
   }
 
-  const shown = items.slice(0, MAX_SHOWN).map((i) => {
+  const hasSplit = !!split && Object.keys(split).length > 1
+  const shown = items.slice(0, MAX_SHOWN).map((i, n) => {
     const unit = i.unit && i.unit !== 'unit' ? ` ${esc(i.unit)}` : ''
     // The comparable price, where a weight was printed -- this is the number that
     // tells them whether a supplier has quietly moved their price.
@@ -2021,13 +2014,12 @@ function receiptSummary(v: VisionResult): string {
       typeof i.price_per_base === 'number'
         ? `  <i>(${rm(i.price_per_base)}/${esc(i.base_unit)})</i>`
         : ''
-    // Flag a line whose category differs from the receipt's headline one -- that
-    // is exactly where a misallocation hides, e.g. bin bags on a grocery run.
-    const odd =
-      i.expense_type && i.expense_type !== v.expense_type
-        ? `  <i>[${esc(TYPE_WORD[i.expense_type] ?? i.expense_type)}]</i>`
-        : ''
-    return `• ${i.qty}${unit} ${esc(i.name)} — ${rm(i.unit_price)} ea${per}${odd}`
+    // EVERY line says what it was filed as, numbered, so a wrong one can be named
+    // straight off the card ("line 3 should be food"). Only flagging the odd one
+    // out hid the misfiled tom yam in a "drinks" total (owner, 27 Sep 2026).
+    const t = i.expense_type ?? (hasSplit ? undefined : v.expense_type)
+    const filedAs = t ? `filed as <b>${esc(TYPE_WORD[t] ?? t)}</b>` : `<i>not sorted yet</i>`
+    return `• <b>Line ${n + 1}</b> · ${i.qty}${unit} ${esc(i.name)} — ${rm(i.unit_price)} ea${per} · ${filedAs}`
   })
   const more = items.length > MAX_SHOWN ? `\n…and ${items.length - MAX_SHOWN} more` : ''
 

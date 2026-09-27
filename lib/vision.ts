@@ -57,6 +57,17 @@ export const EXPENSE_TYPES = [
   'owner_drawings',
 ] as const
 
+// What the money was FOR, in words the owner uses rather than column names.
+// One copy, shared by the receipt card and the correction tool, so both say the
+// same word for the same line.
+export const TYPE_WORD: Record<string, string> = {
+  cogs_food: 'food', cogs_beverage: 'drinks', cogs_packaging: 'packaging',
+  supplies_cleaning: 'cleaning & supplies',
+  owner_drawings: "owner's drawings",
+  labour: 'labour', rent: 'rent', utilities: 'utilities', marketing: 'marketing',
+  equipment: 'equipment', services: 'services', other: 'other',
+}
+
 // Types only the OWNER may assign. Whether a purchase was personal is their
 // judgement; a model guessing it is how personal spending slips into, or out of,
 // the books unnoticed. Anything the model returns from this set is discarded.

@@ -8,6 +8,7 @@ import { normaliseRule, sameSupplier, sameRuleText } from './supplier-rules'
 // hand-typed copy, which silently fell behind when supplies_cleaning was added
 // -- so the owner could not correct anything TO it. Derived, it cannot drift.
 import { EXPENSE_TYPES } from './vision'
+import { applyLineFix, describeLines, describeSplit } from './receipt-lines'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // The Jarvis bot's WRITE hands (V2). Where lib/bot-tools.ts only READS, these
@@ -146,12 +147,16 @@ export const BOT_ACTION_TOOLS = [
       'wrong expense type. Use when the owner says something like "the rice was 2 at 45.90 not 6 at ' +
       '15.30" or "that Speed Mart one is food not packaging". Changing only the items or the expense ' +
       'type leaves the money untouched, so it just does it; changing the TOTAL asks first. ' +
+      'When only SOME lines are the wrong type ("line 3 should be food"), use line_types -- the prices ' +
+      'are already on the receipt, so NEVER ask the owner for them. Report back only the lines and split ' +
+      'this tool returns; never describe a split it did not return. ' +
       'AFTER a successful correction you MUST ask whether to remember it as a standing rule for that ' +
       'supplier, and only call teach_supplier if they say yes.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        receipt: { type: 'string', description: 'Supplier name or what to match the filed receipt on (e.g. "99 speed mart", "the rice one").' },
+        record_id: { type: 'number', description: 'The record number, when you know it (e.g. 156). Picks the receipt exactly. NOT the /undo code.' },
+        receipt: { type: 'string', description: 'Supplier name or what to match the filed receipt on (e.g. "99 speed mart", "the rice one"), or "#156".' },
         amount: { type: 'number', description: 'Optional: the receipt total, to pick the right one when several match.' },
         merchant: { type: 'string', description: 'Set or fix WHO it was paid to. Use when a receipt was filed with no shop name (a typed list, a market stall), e.g. "Pasar Borong Selangor".' },
         items: {
@@ -164,20 +169,35 @@ export const BOT_ACTION_TOOLS = [
               qty: { type: 'number', description: 'How many units.' },
               unit: { type: 'string', description: 'kg, g, l, ml, pcs, pkt, bottle...' },
               unit_price: { type: 'number', description: 'RM for ONE unit, as printed.' },
+              expense_type: { type: 'string', enum: [...EXPENSE_TYPES], description: 'What this line is for. Leave out to keep what it was.' },
             },
             required: ['name', 'qty', 'unit_price'],
+          },
+        },
+        line_types: {
+          type: 'array',
+          description:
+            'Re-type individual lines without retyping the receipt, e.g. [{line: 3, expense_type: "cogs_food"}]. ' +
+            'Lines are numbered from 1, as shown on the receipt card. Lines not named keep their type.',
+          items: {
+            type: 'object' as const,
+            properties: {
+              line: { type: 'number', description: 'Line number, from 1.' },
+              expense_type: { type: 'string', enum: [...EXPENSE_TYPES] },
+            },
+            required: ['line', 'expense_type'],
           },
         },
         expense_type: {
           type: 'string',
           enum: [...EXPENSE_TYPES],
           description:
-            'Optional corrected expense type. Use owner_drawings when the owner says it was ' +
+            'The WHOLE receipt is this type -- every line is set to it. For some lines only, use ' +
+            'line_types instead. Use owner_drawings when the owner says it was ' +
             'personal - it stays recorded as money out but is not a business expense.',
         },
         new_total: { type: 'number', description: 'Only if the TOTAL itself was read wrong. This asks for approval.' },
       },
-      required: ['receipt'],
     },
   },
   {
@@ -268,10 +288,10 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         const done = await runAutopilot('expense', { ...payload, auto: true })
         if (!done) return JSON.stringify({ status: 'noop', message: 'That looked already handled — nothing double-filed.' })
         return JSON.stringify({
-          status: 'filed', zone: 'green', record_id: done.row.id,
+          status: 'filed', zone: 'green', record_id: done.result?.record_id ?? null,
           filed: `${rm(done.result.amount)} · ${done.result.category || 'expense'}${merchant ? ' · ' + merchant : ''}`,
           undo: `/undo-${done.row.id}`,
-          tell_user: 'Filed automatically because it is at/under the auto-file limit. Offer the /undo id.',
+          tell_user: 'Filed automatically because it is at/under the auto-file limit. Call it record #<record_id>; the /undo number is a separate code, never call that the record number. Offer the /undo id.',
         })
       }
       const row = await proposeAndNotify({
@@ -303,7 +323,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         const done = await runAutopilot('expense', { ...payload, auto: true })
         if (!done) return JSON.stringify({ status: 'noop', message: 'Already recorded.' })
         return JSON.stringify({
-          status: 'filed', zone: 'green', record_id: done.row.id,
+          status: 'filed', zone: 'green', record_id: done.result?.record_id ?? null,
           filed: `${rm(amount)} · owner drawings · ${what}`,
           undo: `/undo-${done.row.id}`,
           tell_user: 'Say it is recorded as owner drawings - money out, but not a business expense and not counted against profit. Offer the /undo id.',
@@ -332,7 +352,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       })
       if (!done) return JSON.stringify({ status: 'noop', message: 'Already added.' })
       return JSON.stringify({
-        status: 'added', zone: 'green', record_id: done.row.id, task: title,
+        status: 'added', zone: 'green', record_id: done.result?.record_id ?? null, task: title,
         due_date: input?.due_date || null, undo: `/undo-${done.row.id}`,
         tell_user: 'Added it (autopilot, reversible). Offer the /undo id.',
       })
@@ -352,7 +372,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       })
       if (!done) return JSON.stringify({ status: 'noop', message: 'Already added.' })
       return JSON.stringify({
-        status: 'added', zone: 'green', record_id: done.row.id, lead: nm,
+        status: 'added', zone: 'green', record_id: done.result?.record_id ?? null, lead: nm,
         value: Number.isFinite(value) ? rm(value) : null, stage: input?.stage || 'new',
         undo: `/undo-${done.row.id}`, tell_user: 'Added the lead (autopilot). Offer the /undo id.',
       })
@@ -435,7 +455,18 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
     // instead, so the change stays recoverable.
     if (name === 'correct_receipt') {
       const q = String(input?.receipt || '').trim()
-      if (!q) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
+      // A record number picks the receipt exactly. The fuzzy match below cannot:
+      // "#156" is not a shop name, so a correction by number came back not_found
+      // and Jarvis told the owner a filed receipt was missing (27 Sep 2026).
+      const idAsked = Number(input?.record_id ?? q.match(/^#?\s*(\d+)$/)?.[1])
+      if (!q && !Number.isFinite(idAsked)) return JSON.stringify({ status: 'error', message: 'Which receipt?' })
+      const byId = Number.isFinite(idAsked) ? rows.find(r => Number(r.id) === idAsked && r.category === 'cash_out') : undefined
+      if (Number.isFinite(idAsked) && !byId && !q.replace(/^#?\s*\d+$/, '')) {
+        return JSON.stringify({
+          status: 'not_found',
+          message: `No filed receipt is record #${idAsked}. If that number came after /undo-, it is an undo code, not a record number -- match on the shop and total instead.`,
+        })
+      }
 
       const wanted = Number(input?.amount)
       const byAmount = Number.isFinite(wanted)
@@ -443,7 +474,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         : []
       // An exact, unique amount IS the identification -- needed for a receipt filed
       // with no shop name, where there is no name to match on.
-      const candidates = byAmount.length === 1 ? byAmount : (Number.isFinite(wanted) ? byAmount : rows).filter(r => {
+      const candidates = byId ? [byId] : byAmount.length === 1 ? byAmount : (Number.isFinite(wanted) ? byAmount : rows).filter(r => {
         if (r.category !== 'cash_out') return false
         const hay = `${r.title} ${r.meta?.merchant || ''}`.toLowerCase()
         return sameSupplier(q, String(r.meta?.merchant || r.title)) || hay.includes(q.toLowerCase())
@@ -474,6 +505,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
               unit: String(i?.unit || 'unit').toLowerCase().slice(0, 12),
               unit_price: Math.round(price * 100) / 100,
               line_total: Math.round(qty * price * 100) / 100,
+              expense_type: i?.expense_type,
             }
           }).filter(Boolean) as any[])
         : undefined
@@ -482,8 +514,9 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       const totalChanges =
         Number.isFinite(newTotal) && newTotal > 0 && Math.abs(newTotal - Number(target.amount)) > 0.01
       const expenseType = typeof input?.expense_type === 'string' ? input.expense_type : undefined
+      const lineTypes = Array.isArray(input?.line_types) ? input.line_types : undefined
       const merchantFix = String(input?.merchant || '').trim().slice(0, 120)
-      if (!items?.length && !expenseType && !totalChanges && !merchantFix) {
+      if (!items?.length && !expenseType && !lineTypes?.length && !totalChanges && !merchantFix) {
         return JSON.stringify({ status: 'error', message: 'Nothing to correct -- tell me the lines, the shop, the expense type, or the total.' })
       }
 
@@ -492,13 +525,31 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         corrected_by: 'owner',
         corrected_at: new Date().toISOString().slice(0, 10),
       }
-      if (items?.length) {
-        if (target.meta?.items) meta.prev_items = target.meta.items
-        meta.items = items
-        delete meta.items_note
-      }
-      if (expenseType) meta.expense_type = expenseType
       if (merchantFix) meta.merchant = merchantFix
+
+      // Lines and types move together, and the split is rebuilt from them, so
+      // the receipt can never say one thing in its lines and another in its split.
+      const prevItems = Array.isArray(target.meta?.items) ? target.meta.items : []
+      let fix: ReturnType<typeof applyLineFix> | undefined
+      if (items?.length || lineTypes?.length || (expenseType && prevItems.length)) {
+        fix = applyLineFix({
+          prevItems, items, lineTypes, wholeType: expenseType,
+          amount: totalChanges ? newTotal : Number(target.amount),
+        })
+        if (!fix.ok) return JSON.stringify({ status: 'error', message: fix.message })
+        if (fix.changed) {
+          meta.prev_items = prevItems
+          meta.items = fix.items
+          if (items?.length) delete meta.items_note
+        }
+        if (fix.type_split) meta.type_split = fix.type_split
+        else delete meta.type_split
+        if (fix.expense_type) meta.expense_type = fix.expense_type
+      } else if (expenseType) {
+        // No lines to carry it: the receipt-level type is all there is.
+        meta.expense_type = expenseType
+        delete meta.type_split
+      }
 
       // The total moved -- money truth, so it goes to the buttons.
       if (totalChanges) {
@@ -529,10 +580,14 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         record_id: target.id,
         receipt: target.title,
         total_unchanged: rm(Number(target.amount)),
-        items: items?.map(i => `${i.qty} ${i.unit} ${i.name} @ ${rm(i.unit_price)}`),
-        expense_type: expenseType ?? target.meta?.expense_type,
+        // What was SAVED, line by line -- Jarvis repeats this, not the request.
+        lines: describeLines(meta.items ?? []),
+        split: describeSplit(meta.type_split) ?? null,
+        expense_type: meta.expense_type,
         tell_user:
-          'Confirm what it now says. Then ASK whether to remember this as a standing rule for this ' +
+          `Confirm what it now says for record #${target.id}, listing every line exactly as in "lines" ` +
+          '(each one says what it is filed as) and the "split" if there is one. ' +
+          'Then ASK whether to remember this as a standing rule for this ' +
           'supplier so future receipts read correctly, and only call teach_supplier if they say yes. ' +
           'Do not mention /undo -- say they can just tell you if it is still wrong.',
       })
