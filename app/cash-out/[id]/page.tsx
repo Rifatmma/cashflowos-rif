@@ -13,8 +13,11 @@ import CorrectForm, { type Line } from './CorrectForm'
 export const dynamic = 'force-dynamic'
 const SIGNED_URL_TTL = 60 * 60
 
-export default async function CorrectReceipt({ params }: { params: Promise<{ id: string }> }) {
+export default async function CorrectReceipt({ params, searchParams }: {
+  params: Promise<{ id: string }>; searchParams: Promise<{ need?: string }>
+}) {
   const { id } = await params
+  const { need } = await searchParams
   const recordId = Number(id)
   const row = (await getRecords()).find(r => r.id === recordId && r.category === 'cash_out')
 
@@ -81,6 +84,7 @@ export default async function CorrectReceipt({ params }: { params: Promise<{ id:
           </div>
 
           <section className="co-card cr-form">
+            {need && <p className="co-meta co-flag" role="alert" style={{ marginTop: 0 }}>{String(need).slice(0, 200)}</p>}
             <div className="eyebrow" style={{ marginBottom: 4 }}>The lines</div>
             <p className="co-meta" style={{ marginTop: 0 }}>
               Fix a price or a quantity as printed. Then say what went on the shelf: pick the stock item

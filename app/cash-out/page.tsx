@@ -14,6 +14,7 @@
 // while the detail sits underneath. See lib/vision.ts for how they are read.
 import Link from 'next/link'
 import FindBox from './FindBox'
+import { markCorrect } from './check-actions'
 import { getRecords, rm, type Rec } from '@/lib/records'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { supplierKey } from '@/lib/supplier-rules'
@@ -357,11 +358,18 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
           {/* One place to fix any receipt: its photo and every line, with the
               stock it adds shown as you type (owner, 27 Sep 2026). */}
-          <p className="co-meta">
-            <Link href={`/cash-out/${r.id}`} className={open ? 'btn' : ''} style={open ? { display: 'inline-block', textDecoration: 'none', marginTop: 4 } : undefined}>
+          <div className="co-meta co-rx-actions">
+            <Link href={`/cash-out/${r.id}`} className={open ? 'btn' : ''} style={open ? { display: 'inline-block', textDecoration: 'none' } : undefined}>
               ✏️ Correct this receipt
             </Link>
-          </p>
+            {/* Right as filed: one tap takes it off To check (owner, 27 Sep 2026). */}
+            {open && (
+              <form action={markCorrect}>
+                <input type="hidden" name="id" value={r.id} />
+                <button className="btn ghost">✓ It&rsquo;s correct</button>
+              </form>
+            )}
+          </div>
           <p className="co-meta">
             {shortDate(dateOf(r))}
             {r.meta?.receipt_no ? ` · #${r.meta.receipt_no}` : ''}
@@ -524,7 +532,8 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             <div className="eyebrow co-day-label co-flag"><span>To check</span></div>
             {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
             <p className="co-meta">
-              Tap &ldquo;Correct this receipt&rdquo; to fix it against the photo. From Jarvis, say
+              Tap &ldquo;Correct this receipt&rdquo; to fix it against the photo, or &ldquo;It&rsquo;s correct&rdquo;
+              if it&rsquo;s right as filed. From Jarvis, say
               &ldquo;I&rsquo;ll fix #174 in the app&rdquo; to park one here. Fixed ones leave this list
               and are kept in <Link href="/cash-out/corrected">Corrected receipts</Link>.
             </p>

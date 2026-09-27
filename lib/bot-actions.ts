@@ -647,6 +647,8 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         corrected_at: new Date().toISOString().slice(0, 10),
       }
       if (merchantFix) meta.merchant = merchantFix
+      // A new correction is judged afresh: an earlier "it's correct" no longer vouches for it.
+      delete meta.checked_ok; delete meta.fixed_note
 
       // Lines and types move together, and the split is rebuilt from them, so
       // the receipt can never say one thing in its lines and another in its split.

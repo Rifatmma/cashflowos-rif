@@ -33,15 +33,16 @@ export default async function CorrectedReceipts() {
             {rows.map(r => {
               const m = r.meta ?? {}
               const lines = Array.isArray(m.items) ? r2(m.items.reduce((t: number, i: any) => t + (Number(i?.line_total) || 0), 0)) : null
-              const off = lines !== null && Math.abs(lines - (Number(m.discount) || 0) - Number(r.amount)) > Math.max(0.05, Number(r.amount) * 0.02)
-              const how = m.corrected_via === 'web' || m.fixed_at ? 'on Cash Out' : 'via Jarvis'
+              const off = !m.checked_ok && lines !== null && Math.abs(lines - (Number(m.discount) || 0) - Number(r.amount)) > Math.max(0.05, Number(r.amount) * 0.02)
+              const how = m.corrected_via === 'checked' ? 'checked as correct'
+                : m.corrected_via === 'web' || m.fixed_at ? 'on Cash Out' : 'via Jarvis'
               const when = String(m.fixed_at || m.corrected_at).slice(0, 10)
               return (
                 <li key={r.id}>
                   <span>
                     <Link href={`/cash-out/${r.id}`}>#{r.id} · {String(m.merchant || r.title)}</Link>
                     <span className="co-dim">
-                      {' '}· bought {shortDate(r.due_date || mytDate(r.created_at))} · fixed {shortDate(when)} {how}
+                      {' '}· bought {shortDate(r.due_date || mytDate(r.created_at))} · {m.corrected_via === 'checked' ? '' : 'fixed '}{shortDate(when)} {how}
                       {Number(m.discount) > 0 && ` · discount ${rm(Number(m.discount))}`}
                     </span>
                     {off && <span className="co-flag"> · still doesn&rsquo;t add up</span>}
