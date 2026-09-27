@@ -751,3 +751,9 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .co-find { display: flex; gap: 8px; margin: 6px 0 10px; }
 .co-find input { flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 7px 10px; min-height: 40px; }
 .co-find input:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+/* The item on its own row; qty, unit and (for packets) what one holds under it,
+   four across, two across on a narrow phone. */
+.cr-stockrow { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.cr-stockrow > :first-child { grid-column: 1 / -1; }
+@media (max-width: 420px) { .cr-stockrow { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.co-saved { font-size: 13px; line-height: 1.5; color: var(--clay-deep); background: var(--clay-tint); border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; }

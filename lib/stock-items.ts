@@ -120,17 +120,27 @@ export type ReceiptLine = {
 // a receipt name, and its weight from "2KG" in that name, is what went wrong on
 // line after line; a choice made on the correction page is not guessed at.
 // ---------------------------------------------------------------------------
-export type StockUnit = 'kg' | 'g' | 'pcs' | 'fish' | 'tray' | 'dozen'
-export type StockChoice = { item: string; qty: number; unit: StockUnit }
+export type StockUnit = 'kg' | 'g' | 'pcs' | 'fish' | 'tray' | 'dozen' | 'pkt'
+/**
+ * A packet only means something with what is in it: "3 pkt, each 1 kg". So
+ * `pkt` carries `per` + `perUnit` (one of the item's other units), and is
+ * turned into that unit before anything else (owner, 27 Sep 2026).
+ */
+export type StockChoice = { item: string; qty: number; unit: StockUnit; per?: number; perUnit?: StockUnit }
 /** Not stock at all -- e.g. "PRAWN MEE" that the name reader took for shrimp. */
 export const NOT_STOCK_ITEM = 'none'
 export const WHOLE_BIRD_ITEM = 'bird'
 
-const UNIT_WORDS: Record<StockUnit, string> = { kg: 'kg', g: 'g', pcs: 'pieces', fish: 'fish', tray: 'trays (30)', dozen: 'dozen' }
+const UNIT_WORDS: Record<StockUnit, string> = { kg: 'kg', g: 'g', pcs: 'pieces', fish: 'fish', tray: 'trays (30)', dozen: 'dozen', pkt: 'packets (pkt)' }
 export const unitWord = (u: StockUnit) => UNIT_WORDS[u]
 
-/** The units that make sense for an item, the one it is usually bought in first. */
+/** The units that make sense for an item, the one it is usually bought in first. Packets last. */
 export function unitsFor(item: string): StockUnit[] {
+  const inner = packUnitsFor(item)
+  return inner.length ? [...inner, 'pkt'] : []
+}
+/** What one packet of an item can hold: every unit of it except packets. */
+export function packUnitsFor(item: string): StockUnit[] {
   if (item === WHOLE_BIRD_ITEM) return ['kg', 'g']
   if (item === 'egg') return ['tray', 'pcs', 'dozen']
   const def = ITEM[item]
@@ -146,6 +156,15 @@ export function stockFromChoice(c: StockChoice, lineTotal: number, from: string)
   const total = Number(lineTotal) || 0
   if (c.item === NOT_STOCK_ITEM) return []
   if (!(qty > 0) || !unitsFor(c.item).includes(c.unit)) return { unknownQty: from, item: c.item }
+  if (c.unit === 'pkt') {
+    // "3 pkt, each 1 kg" is 3 kg: unpack, then the usual conversion.
+    const per = Number(c.per)
+    if (!(per > 0) || !c.perUnit || !packUnitsFor(c.item).includes(c.perUnit)) return { unknownQty: from, item: c.item }
+    const r = stockFromChoice({ item: c.item, qty: qty * per, unit: c.perUnit }, total, from)
+    if (!Array.isArray(r)) return r
+    const packs = `${fmtNum(qty)} pkt x ${fmtNum(per)} ${c.perUnit === 'pcs' ? 'pieces' : c.perUnit}`
+    return r.map(s => ({ ...s, note: s.note?.replace('set by owner: ', `set by owner: ${packs} = `) }))
+  }
   const kg = c.unit === 'kg' ? qty : c.unit === 'g' ? qty / 1000 : null
 
   if (c.item === WHOLE_BIRD_ITEM) {

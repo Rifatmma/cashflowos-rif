@@ -139,8 +139,8 @@ function checkNote(r: any): string | null {
     : null
 }
 
-export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string }> }) {
-  const { p } = await searchParams
+export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string; saved?: string; msg?: string }> }) {
+  const { p, saved, msg } = await searchParams
   const today = mytDate()
   const W = periodWindows(isPeriodKey(p) ? p : 'month', today)
 
@@ -511,6 +511,13 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           <span className="co-dim num">{cur.length} in {W.label.toLowerCase().startsWith('this') || W.key === '3m' ? W.label.toLowerCase() : W.label}</span>
         </div>
         <FindBox />
+        {/* Back from the correction page: say what was saved, right here. */}
+        {saved && (
+          <p className="co-saved" role="status">
+            ✅ Record #{saved} saved. {msg ? String(msg).slice(0, 400) : ''}{' '}
+            <Link href="/cash-out/corrected">See corrected receipts</Link>
+          </p>
+        )}
 
         {toCheck.length > 0 && (
           <div className="co-day" id="to-check">
@@ -518,9 +525,15 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
             <p className="co-meta">
               Tap &ldquo;Correct this receipt&rdquo; to fix it against the photo. From Jarvis, say
-              &ldquo;I&rsquo;ll fix #174 in the app&rdquo; to park one here.
+              &ldquo;I&rsquo;ll fix #174 in the app&rdquo; to park one here. Fixed ones leave this list
+              and are kept in <Link href="/cash-out/corrected">Corrected receipts</Link>.
             </p>
           </div>
+        )}
+        {toCheck.length === 0 && (
+          <p className="co-meta">
+            Nothing to check. <Link href="/cash-out/corrected">Corrected receipts</Link>
+          </p>
         )}
 
         {waiting.length > 0 && (

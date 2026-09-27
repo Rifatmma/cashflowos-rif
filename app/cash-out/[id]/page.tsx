@@ -88,7 +88,7 @@ export default async function CorrectReceipt({ params }: { params: Promise<{ id:
               of 2 kg chicken is <b>4 kg</b>. Stock uses exactly that.
             </p>
             {lines.length === 0 && <p className="co-meta">No lines were read on this one &mdash; add them below.</p>}
-            <CorrectForm id={row.id} total={Number(row.amount)} lines={lines} aliases={aliases} />
+            <CorrectForm id={row.id} total={Number(row.amount)} discount={Number(row.meta?.discount) || 0} lines={lines} aliases={aliases} />
           </section>
         </div>
       )}

@@ -42,7 +42,7 @@ const one = (r: ReturnType<typeof stockFromChoice>) => (Array.isArray(r) && r.le
 {
   check('not stock -> nothing', JSON.stringify(stockFromChoice({ item: 'none', qty: 0, unit: 'pcs' }, 43, 'MEE PRAWN')) === '[]')
   check('a unit that does not fit is refused', !Array.isArray(stockFromChoice({ item: 'beef', qty: 3, unit: 'tray' }, 10, 'x')))
-  check('beef is bought in kg or g', JSON.stringify(unitsFor('beef')) === JSON.stringify(['kg', 'g']))
+  check('beef is bought in kg, g or packets', JSON.stringify(unitsFor('beef')) === JSON.stringify(['kg', 'g', 'pkt']))
 }
 {
   // The saved choice beats reading the name: "PRAWN MEE" is not shrimp.
@@ -50,5 +50,16 @@ const one = (r: ReturnType<typeof stockFromChoice>) => (Array.isArray(r) && r.le
   check('a line marked not-stock adds nothing', Array.isArray(r) && r.length === 0, r)
 }
 
+{
+  // Packets: 3 pkt of frozen shrimp, each 1 kg -> 3 kg -> 99 pieces.
+  const r = one(stockFromChoice({ item: 'shrimp_frozen', qty: 3, unit: 'pkt', per: 1, perUnit: 'kg' }, 41.97, 'FRZ UDANG 1KG'))
+  check('3 pkt x 1 kg frozen shrimp -> 99 pieces', r?.item === 'shrimp_frozen' && Math.round(r.qty) === 99 && /3 pkt x 1 kg = 3 kg/.test(r.note ?? ''), r)
+  const b = one(stockFromChoice({ item: 'breast', qty: 2, unit: 'pkt', per: 2, perUnit: 'kg' }, 40.38, 'CHICKEN 2KG'))
+  check('2 pkt x 2 kg chicken breast -> 3,840 g', b?.item === 'breast' && Math.round(b.qty) === 3840, b)
+  const e = one(stockFromChoice({ item: 'egg', qty: 2, unit: 'pkt', per: 10, perUnit: 'pcs' }, 9, 'TELUR 10S'))
+  check('2 pkt x 10 eggs -> 20', e?.item === 'egg' && e.qty === 20, e)
+  check('a packet with nothing in it is refused', !Array.isArray(stockFromChoice({ item: 'beef', qty: 2, unit: 'pkt' }, 10, 'x')))
+  check('every item can be bought in packets', unitsFor('beef').includes('pkt') && unitsFor('siakap').includes('pkt'))
+}
 if (failed) { console.log(`\n${failed} failed`); process.exit(1) }
 console.log('\nall passed')

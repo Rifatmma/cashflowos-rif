@@ -6,7 +6,7 @@
 import { useActionState, useState } from 'react'
 import { correctReceipt, type CorrectResult } from './actions'
 import {
-  stockFromLine, stockFromChoice, choiceFromLine, itemForName, unitsFor, unitWord, ITEM, ITEMS,
+  stockFromLine, stockFromChoice, choiceFromLine, itemForName, unitsFor, packUnitsFor, unitWord, ITEM, ITEMS,
   NOT_STOCK_ITEM, WHOLE_BIRD_ITEM, type StockChoice, type StockUnit,
 } from '@/lib/stock-items'
 
@@ -15,7 +15,12 @@ export type Line = {
   stock: StockChoice | null; expense_type: string
 }
 // sItem: '' = work it out from the name, 'none' = not stock, else a stock item.
-type Draft = { name: string; qty: string; unit: string; price: string; total: string; type: string; sItem: string; sQty: string; sUnit: StockUnit | '' }
+type Draft = {
+  name: string; qty: string; unit: string; price: string; total: string; type: string
+  sItem: string; sQty: string; sUnit: StockUnit | ''
+  // Only for sUnit 'pkt': what one packet holds.
+  sPer: string; sPerUnit: StockUnit | ''
+}
 
 // What a line can go into stock as. Whole chicken is not an item of its own: it
 // is cut into leg quarters and breast, so it is offered as that.
@@ -41,6 +46,7 @@ function toDraft(l: Line): Draft {
     type: l.expense_type ?? '',
     sItem: l.stock?.item ?? '', sQty: l.stock && l.stock.item !== NOT_STOCK_ITEM ? clean(l.stock.qty) : '',
     sUnit: l.stock && l.stock.item !== NOT_STOCK_ITEM ? l.stock.unit : '',
+    sPer: l.stock?.per ? clean(l.stock.per) : '', sPerUnit: l.stock?.perUnit ?? '',
   }
 }
 const fmtStock = (item: string, q: number) => {
@@ -50,21 +56,30 @@ const fmtStock = (item: string, q: number) => {
     : `${Math.round(q * 10) / 10}`
 }
 
+/** The draft's stock choice as saved. */
+function choiceOf(d: Draft): StockChoice | null {
+  if (!d.sItem) return null
+  if (d.sItem === NOT_STOCK_ITEM) return { item: NOT_STOCK_ITEM, qty: 0, unit: 'pcs' }
+  const c: StockChoice = { item: d.sItem, qty: num(d.sQty) ?? 0, unit: (d.sUnit || 'pcs') as StockUnit }
+  return d.sUnit === 'pkt' ? { ...c, per: num(d.sPer) ?? 0, perUnit: (d.sPerUnit || packUnitsFor(d.sItem)[0]) as StockUnit } : c
+}
+
 /** What this line would put in stock, in the Stock page's own words. */
 function stockText(d: Draft, aliases: Record<string, string[]>): { text: string; warn?: boolean } | null {
   const qty = num(d.qty); const total = num(d.total) ?? 0
   if (d.sItem === NOT_STOCK_ITEM) return { text: 'Not stock -- nothing added.' }
   const r = d.sItem
-    ? (num(d.sQty) && d.sUnit ? stockFromChoice({ item: d.sItem, qty: num(d.sQty)!, unit: d.sUnit }, total, d.name) : null)
+    ? (num(d.sQty) && d.sUnit ? stockFromChoice(choiceOf(d)!, total, d.name) : null)
     : (d.name.trim() && qty ? stockFromLine({ name: d.name, qty, unit: d.unit || 'unit', line_total: total }, aliases) : null)
   if (r === null) return d.sItem ? { text: `Enter how much ${itemLabel(d.sItem)} went into stock.`, warn: true } : null
+  if (!Array.isArray(r) && d.sUnit === 'pkt') return { text: 'Say what one packet holds, e.g. each pkt = 1 kg.', warn: true }
   if (!Array.isArray(r)) return { text: `Looks like ${itemLabel(r.item)}, but the amount couldn't be worked out -- pick it below and enter the quantity.`, warn: true }
   if (!r.length) return null
   return { text: r.map(s => `+${fmtStock(s.item, s.qty)} ${itemLabel(s.item)}${s.note ? ` (${s.note})` : ''}`).join(' · ') }
 }
 
-export default function CorrectForm({ id, total, lines, aliases }: {
-  id: number; total: number; lines: Line[]; aliases: Record<string, string[]>
+export default function CorrectForm({ id, total, discount = 0, lines, aliases }: {
+  id: number; total: number; discount?: number; lines: Line[]; aliases: Record<string, string[]>
 }) {
   const [res, run, pending] = useActionState<CorrectResult, FormData>(correctReceipt, null)
   const [drafts, setDrafts] = useState<Draft[]>(() => lines.map(toDraft))
@@ -84,25 +99,27 @@ export default function CorrectForm({ id, total, lines, aliases }: {
     set(i, { total: v, ...(q && t != null ? { price: clean(t / q) } : {}) })
   }
   const remove = (i: number) => setDrafts(a => a.filter((_, j) => j !== i))
-  const add = () => setDrafts(a => [...a, { name: '', qty: '1', unit: '', price: '0', total: '0', type: '', sItem: '', sQty: '', sUnit: '' }])
+  const add = () => setDrafts(a => [...a, { name: '', qty: '1', unit: '', price: '0', total: '0', type: '', sItem: '', sQty: '', sUnit: '', sPer: '', sPerUnit: '' }])
   // Picking the item it had worked out starts from that reading (2 packs of
   // "2KG" -> 4 kg), so only the number needs checking. Another item starts
   // empty in its usual unit: a number carried over from a different item
   // would look right and be wrong.
   const onStockItem = (i: number, item: string) => {
-    if (!item || item === NOT_STOCK_ITEM) return set(i, { sItem: item, sQty: '', sUnit: '' })
+    if (!item || item === NOT_STOCK_ITEM) return set(i, { sItem: item, sQty: '', sUnit: '', sPer: '', sPerUnit: '' })
     const d = drafts[i]
     const read = choiceFromLine({ name: d.name, qty: num(d.qty) ?? 1, unit: d.unit || 'unit', line_total: num(d.total) ?? 0 }, aliases)
-    if (read && read.item === item) return set(i, { sItem: item, sQty: clean(read.qty), sUnit: read.unit })
-    set(i, { sItem: item, sQty: '', sUnit: unitsFor(item)[0] })
+    const reset = { sPer: '', sPerUnit: packUnitsFor(item)[0] }
+    if (read && read.item === item) return set(i, { sItem: item, sQty: clean(read.qty), sUnit: read.unit, ...reset })
+    set(i, { sItem: item, sQty: '', sUnit: unitsFor(item)[0], ...reset })
   }
 
   const sum = drafts.reduce((t, d) => t + (num(d.total) ?? 0), 0)
-  const gap = Math.round((sum - total) * 100) / 100
+  // A discount already recorded counts: lines minus it should meet the total.
+  const gap = Math.round((sum - discount - total) * 100) / 100
   const payload = JSON.stringify(drafts.map(d => ({
     name: d.name, qty: num(d.qty) ?? 0, unit: d.unit || 'unit',
     unit_price: num(d.price) ?? 0, line_total: num(d.total) ?? 0,
-    stock: d.sItem ? { item: d.sItem, qty: num(d.sQty) ?? 0, unit: d.sUnit || 'pcs' } : null,
+    stock: choiceOf(d),
     expense_type: d.type,
   })))
 
@@ -168,10 +185,24 @@ export default function CorrectForm({ id, total, lines, aliases }: {
                   </label>
                   <label className="cr-field">
                     <span>Unit</span>
-                    <select value={d.sUnit} onChange={e => set(i, { sUnit: e.target.value as StockUnit })}>
+                    <select value={d.sUnit} onChange={e => set(i, { sUnit: e.target.value as StockUnit, sPerUnit: d.sPerUnit || packUnitsFor(d.sItem)[0] })}>
                       {unitsFor(d.sItem).map(u => <option key={u} value={u}>{unitWord(u)}</option>)}
                     </select>
                   </label>
+                  {d.sUnit === 'pkt' && (
+                    <>
+                      <label className="cr-field cr-pack">
+                        <span>Each pkt =</span>
+                        <input inputMode="decimal" value={d.sPer} onChange={e => set(i, { sPer: e.target.value })} placeholder="e.g. 1" />
+                      </label>
+                      <label className="cr-field">
+                        <span>of</span>
+                        <select value={d.sPerUnit} onChange={e => set(i, { sPerUnit: e.target.value as StockUnit })}>
+                          {packUnitsFor(d.sItem).map(u => <option key={u} value={u}>{unitWord(u)}</option>)}
+                        </select>
+                      </label>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -184,20 +215,19 @@ export default function CorrectForm({ id, total, lines, aliases }: {
 
       <div className="cr-foot">
         <p className={`cr-sum ${Math.abs(gap) > 0.05 ? 'co-flag' : ''}`}>
-          Lines add to <b className="num">RM {f2(sum)}</b> · receipt total <b className="num">RM {f2(total)}</b>
+          Lines add to <b className="num">RM {f2(sum)}</b>
+          {discount > 0 && <> less discount <b className="num">RM {f2(discount)}</b></>}
+          {' '}· receipt total <b className="num">RM {f2(total)}</b>
           {Math.abs(gap) > 0.05 ? ` · off by RM ${f2(Math.abs(gap))}` : ' · matches ✓'}
         </p>
         <div className="rf-btns">
           <button className="btn" name="mode" value="save" disabled={pending}>{pending ? 'Saving…' : 'Save'}</button>
-          {gap > 0.05 && <button className="btn ghost" name="mode" value="discount" disabled={pending}>Lines are right: RM {f2(gap)} was a discount</button>}
+          {gap > 0.05 && <button className="btn ghost" name="mode" value="discount" disabled={pending}>Lines are right: RM {f2(sum - total)} was a discount</button>}
           {Math.abs(gap) > 0.05 && <button className="btn ghost" name="mode" value="total" disabled={pending}>Total is wrong: make it RM {f2(sum)}</button>}
         </div>
-        {res && (
-          <div className={`co-meta ${res.ok ? '' : 'co-flag'}`} role="status">
-            {res.message}
-            {res.ok && res.stock && (res.stock.length ? <> Stock from this receipt: {res.stock.join(', ')}.</> : <> No stock items on this receipt.</>)}
-          </div>
-        )}
+        {/* Success goes back to Cash Out, which says what was saved; only a
+            problem is shown here. */}
+        {res && !res.ok && <div className="co-meta co-flag" role="alert">{res.message}</div>}
       </div>
     </form>
   )
