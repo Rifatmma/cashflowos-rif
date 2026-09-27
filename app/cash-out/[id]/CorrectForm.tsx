@@ -130,6 +130,19 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
 
       {drafts.map((d, i) => {
         const stock = stockText(d, aliases)
+        // Qty and Unit are always on show (owner, 27 Sep 2026: "where is the pkt
+        // selection?" -- they only appeared after picking an item). On "Worked
+        // out" they show what was read; typing in them takes that item over.
+        const detected = !d.sItem && d.name.trim() ? itemForName(d.name, aliases) : null
+        const auto = detected
+          ? choiceFromLine({ name: d.name, qty: num(d.qty) ?? 1, unit: d.unit || 'unit', line_total: num(d.total) ?? 0 }, aliases)
+          : null
+        const item = d.sItem && d.sItem !== NOT_STOCK_ITEM ? d.sItem : !d.sItem ? (auto?.item ?? detected ?? '') : ''
+        const qtyVal = d.sItem ? d.sQty : auto ? clean(auto.qty) : ''
+        const unitVal: StockUnit | '' = d.sItem ? d.sUnit : auto?.unit ?? (item ? unitsFor(item)[0] : '')
+        const take = (patch: Partial<Draft>) => set(i, d.sItem ? patch : {
+          sItem: item, sQty: qtyVal, sUnit: unitVal, sPer: '', sPerUnit: packUnitsFor(item)[0] ?? '', ...patch,
+        })
         return (
           <fieldset key={i} className="cr-line">
             <legend className="cr-head">
@@ -177,19 +190,22 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
                   {STOCK_OPTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
                 </select>
               </label>
-              {d.sItem && d.sItem !== NOT_STOCK_ITEM && (
+              {d.sItem !== NOT_STOCK_ITEM && (
                 <>
                   <label className="cr-field">
                     <span>Qty</span>
-                    <input inputMode="decimal" value={d.sQty} onChange={e => set(i, { sQty: e.target.value })} placeholder="e.g. 4" />
+                    <input inputMode="decimal" value={qtyVal} disabled={!item}
+                      onChange={e => take({ sQty: e.target.value })} placeholder={item ? 'e.g. 4' : 'pick an item'} />
                   </label>
                   <label className="cr-field">
                     <span>Unit</span>
-                    <select value={d.sUnit} onChange={e => set(i, { sUnit: e.target.value as StockUnit, sPerUnit: d.sPerUnit || packUnitsFor(d.sItem)[0] })}>
-                      {unitsFor(d.sItem).map(u => <option key={u} value={u}>{unitWord(u)}</option>)}
+                    <select value={unitVal} disabled={!item} aria-label={`Stock unit for line ${i + 1}`}
+                      onChange={e => take({ sUnit: e.target.value as StockUnit, sPerUnit: d.sPerUnit || packUnitsFor(item)[0] })}>
+                      {!item && <option value="">—</option>}
+                      {unitsFor(item).map(u => <option key={u} value={u}>{unitWord(u)}</option>)}
                     </select>
                   </label>
-                  {d.sUnit === 'pkt' && (
+                  {d.sItem && d.sUnit === 'pkt' && (
                     <>
                       <label className="cr-field cr-pack">
                         <span>Each pkt =</span>
