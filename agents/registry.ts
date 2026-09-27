@@ -273,12 +273,22 @@ async function writeRecord(agentKey: string, payload: any): Promise<any> {
     if (error) throw new Error(`could not update the record: ${error.message}`)
     const row = data?.[0]
     if (!row) throw new Error(`no record #${recordId} to update`)
+    // A receipt whose LINES were corrected gets its stock-in redone from them,
+    // exactly like the Cash Out fix does. Stock was only ever added at first
+    // filing, so a handwritten bill misread as "1 Galoh RM 5.7" and corrected to
+    // 1 kg udang galah + 2 kg udang never reached the fridge (#152, 27 Sep 2026).
+    let stock: Awaited<ReturnType<typeof receiptStockIn>> | undefined
+    if (agentKey === 'correct-receipt' && row.category === 'cash_out' && Array.isArray(payload?.meta?.items)) {
+      await supabase.from('stock_moves').delete().eq('record_id', recordId).eq('kind', 'purchase')
+      stock = await receiptStockIn(recordId, payload.meta.items, 'Corrected via Jarvis')
+    }
     const result = {
       kind: 'record_updated',
       record_id: recordId,
       title: row.title,
       status: row.status,
       category: row.category,
+      ...(stock ? { stock_added: stock.added, stock_unsized: stock.unsized } : {}),
     }
     await logRun(agentKey, 'ok', result)
     return result

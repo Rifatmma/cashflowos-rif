@@ -584,9 +584,16 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
         lines: describeLines(meta.items ?? []),
         split: describeSplit(meta.type_split) ?? null,
         expense_type: meta.expense_type,
+        // The stock is redone from the corrected lines (agents/registry.ts), so
+        // say what went on the shelf -- never "stock only updates at first filing".
+        stock_added: (done.result as any)?.stock_added ?? [],
+        stock_unsized: (done.result as any)?.stock_unsized ?? [],
         tell_user:
           `Confirm what it now says for record #${target.id}, listing every line exactly as in "lines" ` +
           '(each one says what it is filed as) and the "split" if there is one. ' +
+          'Then say what the stock now has from this receipt, from "stock_added" (item and qty); if it is ' +
+          'empty, say none of these lines are stock items. Name anything in "stock_unsized" as needing a ' +
+          'weight on the Stock page. ' +
           'Then ASK whether to remember this as a standing rule for this ' +
           'supplier so future receipts read correctly, and only call teach_supplier if they say yes. ' +
           'Do not mention /undo -- say they can just tell you if it is still wrong.',
