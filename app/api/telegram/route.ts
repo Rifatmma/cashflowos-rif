@@ -954,7 +954,7 @@ async function handleMessage(msg: any): Promise<Response> {
       `<<<DATA\n${quoted}\nDATA>>>]\n\n${text}`
     : text
 
-  const answer = await answerWithTools(chatId, question, apiKey)
+  const answer = await answerWithTools(chatId, question, apiKey, filedBy(msg).name)
   await appendTurn(chatId, text, answer)
   await sendMessage(chatId, answer)
   return Response.json({ ok: true })
@@ -1021,7 +1021,7 @@ async function runAgentNow(
 // frustrated / out-of-scope / failed-twice ⇒ we log an 'escalated' run and hand
 // off, instead of inventing an answer.
 // ============================================================
-async function answerWithTools(chatId: number, text: string, apiKey: string): Promise<string> {
+async function answerWithTools(chatId: number, text: string, apiKey: string, senderName?: string): Promise<string> {
   const rows = await getRecords()
   const recent = await loadTurns(chatId)
 
@@ -1151,7 +1151,7 @@ async function answerWithTools(chatId: number, text: string, apiKey: string): Pr
       const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
         toolUses.map(async t => {
           const out = ACTION_TOOL_NAMES.has(t.name)
-            ? await runBotAction(t.name, t.input, { chatId, thresholdRM: threshold(), rows })
+            ? await runBotAction(t.name, t.input, { chatId, thresholdRM: threshold(), rows, senderName })
             : await runBotTool(t.name, t.input, rows)
           return {
             type: 'tool_result' as const,

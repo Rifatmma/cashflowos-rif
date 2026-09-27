@@ -36,7 +36,12 @@ export const BOT_ACTION_TOOLS = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        merchant: { type: 'string', description: 'Who it was paid to (Grab, Adobe, Maybank…).' },
+        merchant: {
+          type: 'string',
+          description:
+            'The SHOP or supplier it was paid to (Grab, 99 Speed Mart, Pasar Borong…) -- never the person who ' +
+            'sent the message. If nobody has said which shop, ASK; do not guess and do not leave it to a name.',
+        },
         amount: { type: 'number', description: 'Amount in RM.' },
         category: { type: 'string', description: 'Optional label (Meals, Software, Ads…).' },
       },
@@ -309,7 +314,7 @@ export const BOT_ACTION_TOOLS = [
 
 export const ACTION_TOOL_NAMES = new Set(BOT_ACTION_TOOLS.map(t => t.name))
 
-export type BotActionCtx = { chatId: number; thresholdRM: number; rows: Rec[] }
+export type BotActionCtx = { chatId: number; thresholdRM: number; rows: Rec[]; senderName?: string }
 
 // Which filed receipt the owner means: a record number exactly, else a unique
 // total, else the shop name. Returns the row, or the JSON reply to send back.
@@ -377,6 +382,19 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       const amount = Number(input?.amount)
       const merchant = String(input?.merchant || '').trim()
       if (!Number.isFinite(amount) || amount <= 0) return JSON.stringify({ status: 'error', message: 'I need a positive amount to log.' })
+      // The shop is never guessed, and never the sender: Yuu's RM 58.10 was filed
+      // as "Yuu — Groceries", with no photo and no lines (#167, 27 Sep 2026).
+      const who = String(ctx.senderName || '').trim().toLowerCase()
+      const m = merchant.toLowerCase()
+      if (!merchant || m === 'unknown' || (who && (m === who || m === who.split(/\s+/)[0]))) {
+        return JSON.stringify({
+          status: 'need_shop',
+          message: 'Not filed: no shop was named.',
+          tell_user:
+            'Ask which shop or market it was from, with no suggested name. If there is a photo of the ' +
+            'receipt, ask them to send the PHOTO instead -- that files it with its lines and keeps the photo.',
+        })
+      }
       const payload = {
         kind: 'receipt', amount, merchant,
         category: input?.category || undefined,
