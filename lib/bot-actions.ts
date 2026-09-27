@@ -161,7 +161,9 @@ export const BOT_ACTION_TOOLS = [
         merchant: { type: 'string', description: 'Set or fix WHO it was paid to. Use when a receipt was filed with no shop name (a typed list, a market stall), e.g. "Pasar Borong Selangor".' },
         items: {
           type: 'array',
-          description: 'The corrected lines. Give ALL lines for the receipt, not just the changed one.',
+          description:
+            'Only to REWRITE the whole receipt: every line, in order. To fix one or two lines use line_fixes ' +
+            'instead. A list shorter than the receipt is refused unless remove_lines says which go.',
           items: {
             type: 'object' as const,
             properties: {
@@ -179,6 +181,25 @@ export const BOT_ACTION_TOOLS = [
               expense_type: { type: 'string', enum: [...EXPENSE_TYPES], description: 'What this line is for. Leave out to keep what it was.' },
             },
             required: ['name', 'qty'],
+          },
+        },
+        line_fixes: {
+          type: 'array',
+          description:
+            'PREFERRED way to fix a misread line: patch lines BY NUMBER, leaving every other line as it is. ' +
+            'e.g. "line 8 is 4.08 kg at RM 22, RM 89.76" -> [{line: 8, qty: 4.08, unit: "kg", line_total: 89.76}]. ' +
+            'Give only what the owner said; a quantity-only fix keeps the money on the line.',
+          items: {
+            type: 'object' as const,
+            properties: {
+              line: { type: 'number', description: 'Line number, from 1, as on the receipt card.' },
+              qty: { type: 'number' },
+              unit: { type: 'string' },
+              unit_price: { type: 'number' },
+              line_total: { type: 'number' },
+              name: { type: 'string', description: 'Only if the item name itself was misread.' },
+            },
+            required: ['line'],
           },
         },
         line_types: {
@@ -202,6 +223,11 @@ export const BOT_ACTION_TOOLS = [
             'The WHOLE receipt is this type -- every line is set to it. For some lines only, use ' +
             'line_types instead. Use owner_drawings when the owner says it was ' +
             'personal - it stays recorded as money out but is not a business expense.',
+        },
+        remove_lines: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Line numbers the owner explicitly said are NOT on the receipt. Never guess these.',
         },
         new_total: {
           type: 'number',
@@ -529,6 +555,42 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
             }
           }).filter(Boolean) as any[])
         : undefined
+      // Patch lines by number. Resending all sixteen lines to fix one is how
+      // six of Sri Ternak #174's lines -- and its chicken breast stock -- were
+      // lost (27 Sep 2026); a patch cannot drop what it does not mention.
+      const fixes = Array.isArray(input?.line_fixes) ? input.line_fixes : null
+      if (fixes?.length) {
+        if (items?.length) return JSON.stringify({ status: 'error', message: 'Send line_fixes OR items, not both.' })
+        const patched = prevLines.map(i => ({ ...i }))
+        for (const f of fixes) {
+          const n = Number(f?.line)
+          const it = patched[n - 1]
+          if (!it) return JSON.stringify({ status: 'error', message: `This receipt has ${patched.length} lines; there is no line ${f?.line}.` })
+          const qty = Number(f?.qty)
+          if (Number.isFinite(qty) && qty > 0) it.qty = Math.round(qty * 1000) / 1000
+          if (typeof f?.unit === 'string' && f.unit.trim()) it.unit = f.unit.trim().toLowerCase().slice(0, 12)
+          if (typeof f?.name === 'string' && f.name.trim()) it.name = f.name.trim().slice(0, 80)
+          const lt = Number(f?.line_total)
+          const up = Number(f?.unit_price)
+          if (Number.isFinite(lt) && lt >= 0) { it.line_total = Math.round(lt * 100) / 100; it.unit_price = Math.round((lt / it.qty) * 10000) / 10000 }
+          else if (Number.isFinite(up) && up >= 0) { it.unit_price = up; it.line_total = Math.round(it.qty * up * 100) / 100 }
+          else it.line_total = Math.round(it.qty * Number(it.unit_price) * 100) / 100
+          // Derived from the old quantity -- re-derived on the next read.
+          delete it.base_qty; delete it.price_per_base
+          if (it.unit === 'kg' || it.unit === 'l') { it.base_qty = it.qty; it.base_unit = it.unit; it.price_per_base = Math.round((it.line_total / it.qty) * 100) / 100 }
+        }
+        items = patched
+      } else if (items?.length && items.length < prevLines.length) {
+        const removing = new Set((Array.isArray(input?.remove_lines) ? input.remove_lines : []).map(Number))
+        if (prevLines.length - items.length !== removing.size) {
+          return JSON.stringify({
+            status: 'error',
+            message:
+              `This receipt has ${prevLines.length} lines and you sent ${items.length}. To fix a line, use ` +
+              'line_fixes with its number; nothing else changes. Only drop lines the owner said are not on the receipt, via remove_lines.',
+          })
+        }
+      }
       if (items?.length) {
         items = keepLineMoney(items, prevLines, Number(target.amount))
       }
@@ -538,7 +600,7 @@ export async function runBotAction(name: string, input: any, ctx: BotActionCtx):
       // RM 325.10; the owner had to refuse it twice and the line fix was lost
       // with it (#174, 27 Sep 2026). So a total sent alongside lines is dropped:
       // the lines are fixed now, and a total change must be asked for on its own.
-      const linesSent = !!(rawItems?.length || (Array.isArray(input?.line_types) && input.line_types.length))
+      const linesSent = !!(rawItems?.length || fixes?.length || (Array.isArray(input?.line_types) && input.line_types.length))
       const newTotal = linesSent ? NaN : Number(input?.new_total)
       const totalIgnored = linesSent && Number.isFinite(Number(input?.new_total)) &&
         Math.abs(Number(input.new_total) - Number(target.amount)) > 0.01
