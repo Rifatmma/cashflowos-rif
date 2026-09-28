@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { isGuestEmail, mintGuestToken, GUEST_COOKIE } from '@/lib/guest'
+import { isGuestEmail, mintGuestToken, guestEmails, GUEST_COOKIE } from '@/lib/guest'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // Checks the passcode and, on success, hands back an opaque session cookie.
@@ -62,6 +62,12 @@ export async function POST(req: Request) {
         maxAge: 60 * 60 * 24 * 30, // 30 days
       })
       return res
+    }
+    // An address was typed but no allow-list exists on this server. Say so
+    // plainly — "that code didn't match" sent us chasing the wrong bug once
+    // already, because a missing GUEST_EMAILS looks identical to a typo.
+    if (submitted.includes('@') && guestEmails().length === 0) {
+      return NextResponse.json({ ok: false, reason: 'guest_not_configured' }, { status: 401 })
     }
     return NextResponse.json({ ok: false, reason: 'wrong_passcode' }, { status: 401 })
   }

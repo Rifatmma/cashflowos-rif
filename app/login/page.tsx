@@ -25,7 +25,9 @@ export default function Login() {
         window.location.href = body.tier === 'guest' ? '/mw' : '/'
         return
       }
-      if (body.reason === 'no_passcode_set') {
+      if (body.reason === 'guest_not_configured') {
+        setError("Guest access isn't switched on for this server yet — GUEST_EMAILS is empty. Ask the owner to add your address.")
+      } else if (body.reason === 'no_passcode_set') {
         setError("No passcode is set yet, so there's nothing to unlock — just open the app.")
       } else {
         setError("That code didn't match. Try again.")
