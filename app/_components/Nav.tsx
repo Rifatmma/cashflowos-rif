@@ -30,6 +30,11 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
     { href: '/ads/funnel', label: 'Leads & Money' },
     { href: '/ads/playbook', label: 'Playbook' },
   ] },
+  { label: 'Moving Walls', tabs: [
+    { href: '/mw', label: 'Marketing' },
+    { href: '/mw/paid', label: 'Paid search' },
+    { href: '/mw/seo', label: 'SEO & organic' },
+  ] },
   { label: 'Me', tabs: [
     { href: '/me', label: 'Food diary' },
   ] },
