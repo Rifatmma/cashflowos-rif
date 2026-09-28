@@ -190,3 +190,49 @@ where not exists (select 1 from records);
 -- agent wrote against the demo "Nur Trading" invoice -- kept showing up in the
 -- owner's brief as bills he had never sent. Demo data must never ask him anything.
 -- The records seed below is already guarded by "no records exist", so it is inert.
+
+-- ── Moving Walls marketing dashboard (/mw) ─────────────────────────────────
+-- One jsonb snapshot per pull; /mw always reads the newest. The daily job
+-- inserts a row — it never edits markup or chart coordinates.
+create table if not exists mw_snapshots (
+  id          bigint generated always as identity primary key,
+  pulled_at   timestamptz not null default now(),
+  source      text        not null default 'daily',   -- daily | manual
+  data        jsonb       not null,
+  note        text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists mw_snapshots_pulled_at_idx on mw_snapshots (pulled_at desc);
+
+-- The recommendation list. The daily job updates status/evidence here.
+-- Ids are stable forever because decisions hang off them.
+create table if not exists mw_actions (
+  id            text        primary key,              -- a01, a02 … never reused
+  channel       text        not null,                 -- paid | seo
+  status        text        not null default 'not',   -- done | part | not
+  title         text        not null,
+  sub           text,
+  evidence      text,
+  impact        text        not null default 'medium',
+  cross_channel boolean     not null default false,
+  sort          int         not null default 100,
+  active        boolean     not null default true,    -- retire by marking done
+  updated_at    timestamptz not null default now()
+);
+create index if not exists mw_actions_channel_idx on mw_actions (channel, sort);
+
+-- The team's answers. The daily job must NEVER write here.
+create table if not exists mw_decisions (
+  action_id   text        primary key references mw_actions(id) on delete cascade,
+  choice      text        not null,                   -- accept | reject | done
+  reason      text,
+  decided_by  text,
+  updated_at  timestamptz not null default now()
+);
+
+-- Targets set by hand (CPA ceiling, monthly budget, lead goal).
+create table if not exists mw_settings (
+  key         text        primary key,
+  value       jsonb       not null,
+  updated_at  timestamptz not null default now()
+);

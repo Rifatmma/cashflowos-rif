@@ -11,6 +11,7 @@ import Nav from './_components/Nav'
 import BottomNav from './_components/BottomNav'
 import ConnStatus from './_components/ConnStatus'
 import { getPendingCount } from '@/lib/records'
+import { currentGuest } from '@/lib/guest'
 
 export const metadata: Metadata = {
   title: 'CashFlowOS AI Agents 🤖',
@@ -40,6 +41,22 @@ export const viewport: Viewport = {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Guests (Moving Walls) get a BARE shell: no sidebar, no bottom bar, no pending
+  // count. Without this they'd see a menu listing Cash Out, Vault, Employees and
+  // Stock — every link bounced by proxy.ts, but the structure itself is private.
+  // The getPendingCount() query is skipped too: a guest has no business triggering
+  // a read of the restaurant's records table.
+  const guest = await currentGuest()
+  if (guest) {
+    return (
+      <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+        <body>
+          <main className="main">{children}</main>
+        </body>
+      </html>
+    )
+  }
+
   const pending = await getPendingCount()
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>

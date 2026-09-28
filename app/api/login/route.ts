@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { isGuestEmail, mintGuestToken, GUEST_COOKIE } from '@/lib/guest'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // Checks the passcode and, on success, hands back an opaque session cookie.
@@ -46,6 +47,22 @@ export async function POST(req: Request) {
   const ok = crypto.timingSafeEqual(a, b)
 
   if (!ok) {
+    // Not the owner passcode. Is it a guest's own email address? Those are the
+    // Moving Walls people in GUEST_EMAILS; they get a cookie that opens /mw and
+    // nothing else (see proxy.ts). Checked AFTER the owner code so the full
+    // login path is completely unaffected.
+    const email = isGuestEmail(submitted)
+    if (email) {
+      const res = NextResponse.json({ ok: true, tier: 'guest', email })
+      res.cookies.set(GUEST_COOKIE, mintGuestToken(email), {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30, // 30 days
+      })
+      return res
+    }
     return NextResponse.json({ ok: false, reason: 'wrong_passcode' }, { status: 401 })
   }
 
@@ -54,7 +71,7 @@ export async function POST(req: Request) {
   const sig = crypto.createHmac('sha256', passcode).update(nonce).digest('hex')
   const token = `${nonce}.${sig}`
 
-  const res = NextResponse.json({ ok: true })
+  const res = NextResponse.json({ ok: true, tier: 'owner' })
   res.cookies.set('cfo_session', token, {
     httpOnly: true,
     secure: true,

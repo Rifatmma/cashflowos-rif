@@ -21,7 +21,8 @@ export default function Login() {
       })
       const body = await res.json().catch(() => ({}))
       if (res.ok && body.ok) {
-        window.location.href = '/'
+        // Guests land on the Moving Walls dashboard; the owner goes to HQ.
+        window.location.href = body.tier === 'guest' ? '/mw' : '/'
         return
       }
       if (body.reason === 'no_passcode_set') {
@@ -45,6 +46,7 @@ export default function Login() {
         <h1 className="ph" style={{ fontSize: 18 }}>Enter your passcode</h1>
         <p className="cap" style={{ margin: '4px 0 16px' }}>
           A lock on the door, not bank-grade security — just enough to keep your numbers private.
+          Invited to a single dashboard? Your passcode is your email address.
         </p>
         <input
           className="login-input"

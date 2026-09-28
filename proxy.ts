@@ -15,6 +15,25 @@ export function proxy(req: NextRequest) {
   const session = req.cookies.get('cfo_session')?.value
   if (session) return NextResponse.next()            // has the opaque session cookie → allow
 
+  // GUEST TIER (Moving Walls). Reached only when there is NO cfo_session, i.e. on
+  // the path that used to end in "redirect to /login" — so nothing above changes.
+  // A guest may open /mw and its own APIs and NOTHING else; every other path sends
+  // them back to /mw. It's an ALLOW-LIST, so anything added to this app in future
+  // is closed to guests by default. Signature and allow-list are verified in
+  // lib/guest.ts (Node crypto); here we only check presence, exactly as the
+  // cfo_session line above does.
+  const guest = req.cookies.get('cfo_guest')?.value
+  if (guest) {
+    const p = req.nextUrl.pathname
+    if (p === '/mw' || p.startsWith('/mw/') || p.startsWith('/api/mw/')) {
+      return NextResponse.next()
+    }
+    const back = req.nextUrl.clone()
+    back.pathname = '/mw'
+    back.search = ''
+    return NextResponse.redirect(back)
+  }
+
   const url = req.nextUrl.clone()
   url.pathname = '/login'
   return NextResponse.redirect(url)
