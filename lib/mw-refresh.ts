@@ -1,6 +1,7 @@
 import 'server-only'
 import { supabase, supabaseConfigured } from './supabase'
 import { runWorkbench } from './composio-mcp'
+import { gunzipSync } from 'node:zlib'
 import type { MwData } from './mw-data'
 
 // 👉 The Moving Walls daily pull. Runs at 9am Malaysia, kicked off by the morning cron.
@@ -51,7 +52,7 @@ type Pull = {
 // Runs inside Composio's sandbox: nine API calls there, one JSON back. Doing it
 // in one script rather than nine round-trips is what keeps this inside 60s.
 const SCRIPT = (customer: string, ga4: string) => String.raw`
-import json, datetime, calendar
+import json, datetime, calendar, gzip, base64
 
 TODAY = datetime.datetime.utcnow() + datetime.timedelta(hours=8)   # Asia/Kuala_Lumpur
 CUR_S = TODAY.replace(day=1).date()
@@ -160,14 +161,24 @@ OUT = {'err': ERR,
                'schedules': [{'n': g(r,'campaign','name'),
                               'day': g(r,'campaignCriterion','adSchedule','dayOfWeek') or g(r,'campaign_criterion','ad_schedule','day_of_week')}
                              for r in schedules]},
+       # Only Organic Search days travel: they are the only rows the shaping
+       # reads (the SEO trend line), and the full day x channel grid is ~2,000
+       # rows that blew past Composio's stdout cap -- see the note below.
        'ga4': {'cur': flat(reps[0] if len(reps) > 0 else None),
                'prev': flat(reps[1] if len(reps) > 1 else None),
-               'daily': flat(reps[2] if len(reps) > 2 else None)},
+               'daily': [r for r in flat(reps[2] if len(reps) > 2 else None)
+                         if (r.get('d') or ['', ''])[1] == 'Organic Search']},
        'span': {'curStart': str(CUR_S), 'curEnd': str(CUR_E),
                 'prevStart': str(PREV_S), 'prevEnd': str(PREV_E),
                 'prevDays': (PREV_E - PREV_S).days + 1,
                 'daysMonth': calendar.monthrange(TODAY.year, TODAY.month)[1]}}
-print('<<<CFO' + json.dumps(OUT, ensure_ascii=True) + '\nCFO>>>')
+# Composio truncates stdout at about 10,000 characters and parks the rest in a
+# file -- so a raw dump lost its closing marker and the whole morning pull read
+# as "no result" (owner, 29 Sep 2026). Gzipped and base64'd, the same data is a
+# fraction of the size; lib/mw-refresh.ts inflates it.
+_raw = json.dumps(OUT, ensure_ascii=True, separators=(',', ':'))
+_z = base64.b64encode(gzip.compress(_raw.encode())).decode()
+print('<<<CFO' + json.dumps({'z': _z, 'raw_len': len(_raw)}) + '\nCFO>>>')
 `
 
 // ---------------------------------------------------------------- helpers
@@ -200,7 +211,10 @@ export async function refreshMw(): Promise<{ ok: boolean; message: string }> {
 
   let pull: Pull
   try {
-    pull = await runWorkbench(SCRIPT(CUSTOMER, GA4))
+    const out: any = await runWorkbench(SCRIPT(CUSTOMER, GA4))
+    // The sandbox sends the payload gzipped: Composio truncates stdout around
+    // 10,000 characters, and the raw JSON is many times that.
+    pull = out?.z ? JSON.parse(gunzipSync(Buffer.from(String(out.z), 'base64')).toString('utf8')) : out
   } catch (e: any) {
     return { ok: false, message: `mw refresh failed: ${String(e?.message || e).slice(0, 200)}` }
   }
