@@ -364,8 +364,15 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             </Link>
             {/* Right as filed: one tap takes it off To check (owner, 27 Sep 2026). */}
             {open && (
-              <form action={markCorrect}>
+              <form action={markCorrect} className="co-rx-ok">
                 <input type="hidden" name="id" value={r.id} />
+                {/* No lines and no category (a typed total): pick it here, same tap. */}
+                {items.length === 0 && !r.meta?.expense_type && (
+                  <select name="type" required defaultValue="" aria-label={`Category for receipt ${r.id}`}>
+                    <option value="" disabled>Filed as…</option>
+                    {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'unclassified').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                  </select>
+                )}
                 <button className="btn ghost">✓ It&rsquo;s correct</button>
               </form>
             )}

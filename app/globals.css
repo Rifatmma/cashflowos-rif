@@ -759,3 +759,6 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .co-saved { font-size: 13px; line-height: 1.5; color: var(--clay-deep); background: var(--clay-tint); border-radius: 10px; padding: 8px 10px; margin: 0 0 10px; }
 .co-rx-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .co-rx-actions form { margin: 0; }
+.cr-error { font-size: 13px; line-height: 1.5; color: var(--bad); background: var(--mid-tint); border: 1px solid var(--bad); border-radius: 10px; padding: 8px 10px; margin: 10px 0 0; }
+.co-rx-ok { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.co-rx-ok select { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 8px; min-height: 38px; }

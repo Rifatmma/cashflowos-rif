@@ -3,7 +3,7 @@
 // Every line of one receipt, editable, with what it puts on the shelf shown as
 // you type -- so "2 packs of chicken, 4 kg" is checked against the Stock page
 // before it is saved, not at the weekly count.
-import { useActionState, useState } from 'react'
+import { useActionState, useEffect, useRef, useState } from 'react'
 import { correctReceipt, type CorrectResult } from './actions'
 import {
   stockFromLine, stockFromChoice, choiceFromLine, itemForName, unitsFor, packUnitsFor, unitWord, ITEM, ITEMS,
@@ -78,10 +78,15 @@ function stockText(d: Draft, aliases: Record<string, string[]>): { text: string;
   return { text: r.map(s => `+${fmtStock(s.item, s.qty)} ${itemLabel(s.item)}${s.note ? ` (${s.note})` : ''}`).join(' · ') }
 }
 
-export default function CorrectForm({ id, total, discount = 0, lines, aliases }: {
-  id: number; total: number; discount?: number; lines: Line[]; aliases: Record<string, string[]>
+export default function CorrectForm({ id, total, discount = 0, lines, aliases, receiptTypeInit = '' }: {
+  id: number; total: number; discount?: number; lines: Line[]; aliases: Record<string, string[]>; receiptTypeInit?: string
 }) {
   const [res, run, pending] = useActionState<CorrectResult, FormData>(correctReceipt, null)
+  // A refused save is shown at the TOP and scrolled to: at the bottom of a long
+  // receipt it went unseen and Save looked like it did nothing (27 Sep 2026).
+  const errRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (res && !res.ok) errRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [res])
+  const [receiptType, setReceiptType] = useState(receiptTypeInit)
   const [drafts, setDrafts] = useState<Draft[]>(() => lines.map(toDraft))
 
   const set = (i: number, patch: Partial<Draft>) => setDrafts(a => a.map((d, j) => (j === i ? { ...d, ...patch } : d)))
@@ -115,7 +120,9 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
 
   const sum = drafts.reduce((t, d) => t + (num(d.total) ?? 0), 0)
   // A discount already recorded counts: lines minus it should meet the total.
-  const gap = Math.round((sum - discount - total) * 100) / 100
+  // With no lines there is nothing to add up: the receipt's total stands, and
+  // "total is wrong: make it RM 0.00" must never be offered.
+  const gap = drafts.length ? Math.round((sum - discount - total) * 100) / 100 : 0
   const payload = JSON.stringify(drafts.map(d => ({
     name: d.name, qty: num(d.qty) ?? 0, unit: d.unit || 'unit',
     unit_price: num(d.price) ?? 0, line_total: num(d.total) ?? 0,
@@ -127,6 +134,16 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
     <form action={run} className="cr">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="lines" value={payload} />
+      {res && !res.ok && <div ref={errRef} className="cr-error" role="alert">⚠️ {res.message}</div>}
+      {drafts.length === 0 && (
+        <label className="cr-field cr-wide">
+          <span>No lines on this one. Filed as</span>
+          <select name="receipt_type" value={receiptType} onChange={e => setReceiptType(e.target.value)} className={receiptType ? '' : 'rf-missing'}>
+            <option value="" disabled>Choose…</option>
+            {TYPES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          </select>
+        </label>
+      )}
 
       {drafts.map((d, i) => {
         const stock = stockText(d, aliases)
@@ -230,12 +247,16 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
       <button type="button" className="btn ghost cr-add" onClick={add}>+ Add a line</button>
 
       <div className="cr-foot">
+        {drafts.length === 0 ? (
+          <p className="cr-sum">No lines &mdash; the receipt total <b className="num">RM {f2(total)}</b> stands. Add lines above if you have them.</p>
+        ) : (
         <p className={`cr-sum ${Math.abs(gap) > 0.05 ? 'co-flag' : ''}`}>
           Lines add to <b className="num">RM {f2(sum)}</b>
           {discount > 0 && <> less discount <b className="num">RM {f2(discount)}</b></>}
           {' '}· receipt total <b className="num">RM {f2(total)}</b>
           {Math.abs(gap) > 0.05 ? ` · off by RM ${f2(Math.abs(gap))}` : ' · matches ✓'}
         </p>
+        )}
         <div className="rf-btns">
           <button className="btn" name="mode" value="save" disabled={pending}>{pending ? 'Saving…' : 'Save'}</button>
           {gap > 0.05 && <button className="btn ghost" name="mode" value="discount" disabled={pending}>Lines are right: RM {f2(sum - total)} was a discount</button>}
@@ -243,7 +264,7 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases }:
         </div>
         {/* Success goes back to Cash Out, which says what was saved; only a
             problem is shown here. */}
-        {res && !res.ok && <div className="co-meta co-flag" role="alert">{res.message}</div>}
+        {res && !res.ok && <div className="co-meta co-flag">{res.message}</div>}
       </div>
     </form>
   )

@@ -12,6 +12,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
+import { EXPENSE_TYPES } from '@/lib/vision'
 
 export async function markCorrect(form: FormData): Promise<void> {
   const id = Number(form.get('id'))
@@ -22,6 +23,12 @@ export async function markCorrect(form: FormData): Promise<void> {
 
   const meta: any = { ...(rec.meta ?? {}) }
   const items: any[] = Array.isArray(meta.items) ? meta.items : []
+  // A receipt with no lines can take its category in the same tap.
+  const picked = String(form.get('type') || '')
+  if (!items.length && (EXPENSE_TYPES as readonly string[]).includes(picked)) {
+    meta.expense_type = picked
+    delete meta.type_split
+  }
   const split = meta.type_split as Record<string, number> | undefined
   const uncategorised = split ? Number(split.unclassified) > 0 : !meta.expense_type
   if (uncategorised) {

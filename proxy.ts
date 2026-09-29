@@ -47,12 +47,18 @@ export function proxy(req: NextRequest) {
 //   • /api/cron-sales-reminder — the 11 pm sales nudge (same fail-closed Bearer guard).
 //     Leave it out of this list and Vercel's call is bounced to /login, and the
 //     reminder silently never runs -- nothing errors, it just never arrives.
+//   • /api/mw-refresh         — the Moving Walls 9am pull (Bearer OR owner cookie,
+//     both checked inside the route). This is the warning above coming true: it
+//     was missing from this list, so every morning cron-daily's call got a 307
+//     to /login, the fetch followed it, /login answered 200, and the cron
+//     reported "started (200)". Nothing errored and the numbers never moved
+//     (owner, 29 Sep 2026).
 //   • /manifest.webmanifest   — the REAL PWA manifest (app/manifest.ts serves HERE);
 //     /manifest.json          — belt-and-braces extra so install never silently breaks
 //   • /icons/*, /favicon.ico, /_next/* — static assets the install/render needs
 // A single missed exclusion here = a locked webhook on class day, so this list is tested.
 export const config = {
   matcher: [
-    '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
+    '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|api/mw-refresh|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
   ],
 }

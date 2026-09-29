@@ -246,6 +246,33 @@ export async function GET(req: Request) {
   ])
   if (!adsPull.ok) console.error('[CFO]', adsPull.message)
 
+  // ⑤ THE MOVING WALLS PULL — STARTED, NOT AWAITED. Google Ads + GA4 for /mw.
+  //    It lives on its own endpoint so it gets its own 60 seconds; this call's
+  //    budget is nearly spent by the time we reach here. We wait only long
+  //    enough for Vercel to accept the request, then let it finish on its own.
+  //    Hobby allows 2 cron entries and both are taken, so this is how a third
+  //    daily job rides along at 9am Malaysia without a third schedule.
+  let mwPull = 'not started (CRON_SECRET unset)'
+  const cronSecret = process.env.CRON_SECRET?.trim()
+  if (cronSecret) {
+    mwPull = await Promise.race([
+      // `redirect: 'manual'` on purpose: a 307 to /login means the gate in
+//       proxy.ts is bouncing us, and following it would turn that into a
+//       cheerful "200" -- which is exactly how this went unnoticed for a week.
+      fetch(new URL('/api/mw-refresh', req.url).toString(), {
+        headers: { authorization: `Bearer ${cronSecret}` },
+        redirect: 'manual',
+      })
+        .then((r) =>
+          r.status >= 300 && r.status < 400
+            ? `BOUNCED (${r.status} -> ${r.headers.get('location') ?? '?'}) — add api/mw-refresh to the proxy matcher`
+            : `started (${r.status})`,
+        )
+        .catch((e) => `could not start: ${String(e?.message || e).slice(0, 120)}`),
+      new Promise<string>((resolve) => setTimeout(() => resolve('started, still running'), 4_000)),
+    ])
+  }
+
   return Response.json({
     ok: true,
     sent,
@@ -253,6 +280,7 @@ export async function GET(req: Request) {
     needs_yes: proposed.length,
     proposals_created: created,
     ads_pull: adsPull.message,
+    mw_pull: mwPull,
   })
 }
 

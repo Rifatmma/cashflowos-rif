@@ -37,12 +37,32 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   const mode = String(form.get('mode') || 'save')
   let lines: LineIn[]
   try { lines = JSON.parse(String(form.get('lines') || '[]')) } catch { return { ok: false, message: 'Could not read the lines -- reload and try again.' } }
-  if (!Array.isArray(lines) || lines.length === 0) return { ok: false, message: 'A receipt needs at least one line.' }
+  if (!Array.isArray(lines)) return { ok: false, message: 'Could not read the lines -- reload and try again.' }
 
   const { data: rec } = await supabase.from('records').select('*').eq('id', id).eq('category', 'cash_out').single()
   if (!rec) return { ok: false, message: 'That receipt no longer exists.' }
   const meta: any = { ...(rec.meta ?? {}) }
   const old: any[] = Array.isArray(meta.items) ? meta.items : []
+
+  // No lines (a total typed into Jarvis, like Yuu's RM 58.10 #167): the whole
+  // receipt's category is all there is to set. It used to refuse with "needs at
+  // least one line", shown where it wasn't seen.
+  if (lines.length === 0) {
+    const type = String(form.get('receipt_type') || '')
+    if (!(EXPENSE_TYPES as readonly string[]).includes(type)) {
+      return { ok: false, message: 'Choose what this receipt is filed as (food, drinks, packaging...), or add its lines.' }
+    }
+    meta.expense_type = type
+    delete meta.type_split; delete meta.items_note
+    meta.corrected_by = 'owner'
+    meta.corrected_at = new Date().toISOString().slice(0, 10)
+    meta.corrected_via = 'web'
+    delete meta.fix_later; delete meta.fix_later_note; delete meta.checked_ok; delete meta.fixed_note
+    const { error } = await supabase.from('records').update({ meta }).eq('id', id).eq('category', 'cash_out')
+    if (error) return { ok: false, message: error.message }
+    revalidatePath('/cash-out'); revalidatePath(`/cash-out/${id}`); revalidatePath('/')
+    redirect(`/cash-out?saved=${id}&msg=${encodeURIComponent('Category set; no lines on this one.')}`)
+  }
 
   for (const [n, l] of lines.entries()) {
     if (!String(l.name ?? '').trim()) return { ok: false, message: `Line ${n + 1} needs a name.` }
