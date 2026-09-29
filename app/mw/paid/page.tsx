@@ -25,13 +25,18 @@ export default async function MwPaid() {
     <div className="mw-wrap">
       <MwHero tab="paid" pulled={d.meta.pulled} stale={snap.stale}
         headline={`${money0(k.spend)} bought ${k.leads} leads this month`}>
-        <p>That is <b>{money(k.cpl)} a lead</b>, against {String(k.dCpl ?? '')}. Clicks are up and cheaper; the traffic simply converts less.</p>
+        <p>
+          That is <b>{money(k.cpl)} a lead</b>, against {String(k.dCpl ?? '')}. These are Google Ads
+          conversions, counted for up to <b>60 days after the click</b> and across whatever channel the
+          visit finally came back through — which is why GA4, which credits only the last click, shows
+          fewer. Neither number is wrong; they answer different questions.
+        </p>
       </MwHero>
 
       <Tiles items={[
-        { k: 'Spend', v: money0(k.spend), d: String(k.dSpend ?? ''), tone: 'dn' },
-        { k: 'Leads', v: String(k.leads), d: String(k.dLeads ?? ''), tone: 'dn' },
-        { k: 'Cost per lead', v: money(k.cpl), d: String(k.dCpl ?? ''), tone: 'dn' },
+        { k: 'Spend', v: money0(k.spend), d: String(k.dSpend ?? '') },
+        { k: 'Leads', v: String(k.leads), d: String(k.dLeads ?? '') },
+        { k: 'Cost per lead', v: money(k.cpl), d: String(k.dCpl ?? '') },
         { k: 'Clicks', v: num(k.clicks), d: String(k.dClicks ?? ''), tone: 'up' },
         { k: 'Avg. CPC', v: money(k.cpc, 3), d: String(k.dCpc ?? ''), tone: 'up' },
         { k: 'Conv. rate', v: `${k.cvr}%`, d: String(k.dCvr ?? ''), tone: 'dn' },

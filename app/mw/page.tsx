@@ -46,22 +46,32 @@ export default async function MwOverview() {
 
   return (
     <div className="mw-wrap">
+      {/* The headline used to read "Organic search delivers the leads. Paid
+          search delivers the bill." It set GA4's last-click count for paid
+          against organic's and called the difference a verdict. Two problems:
+          the comparison is not like for like, and this page is read by the
+          team -- including the person who runs the ads (owner, 29 Sep 2026). */}
       <MwHero tab="overview" pulled={d.meta.pulled} stale={snap.stale}
-        headline="Organic search delivers the leads. Paid search delivers the bill.">
+        headline={`${d.meta.monthLabel}: where the leads came from, and how each channel is counted`}>
         <p>
-          In {d.meta.monthLabel}, organic brought <b>{organic?.sl ?? 0} leads from {num(organic?.s ?? 0)} sessions</b> at
-          no media cost. Paid search brought <b>{paid?.sl ?? 0} from {num(paid?.s ?? 0)} sessions and {money0(d.sem.kpi.spend)}</b>.
+          Organic brought <b>{organic?.sl ?? 0} leads from {num(organic?.s ?? 0)} sessions</b> at no media cost.
+          Paid search brought <b>{num(paid?.s ?? 0)} sessions for {money0(d.sem.kpi.spend)}</b>, and the two
+          systems count its leads differently: <b>Google Ads {d.sem.kpi.leads}</b>, <b>GA4 {paid?.sl ?? 0}</b>.
+          Both are right — Google Ads credits a conversion for up to 60 days after the click, wherever it
+          finally lands, so some of what GA4 files under organic or direct began with an ad.
           {guest ? ` Signed in as ${guest}.` : ''}
         </p>
       </MwHero>
 
+      {/* No up/down colouring on the channel tiles: green on organic and red
+          on paid is a judgement, and these two are not measured the same way. */}
       <Tiles items={[
         { k: 'Site sessions', v: num(totS), d: `${d.meta.monthLabel}, ${d.meta.days} days` },
-        { k: 'Leads, all channels', v: String(totL) },
-        { k: 'Organic leads', v: String(organic?.sl ?? 0), d: 'free', tone: 'up' },
-        { k: 'Paid leads', v: String(paid?.sl ?? 0), d: money0(d.sem.kpi.spend), tone: 'dn' },
-        { k: 'Paid cost per lead', v: money0(d.sem.kpi.cpl), d: String(d.sem.kpi.dCpl ?? ''), tone: 'dn' },
-        { k: 'Live campaigns', v: String(d.sem.kpi.live) },
+        { k: 'Leads, all channels', v: String(totL), d: 'GA4, last click' },
+        { k: 'Organic leads', v: String(organic?.sl ?? 0), d: 'no media cost' },
+        { k: 'Paid leads · Google Ads', v: String(d.sem.kpi.leads), d: '60-day, cross-channel' },
+        { k: 'Paid leads · GA4', v: String(paid?.sl ?? 0), d: 'last click only' },
+        { k: 'Paid cost per lead', v: money0(d.sem.kpi.cpl), d: `${money0(d.sem.kpi.spend)} / ${d.sem.kpi.leads}` },
       ]} />
 
       <Section title="Alerts — what moved"

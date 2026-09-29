@@ -75,6 +75,16 @@ export function buildAlerts(d: MwData): Alert[] {
   const totS = d.channels.reduce((a, c) => a + c.s, 0)
   const n = (v: number) => v.toLocaleString('en-US')
 
+  // GA4 credits the LAST click, Google Ads credits its own click for up to 60
+  // days wherever the visit finally returns through. So a GA4 line about paid
+  // search is only half the story, and the owner runs those ads and reads this
+  // page with his team (29 Sep 2026). Every paid alert carries the other half.
+  const adsLeads = d.sem?.kpi?.leads ?? 0
+  const paidNote = (channel: string) =>
+    /paid search|cross-network|paid shopping/i.test(channel) && adsLeads > 0
+      ? ` GA4 counts the last click only — Google Ads records ${adsLeads} conversions over the same period, some of which GA4 credits to other channels.`
+      : ''
+
   for (const c of d.channels) {
     const perNow = c.s / dN
     const perPrev = c.a / dP
@@ -91,13 +101,13 @@ export function buildAlerts(d: MwData): Alert[] {
         detail: `${perPrev.toFixed(0)} sessions a day in ${prev} → ${perNow.toFixed(0)} now (${n(c.a)} → ${n(c.s)} total). ` +
           (c.sl === 0
             ? `No leads at all this month, and it now carries ${share.toFixed(0)}% of site traffic.`
-            : `It has produced ${c.sl} lead${c.sl === 1 ? '' : 's'} this month.`),
+            : `It has produced ${c.sl} lead${c.sl === 1 ? '' : 's'} this month.`) + paidNote(c.n),
       })
     } else if (c.s >= 1000 && c.sl === 0) {
       out.push({
         sev: 'md', sort: c.s / 100, move: '0 leads',
         title: `${c.n} brought ${n(c.s)} sessions and no leads`,
-        detail: `${share.toFixed(0)}% of all site traffic this month with nothing to show for it.`,
+        detail: `${share.toFixed(0)}% of all site traffic this month, with no key events recorded against it.` + paidNote(c.n),
       })
     }
 
@@ -108,7 +118,7 @@ export function buildAlerts(d: MwData): Alert[] {
         out.push({
           sev: 'hi', sort: 400, move: `−${Math.round((1 - cNow / cPrev) * 100)}%`,
           title: `${c.n} leads per day halved or worse`,
-          detail: `${cPrev.toFixed(2)} a day in ${prev} → ${cNow.toFixed(2)} now (${c.al} → ${c.sl} total).`,
+          detail: `${cPrev.toFixed(2)} a day in ${prev} → ${cNow.toFixed(2)} now (${c.al} → ${c.sl} total).` + paidNote(c.n),
         })
       }
     }
