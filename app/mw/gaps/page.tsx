@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { currentGuest } from '@/lib/guest'
 import { getGaps, getRivals, quarterOf } from '@/lib/mw-gap-run'
 import { effortOf, worthWriting } from '@/lib/mw-gap'
-import { MARKETS, COUNTRIES } from '@/lib/mw-markets'
+import { MARKETS, COUNTRIES, serpUrl } from '@/lib/mw-markets'
 import { num } from '@/lib/mw-data'
 import { MwHero, Section } from '../_ui'
 import { RivalEditor } from './_gap-ui'
@@ -116,8 +116,8 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                           <p className="mw-why">
                             {t.rivals.length === 1 ? `${t.rivals[0]} ranks` : `${t.rivals.join(' and ')} rank`} for{' '}
                             {t.keywords.length === 1 ? 'this search' : `these ${t.keywords.length} searches`}, worth{' '}
-                            {num(t.vol)} a month in {active.country.label}. We rank for{' '}
-                            {t.keywords.length === 1 ? 'it at all' : 'none of them'} — {e.says}.
+                            {num(t.vol)} a month in {active.country.label}.{' '}
+                            {t.keywords.length === 1 ? 'We do not rank for it at all' : 'We rank for none of them'} — {e.says}.
                             {t.cpc > 0 && <> Buying this traffic costs ${t.cpc.toFixed(2)} a click.</>}
                           </p>
                           <h4>What to do</h4>
@@ -125,8 +125,19 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                             <li>Write one page answering all of these, not a page per search — they are the same question asked differently.</li>
                             <li>Lead with &ldquo;{t.head}&rdquo; in the title and H1; give the others their own H2.</li>
                             <li>
-                              Look at how {t.rivals[0] ?? 'the rival'} answers it, then answer it better with
-                              something they cannot copy: our inventory, our measurement, a named local campaign.
+                              See how it is answered today:{' '}
+                              <a href={serpUrl(t.head, active.country)} target="_blank" rel="noreferrer">
+                                the live Google result for &ldquo;{t.head}&rdquo; in {active.country.label}
+                              </a>
+                              {t.rivals.length > 0 && <>
+                                {' '}— {t.rivals[0]} is the one to beat
+                                {t.keywords[0]?.theirUrl && <>, on{' '}
+                                  <a href={t.keywords[0].theirUrl} target="_blank" rel="noreferrer">
+                                    {t.keywords[0].theirUrl.replace(/^https?:\/\/(www\.)?/, '')}
+                                  </a>
+                                </>}
+                              </>}. Then answer it better with something they cannot copy: our inventory, our
+                              measurement, a named local campaign.
                             </li>
                             <li>Link it from /locations/{active.country.key} and from the related blog posts.</li>
                           </ol>
@@ -136,8 +147,17 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                             <tbody>
                               {t.keywords.map(k => (
                                 <tr key={k.q}>
-                                  <td>{k.q}</td>
-                                  <td className="num">{k.theirBest ? `#${k.theirBest}` : '—'}</td>
+                                  <td>
+                                    <a className="mw-serp" href={serpUrl(k.q, active.country)} target="_blank" rel="noreferrer"
+                                      title={`See who ranks for "${k.q}" in ${active.country.label}`}>{k.q}</a>
+                                  </td>
+                                  <td className="num">
+                                    {k.theirBest
+                                      ? (k.theirUrl
+                                        ? <a href={k.theirUrl} target="_blank" rel="noreferrer" title={k.theirUrl}>#{k.theirBest}</a>
+                                        : `#${k.theirBest}`)
+                                      : '—'}
+                                  </td>
                                   <td className="num">{num(k.vol)}</td>
                                   <td className="num">
                                     <span className={`mw-kd ${k.kd < 20 ? 'easy' : k.kd < 40 ? 'mid' : 'hard'}`}>{k.kd || '—'}</span>

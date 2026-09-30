@@ -10,7 +10,7 @@ import 'server-only'
 
 import { supabase, supabaseConfigured } from './supabase'
 import { COUNTRIES, dbOf, type Country } from './mw-markets'
-import { fetchGap } from './mw-semrush'
+import { fetchGap, fetchKeywords } from './mw-semrush'
 import { cleanGap, cluster, worthWriting, type GapCluster, type GapRow } from './mw-gap'
 
 /** e.g. "2026-Q3" — the gap's own cycle, slower than the monthly plan. */
@@ -82,6 +82,9 @@ export async function refreshGaps(opts: { only?: string; limit?: number } = {}):
         const { rows, raw } = await fetchGap('movingwalls.com', t.db!, t.rivals, opts.limit ?? 60)
         const mine = await ourKeywords(t.country)
         const kept = cleanGap(rows as GapRow[], mine)
+        // Link each gap to the rival page that holds the position, so the
+        // task can show the page rather than describe it.
+        await addRivalUrls(kept, t.db!, notes).catch(() => 0)
         const clusters = cluster(kept).filter(worthWriting)
         await saveGap(quarter, t.country, t.market.key, t.db!, t.rivals, clusters, raw, kept.length)
         written++
@@ -225,4 +228,35 @@ export async function storeImport(f: {
   return f.kind === 'positions'
     ? `${f.keywords?.length ?? 0} keywords into ${cycle}`
     : `${f.competitors?.length ?? 0} competitors into ${cycle}`
+}
+
+/**
+ * Fill in which page each rival ranks with.
+ *
+ * `domain_domains` gives positions but no URLs, so the rival's own keyword
+ * list is pulled once per rival and joined on the phrase. One extra call per
+ * competitor per quarter, and it turns "go and look at how they do it" into
+ * a link the lead can click (owner, 30 Sep 2026).
+ */
+export async function addRivalUrls(
+  rows: { q: string; rival: string; theirUrl?: string }[],
+  db: string,
+  notes?: string[],
+): Promise<number> {
+  const rivals = [...new Set(rows.map(r => r.rival).filter(Boolean))]
+  let filled = 0
+  for (const rival of rivals) {
+    try {
+      const theirs = await fetchKeywords(rival, db, 200)
+      const byQ = new Map(theirs.map(k => [k.q.toLowerCase(), k.url]))
+      for (const r of rows) {
+        if (r.rival !== rival) continue
+        const u = byQ.get(r.q.toLowerCase())
+        if (u) { r.theirUrl = u; filled++ }
+      }
+    } catch (e: any) {
+      notes?.push(`${rival}: could not fetch pages — ${String(e?.message ?? e).slice(0, 70)}`)
+    }
+  }
+  return filled
 }

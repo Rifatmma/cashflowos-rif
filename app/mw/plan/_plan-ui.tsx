@@ -2,6 +2,24 @@ import Link from 'next/link'
 import type { ActionRow } from '@/lib/mw-actions'
 import { CHOICE_LABEL, STATUS_LABEL } from '@/lib/mw-actions'
 import { setDecision, clearDecision, setProposedDue } from '../actions'
+import { COUNTRIES, serpUrl } from '@/lib/mw-markets'
+
+/**
+ * Every search is a link to the live Google result for it, in that country.
+ *
+ * "Read how the competitor answers it" is telling; a link is showing. One
+ * click and the lead sees who ranks, what their title says and how they
+ * framed the page (owner, 30 Sep 2026).
+ */
+function Serp({ q, countryKey }: { q: string; countryKey?: string }) {
+  const co = COUNTRIES.find(c => c.country.key === countryKey)?.country ?? null
+  return (
+    <a className="mw-serp" href={serpUrl(q, co)} target="_blank" rel="noreferrer"
+      title={`See who ranks for "${q}"${co ? ` in ${co.label}` : ''}`}>
+      {q}
+    </a>
+  )
+}
 
 // The market plan, as a table you could read like a spreadsheet — which is how
 // Rif asked for it: "assigned to who, what to do, how to do it, with the
@@ -96,7 +114,11 @@ export function PlanRow({ r }: { r: ActionRow }) {
                 {how.keywords.map(k => (
                   <tr key={`${k.q}|${k.url ?? ''}|${k.pos}`}>
                     <td className={k.url && how?.kind === 'cannibal' ? 'path' : undefined}>
-                      {how?.kind === 'cannibal' ? (k.url ?? k.q) : k.q}
+                      {how?.kind === 'cannibal'
+                        ? (k.url
+                          ? <a href={`https://www.movingwalls.com${k.url}`} target="_blank" rel="noreferrer">{k.url}</a>
+                          : k.q)
+                        : <Serp q={k.q} countryKey={how?.countryKey} />}
                     </td>
                     <td className="num">#{k.pos.toFixed(0)}</td>
                     <td className="num">{Math.round(k.vol).toLocaleString('en-US')}</td>
@@ -119,7 +141,7 @@ export function PlanRow({ r }: { r: ActionRow }) {
               <tbody>
                 {how.holds.map(k => (
                   <tr key={k.q}>
-                    <td>{k.q}</td>
+                    <td><Serp q={k.q} countryKey={how?.countryKey} /></td>
                     <td className="num"><span className={`mw-rank ${k.pos <= 3 ? 'top' : 'good'}`}>#{k.pos.toFixed(0)}</span></td>
                     <td className="num">{Math.round(k.vol).toLocaleString('en-US')}</td>
                     <td className="num">{k.visits || '—'}</td>

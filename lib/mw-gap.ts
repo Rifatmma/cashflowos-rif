@@ -20,6 +20,15 @@ export type GapRow = {
   /** Best position any rival holds, and which one. */
   theirBest: number
   rival: string
+  /**
+   * The rival's page that holds that position, when we know it.
+   *
+   * The gap report returns positions but no URLs, so this is filled in by a
+   * second pull of the rival's own keywords. Worth the call: a task that
+   * links to the page you are trying to beat is one a lead can act on
+   * immediately (owner, 30 Sep 2026).
+   */
+  theirUrl?: string
 }
 
 export type GapCluster = {

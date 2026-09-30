@@ -188,6 +188,27 @@ const INDUSTRY = new RegExp([
 
 export const isRelevant = (q: string) => INDUSTRY.test(String(q || ''))
 
+/**
+ * A Google search for this phrase, as run from that country.
+ *
+ * Rif's point: a task that says "read how gohoardings.com answers it" is
+ * telling rather than showing. A link to the actual result page shows who
+ * ranks, what their title says and how they framed it — in one click, for
+ * every search on every task (owner, 30 Sep 2026).
+ *
+ * `gl` is an ISO-3166 alpha-2 country, which is the Semrush database code
+ * everywhere except the United Kingdom: Semrush calls it "uk", Google wants
+ * "gb", and getting that wrong silently returns US results.
+ */
+export function serpUrl(q: string, co?: Country | null): string {
+  const db = co ? dbOf(co) : null
+  const gl = db === 'uk' ? 'gb' : db
+  const p = new URLSearchParams({ q: String(q || '') })
+  if (gl) p.set('gl', gl)
+  p.set('num', '20')
+  return `https://www.google.com/search?${p}`
+}
+
 /** The Semrush database for a country, or null where Semrush has none. */
 export const dbOf = (co: Country): string | null => SEMRUSH_DB[co.iso3] ?? null
 

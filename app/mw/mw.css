@@ -410,3 +410,7 @@
 .mw-report p { margin: 6px 0 0; font-size: 12.5px; color: var(--mw-ink-2); line-height: 1.5; }
 .mw-report .how { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: #fafbfc; padding: 7px 9px; border-radius: 6px; }
 .mw-report .feeds { font-size: 11.5px; opacity: .8; }
+/* A search that links to its live Google result. Underlined on hover only —
+   a table of twelve permanently-underlined keywords is unreadable. */
+.mw-serp { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--mw-line); }
+.mw-serp:hover { color: #2b5a8c; border-bottom-color: currentColor; }

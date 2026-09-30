@@ -3,6 +3,22 @@ import type { MarketSeo } from '@/lib/mw-market-data'
 import type { ThemeRoll } from '@/lib/mw-themes'
 import { rollSummary } from '@/lib/mw-themes'
 import { num } from '@/lib/mw-data'
+import { COUNTRIES, serpUrl } from '@/lib/mw-markets'
+
+/** A search, linked to the live Google result for it in that market. */
+function Serp({ q, country }: { q: string; country?: string }) {
+  const co = COUNTRIES.find(c => c.country.key === country)?.country ?? null
+  return (
+    <a className="mw-serp" href={serpUrl(q, co)} target="_blank" rel="noreferrer"
+      title={`See who ranks for "${q}"${co ? ` in ${co.label}` : ''}`}>{q}</a>
+  )
+}
+
+/** The country a keyword belongs to, worked out from the page it ranks on. */
+const countryOfUrl = (url: string) => {
+  const m = /\/locations\/([^/?#]+)/.exec(String(url || ''))
+  return m && COUNTRIES.some(c => c.country.key === m[1]) ? m[1] : undefined
+}
 
 // 👉 The SEO tab, by market.
 //
@@ -80,7 +96,7 @@ export function OpportunitiesByMarket({ m }: { m: MarketSeo }) {
         <tbody>
           {m.opportunities.map((k, i) => (
             <tr key={`${k.q}-${i}`}>
-              <td>{k.q}</td>
+              <td><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></td>
               <td className="num">#{k.pos.toFixed(0)}</td>
               <td className="num">{num(k.vol)}</td>
               <td className="num"><span className={`mw-kd ${k.kd < 20 ? 'easy' : k.kd < 40 ? 'mid' : 'hard'}`}>{k.kd.toFixed(0)}</span></td>
@@ -243,7 +259,7 @@ export function WinningByMarket({ m }: { m: MarketSeo }) {
         <tbody>
           {m.winning.map((k, i) => (
             <tr key={`${k.q}-${i}`}>
-              <td>{k.q}</td>
+              <td><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></td>
               <td className="num"><span className={`mw-rank ${k.pos <= 3 ? 'top' : 'good'}`}>#{k.pos.toFixed(0)}</span></td>
               <td className="num">{num(k.vol)}</td>
               <td className="num">{k.traffic ? num(k.traffic) : '—'}</td>
@@ -290,7 +306,7 @@ export function Momentum({ m }: { m: MarketSeo }) {
         <ul className={`mw-move ${dir}`}>
           {rows.map((k, i) => (
             <li key={`${k.q}-${i}`}>
-              <span className="q">{k.q}</span>
+              <span className="q"><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></span>
               <span className="d">
                 {dir === 'new' ? `new at #${k.pos.toFixed(0)}` : `#${k.prev.toFixed(0)} → #${k.pos.toFixed(0)}`}
               </span>

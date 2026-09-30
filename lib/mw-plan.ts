@@ -292,7 +292,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     out.push({
       ...base, id: `mkt-${co.key}-gap-${slug(g.head)}`, kind: 'gap', holds: defend,
       title: `Write the ${co.label} page for “${g.head}”`,
-      why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and we rank for ${g.keywords.length === 1 ? 'it at all' : 'none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
+      why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and ${g.keywords.length === 1 ? 'we do not rank for it at all' : 'we rank for none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
       steps: [
         `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`,
         `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`,

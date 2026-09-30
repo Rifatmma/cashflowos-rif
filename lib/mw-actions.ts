@@ -9,6 +9,8 @@ export type MwHow = {
   doneWhen: string
   kind: string
   country?: string
+  /** /locations/<key>, so a link can be built for the right country. */
+  countryKey?: string
   score?: number
   /** Top-ten rankings this page already has, which the work must not lose. */
   holds?: { q: string; pos: number; vol: number; visits: number }[]

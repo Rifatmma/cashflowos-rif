@@ -345,7 +345,7 @@ export async function saveTasks(
     market: t.market,
     owner: t.owner,
     size: t.size,
-    how: { steps: t.steps, keywords: t.keywords, url: t.url, doneWhen: t.doneWhen, kind: t.kind, country: t.countryLabel, score: t.score, blockedBy: t.blockedBy, group: t.group, holds: t.holds },
+    how: { steps: t.steps, keywords: t.keywords, url: t.url, doneWhen: t.doneWhen, kind: t.kind, country: t.countryLabel, countryKey: t.country, score: t.score, blockedBy: t.blockedBy, group: t.group, holds: t.holds },
     source: 'generated',
     theme: t.theme,
     cycle,
