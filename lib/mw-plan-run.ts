@@ -266,7 +266,22 @@ export async function auditLocations(pages: string[], notes: string[]): Promise<
  * has gone is retired with active=false rather than deleted, so the history of
  * what was asked for survives.
  */
-export async function saveTasks(tasks: PlanTask[], cycle: string): Promise<{ written: number; retired: number }> {
+export async function saveTasks(
+  tasks: PlanTask[],
+  cycle: string,
+  /**
+   * Kinds this run was actually able to look for. A kind left out is one
+   * whose SOURCE FAILED, and its existing tasks are left alone.
+   *
+   * This exists because of a real incident: Semrush returned WRONG KEY while
+   * GA4 answered fine, so the run rebuilt the plan from what it had and
+   * retired twenty tasks -- every striking-distance, city, gap and
+   * cannibalisation task on the board -- because they were "no longer
+   * generated". They were still true; we had simply gone blind to them.
+   * Absence of evidence is not evidence the work is done (owner, 30 Sep 2026).
+   */
+  canRetire?: Set<string>,
+): Promise<{ written: number; retired: number }> {
   if (!supabaseConfigured || !tasks.length) return { written: 0, retired: 0 }
   const rows = tasks.map((t, i) => ({
     id: t.id,
@@ -298,9 +313,12 @@ export async function saveTasks(tasks: PlanTask[], cycle: string): Promise<{ wri
   // leave last cycle's tasks where the team can still see them.
   if (!tasks.some(t => t.kind !== 'blind')) return { written: rows.length, retired: 0 }
   const keep = new Set(rows.map(r => r.id))
-  const { data: old } = await supabase.from('mw_actions').select('id')
+  const { data: old } = await supabase.from('mw_actions').select('id, how')
     .eq('source', 'generated').eq('active', true)
-  const gone = (old ?? []).map(r => r.id as string).filter(id => !keep.has(id))
+  const gone = (old ?? [])
+    .filter((r: any) => !keep.has(r.id as string))
+    .filter((r: any) => !canRetire || canRetire.has(String(r.how?.kind ?? '')))
+    .map((r: any) => r.id as string)
   if (gone.length) await supabase.from('mw_actions').update({ active: false }).in('id', gone)
   return { written: rows.length, retired: gone.length }
 }
@@ -363,7 +381,25 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
     const tasks = buildPlan(input)
     const real = tasks.filter(t => t.kind !== 'blind')
 
-    const saved = opts.save === false ? { written: 0, retired: 0 } : await saveTasks(tasks, cycle)
+    // Which sources actually answered. Only kinds a working source can
+    // produce are eligible for retirement.
+    const KINDS_BY_SOURCE = {
+      ranking: ['strike', 'no-clicks', 'city', 'city-build', 'orphan', 'cannibal'],
+      analytics: ['no-page', 'page-build', 'convert'],
+      audit: ['health'],
+      gap: ['gap'],
+    } as const
+    const canRetire = new Set<string>(['blind'])
+    if (rows.length) KINDS_BY_SOURCE.ranking.forEach(k => canRetire.add(k))
+    if (ga4.length) KINDS_BY_SOURCE.analytics.forEach(k => canRetire.add(k))
+    if (Object.keys(health).length) KINDS_BY_SOURCE.audit.forEach(k => canRetire.add(k))
+    if (gapRows.length) KINDS_BY_SOURCE.gap.forEach(k => canRetire.add(k))
+
+    const blind = (['ranking', 'analytics', 'audit', 'gap'] as const)
+      .filter(src => !KINDS_BY_SOURCE[src].some(k => canRetire.has(k)))
+    if (blind.length) notes.push(`held back: ${blind.join(', ')} did not answer, so their tasks were left alone`)
+
+    const saved = opts.save === false ? { written: 0, retired: 0 } : await saveTasks(tasks, cycle, canRetire)
     if (opts.save !== false) await saveMarketSeo(semrush, ga4, health, cycle).catch(e =>
       notes.push(`market evidence not saved: ${String(e?.message ?? e).slice(0, 80)}`))
 

@@ -214,6 +214,50 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     }
   }
 
+  // ── the page exists but is not built to standard ───────────────────────
+  // Read from the page itself, so this works with no API at all. It is the
+  // one rule that can still produce work when every data source is down.
+  const audit = input.health?.[pathOf(page)]
+  if (audit && audit.faults.length) {
+    const heavy = audit.faults.filter(f => f.weight >= 8)
+    if (heavy.length) {
+      out.push({
+        ...base, owner: builder, id: `mkt-${co.key}-health`, kind: 'health',
+        title: `Fix the on-page SEO on ${page}`,
+        why: `${page} scores ${audit.score} out of 100 on the on-page checks, with ${heavy.length} ${heavy.length === 1 ? 'problem' : 'problems'} worth fixing. None of this needs new content or anybody's approval — it is markup on a page that is already live and already earning traffic.`,
+        steps: [
+          ...heavy.map(f => `${f.says} ${f.fix}`),
+          'Re-run the page through the audit afterwards and confirm it scores above 80.',
+        ],
+        keywords: [], url: page, size: heavy.length > 3 ? 'M' : 'S',
+        doneWhen: `${page} passes the on-page checks with a score above 80.`,
+        score: (100 - audit.score) * 0.4 + (ga4?.sessions ?? 0) * 0.01,
+      })
+    }
+  }
+
+  // ── traffic arrives and nobody asks us anything ────────────────────────
+  // Sessions without a single lead is not a ranking problem and more traffic
+  // will not fix it. It belongs to whoever knows what a buyer there expects.
+  const sess = ga4?.sessions ?? 0
+  if (has(page) && sess >= 120 && (ga4?.leads ?? 0) === 0) {
+    out.push({
+      ...base, id: `mkt-${co.key}-convert`, kind: 'convert',
+      title: `Give ${co.label} a reason to get in touch`,
+      why: `${co.label} sent ${round(sess)} sessions to the site this month and produced no enquiries at all. The traffic is already paid for; the page is not converting it.`,
+      steps: [
+        `Open ${page} and find the contact route. Say who in ${co.label} a buyer reaches, and how they prefer to be reached — a form alone is not enough in every market.`,
+        `Add proof we operate in ${co.label}: a campaign, a partner, a named site, or the inventory count.`,
+        'Put a call to action above the fold and repeat it at the end, in the words a buyer there would use.',
+        `Check the page on a phone — most of this traffic is mobile.`,
+        'If the market genuinely has no inventory yet, decline this task and say so; that is the useful answer.',
+      ],
+      keywords: [], url: page, size: 'M',
+      doneWhen: `${page} has a working local contact route and local proof, and leads are re-counted in four weeks.`,
+      score: sess * 0.03,
+    })
+  }
+
   if (!rows.length) return out
 
   // We rank #1 for our own name in every market, so a brand search scores like
@@ -451,50 +495,6 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       url: page, size: e.size,
       doneWhen: `A page answering “${g.head}” is live and linked, and its positions are checked in eight weeks.`,
       score: g.vol * 0.02,
-    })
-  }
-
-  // ── the page exists but is not built to standard ───────────────────────
-  // Read from the page itself, so this works with no API at all. It is the
-  // one rule that can still produce work when every data source is down.
-  const audit = input.health?.[pathOf(page)]
-  if (audit && audit.faults.length) {
-    const heavy = audit.faults.filter(f => f.weight >= 8)
-    if (heavy.length) {
-      out.push({
-        ...base, owner: builder, id: `mkt-${co.key}-health`, kind: 'health',
-        title: `Fix the on-page SEO on ${page}`,
-        why: `${page} scores ${audit.score} out of 100 on the on-page checks, with ${heavy.length} ${heavy.length === 1 ? 'problem' : 'problems'} worth fixing. None of this needs new content or anybody's approval — it is markup on a page that is already live and already earning traffic.`,
-        steps: [
-          ...heavy.map(f => `${f.says} ${f.fix}`),
-          'Re-run the page through the audit afterwards and confirm it scores above 80.',
-        ],
-        keywords: [], url: page, size: heavy.length > 3 ? 'M' : 'S',
-        doneWhen: `${page} passes the on-page checks with a score above 80.`,
-        score: (100 - audit.score) * 0.4 + (ga4?.sessions ?? 0) * 0.01,
-      })
-    }
-  }
-
-  // ── traffic arrives and nobody asks us anything ────────────────────────
-  // Sessions without a single lead is not a ranking problem and more traffic
-  // will not fix it. It belongs to whoever knows what a buyer there expects.
-  const sess = ga4?.sessions ?? 0
-  if (has(page) && sess >= 120 && (ga4?.leads ?? 0) === 0) {
-    out.push({
-      ...base, id: `mkt-${co.key}-convert`, kind: 'convert',
-      title: `Give ${co.label} a reason to get in touch`,
-      why: `${co.label} sent ${round(sess)} sessions to the site this month and produced no enquiries at all. The traffic is already paid for; the page is not converting it.`,
-      steps: [
-        `Open ${page} and find the contact route. Say who in ${co.label} a buyer reaches, and how they prefer to be reached — a form alone is not enough in every market.`,
-        `Add proof we operate in ${co.label}: a campaign, a partner, a named site, or the inventory count.`,
-        'Put a call to action above the fold and repeat it at the end, in the words a buyer there would use.',
-        `Check the page on a phone — most of this traffic is mobile.`,
-        'If the market genuinely has no inventory yet, decline this task and say so; that is the useful answer.',
-      ],
-      keywords: [], url: page, size: 'M',
-      doneWhen: `${page} has a working local contact route and local proof, and leads are re-counted in four weeks.`,
-      score: sess * 0.03,
     })
   }
 

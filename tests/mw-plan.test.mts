@@ -192,3 +192,33 @@ else ok('ids are stable, so a re-run updates rather than duplicates')
 
 console.log(bad ? `\n${bad} failing` : `\nall good — ${plan.length} tasks across ${new Set(plan.map(t => t.market)).size} markets`)
 process.exitCode = bad ? 1 : 0
+
+// -- a source going dark must not retire the work it found last time --------
+// Real incident: Semrush returned WRONG KEY while GA4 answered fine, and the
+// run retired twenty tasks that were all still true.
+{
+  // A live page with real on-page faults — the audit needs no API, so it
+  // must keep working when every keyword source is dark.
+  const audited = {
+    '/locations/india': {
+      url: 'https://www.movingwalls.com/locations/india', ok: true, status: 200,
+      title: 'x'.repeat(74), titleLen: 74, metaDesc: null, metaLen: 0,
+      h1: ['DOOH India'], words: 900, schema: ['Organization'], canonical: null,
+      ogImage: true, internalOut: 9, score: 58,
+      faults: [
+        { key: 'title-long', says: 'The title is 74 characters.', fix: 'Trim it.', weight: 12 },
+        { key: 'desc-missing', says: 'There is no meta description.', fix: 'Write one.', weight: 18 },
+      ],
+    },
+  } as any
+
+  const blindToRankings = buildPlan({ ...input, rows: [], health: audited })
+  const kinds = new Set(blindToRankings.map(t => t.kind))
+  if (kinds.has('strike') || kinds.has('cannibal')) {
+    fail('ranking tasks were produced with no ranking data')
+  } else ok('with no ranking data, no ranking tasks are invented')
+
+  // ...but the sources that DO still work must keep producing.
+  if (!kinds.has('health')) fail('the page audit stopped producing when the keyword pull failed')
+  else ok('page health still produces when the keyword source is dark — it needs no API')
+}
