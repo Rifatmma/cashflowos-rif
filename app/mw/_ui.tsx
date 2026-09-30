@@ -1,13 +1,13 @@
 import Link from 'next/link'
 import type { Alert } from '@/lib/mw-data'
 
-// Shared furniture for the three Moving Walls tabs. Server components only.
+// Shared furniture for the Moving Walls tabs. Server components only.
 // Styling lives in mw.css, scoped under .mw — see app/mw/layout.tsx.
 
 export function MwHero({
   tab, pulled, stale, headline, children,
 }: {
-  tab: 'overview' | 'paid' | 'seo'
+  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps'
   pulled: string
   stale: boolean
   headline: string
@@ -17,6 +17,8 @@ export function MwHero({
     { key: 'overview', href: '/mw', label: 'Overview' },
     { key: 'paid', href: '/mw/paid', label: 'Paid search' },
     { key: 'seo', href: '/mw/seo', label: 'SEO & organic' },
+    { key: 'plan', href: '/mw/plan', label: 'Market plan' },
+    { key: 'gaps', href: '/mw/gaps', label: 'Content gap' },
   ] as const
   return (
     <>
@@ -57,9 +59,11 @@ export function Tiles({ items }: { items: { k: string; v: string; d?: string; to
   )
 }
 
-export function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+// `id` is for the market tabs on the SEO tab: they are plain links, so the
+// page jumps back to the section the reader was looking at after it reloads.
+export function Section({ id, title, sub, children }: { id?: string; title: string; sub?: string; children: React.ReactNode }) {
   return (
-    <section className="mw-card">
+    <section className="mw-card" id={id}>
       <h2 style={{ marginBottom: sub ? 5 : 14 }}>{title}</h2>
       {sub && <p className="lede" style={{ marginBottom: 14 }}>{sub}</p>}
       {children}
