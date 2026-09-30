@@ -258,25 +258,14 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     })
   }
 
-  if (!rows.length) return out
-
   // We rank #1 for our own name in every market, so a brand search scores like
   // a huge opportunity and is worth nothing -- there is no position left to
-  // win. Everything hunting for a ranking to improve reads `earned`.
-  // Cannibalisation above is the deliberate exception: a dozen pages fighting
-  // over our own company name is a real problem, just not a content one.
-  // ...and it has to be a search for something we sell. "Moving Walls" picks
-  // up wall-decorating and pest-control traffic that scores like gold and is
-  // worth nothing.
+  // win. Everything hunting for a ranking to improve reads `earned`, and it
+  // also has to be a search for something we sell: "Moving Walls" picks up
+  // wall-decorating and pest-control traffic that scores like gold and is
+  // worth nothing. Cannibalisation is the deliberate exception -- a dozen
+  // pages fighting over our own company name is a real problem.
   const earned = rows.filter(r => !isBrand(r.query) && isRelevant(r.query))
-
-  // Queries naming a city with no page of its own belong to that city's task,
-  // not to the country page as well — otherwise the same keyword is handed to
-  // two people.
-  const citiesWanted = co.cities.filter(city =>
-    !has(cityPageFor(co, city)) &&
-    earned.some(r => r.query.toLowerCase().includes(city.toLowerCase()) && r.volume >= MIN_VOL))
-  const claimedByCity = (q: string) => citiesWanted.some(city => q.toLowerCase().includes(city.toLowerCase()))
 
   // What each page already ranks in the top ten for, so a rewrite defends it.
   // `exclude` drops the searches the same task is already asking them to push
@@ -290,6 +279,45 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     .slice(0, 8)
     .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
   }
+
+  // ── a page our competitors have and we do not ──────────────────────────
+  // The gap is pulled quarterly; only the strongest topic becomes a task, or
+  // one market would swamp the board with eight content briefs at once. The
+  // rest stay on /mw/gaps for the lead to pick up when they have capacity.
+  const topics = (input.gaps?.[co.key] ?? []).slice(0, 1)
+  for (const g of topics) {
+    const e = effortOf(g)
+    const rivals = g.rivals.length ? g.rivals.join(' and ') : 'a competitor'
+    const defend = holdsOn(page)
+    out.push({
+      ...base, id: `mkt-${co.key}-gap-${slug(g.head)}`, kind: 'gap', holds: defend,
+      title: `Write the ${co.label} page for “${g.head}”`,
+      why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and we rank for ${g.keywords.length === 1 ? 'it at all' : 'none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
+      steps: [
+        `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`,
+        `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`,
+        `Read how ${g.rivals[0] ?? 'the competitor'} answers it, then answer it better with something they cannot copy — our inventory, our measurement, a named local campaign.`,
+        `Link it from ${page} and from the related blog posts, and tell ${builder} to build it once the copy is ready.`,
+        defend.length
+          ? `While you are in there: ${page} already ranks top ten for ${list(defend, 6)}. Do not lose those — this is a new page, so link to it rather than moving that content onto it.`
+          : 'This is new ground, so nothing on the site is at risk from writing it.',
+      ],
+      keywords: g.keywords.slice(0, 8).map(k => ({ q: k.q, pos: 0, vol: k.vol, visits: 0, kd: k.kd })),
+      url: page, size: e.size,
+      doneWhen: `A page answering “${g.head}” is live and linked, and its positions are checked in eight weeks.`,
+      score: g.vol * 0.02,
+    })
+  }
+
+  if (!rows.length) return out
+
+  // Queries naming a city with no page of its own belong to that city's task,
+  // not to the country page as well — otherwise the same keyword is handed to
+  // two people.
+  const citiesWanted = co.cities.filter(city =>
+    !has(cityPageFor(co, city)) &&
+    earned.some(r => r.query.toLowerCase().includes(city.toLowerCase()) && r.volume >= MIN_VOL))
+  const claimedByCity = (q: string) => citiesWanted.some(city => q.toLowerCase().includes(city.toLowerCase()))
 
   // ── striking distance, grouped by the page Google already shows ─────────
   const near = earned.filter(r =>
@@ -466,35 +494,6 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       url: bestPage, size: pages.length > 6 ? 'M' : 'S',
       doneWhen: `One page owns “${q}” and the others link to it instead of competing.`,
       score: vol * 0.03 * Math.min(pages.length, 10),
-    })
-  }
-
-  // ── a page our competitors have and we do not ──────────────────────────
-  // The gap is pulled quarterly; only the strongest topic becomes a task, or
-  // one market would swamp the board with eight content briefs at once. The
-  // rest stay on /mw/gaps for the lead to pick up when they have capacity.
-  const topics = (input.gaps?.[co.key] ?? []).slice(0, 1)
-  for (const g of topics) {
-    const e = effortOf(g)
-    const rivals = g.rivals.length ? g.rivals.join(' and ') : 'a competitor'
-    const defend = holdsOn(page)
-    out.push({
-      ...base, id: `mkt-${co.key}-gap-${slug(g.head)}`, kind: 'gap', holds: defend,
-      title: `Write the ${co.label} page for “${g.head}”`,
-      why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and we rank for ${g.keywords.length === 1 ? 'it at all' : 'none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
-      steps: [
-        `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`,
-        `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`,
-        `Read how ${g.rivals[0] ?? 'the competitor'} answers it, then answer it better with something they cannot copy — our inventory, our measurement, a named local campaign.`,
-        `Link it from ${page} and from the related blog posts, and tell ${builder} to build it once the copy is ready.`,
-        defend.length
-          ? `While you are in there: ${page} already ranks top ten for ${list(defend, 6)}. Do not lose those — this is a new page, so link to it rather than moving that content onto it.`
-          : 'This is new ground, so nothing on the site is at risk from writing it.',
-      ],
-      keywords: g.keywords.slice(0, 8).map(k => ({ q: k.q, pos: 0, vol: k.vol, visits: 0, kd: k.kd })),
-      url: page, size: e.size,
-      doneWhen: `A page answering “${g.head}” is live and linked, and its positions are checked in eight weeks.`,
-      score: g.vol * 0.02,
     })
   }
 

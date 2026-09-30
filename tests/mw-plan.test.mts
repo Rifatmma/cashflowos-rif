@@ -221,4 +221,25 @@ process.exitCode = bad ? 1 : 0
   // ...but the sources that DO still work must keep producing.
   if (!kinds.has('health')) fail('the page audit stopped producing when the keyword pull failed')
   else ok('page health still produces when the keyword source is dark — it needs no API')
+
+  // The content gap comes from its own quarterly pull, so it must survive a
+  // keyword outage too. It did not, and a Semrush 'WRONG KEY' quietly retired
+  // every content brief on the board.
+  const withGaps = buildPlan({
+    ...input,
+    rows: [],
+    gaps: {
+      india: [{
+        head: 'billboard advertising', vol: 3500, kd: 28, cpc: 0.51,
+        rivals: ['gohoardings.com'],
+        keywords: [
+          { q: 'billboard advertising', vol: 1900, kd: 30, cpc: 0.51, theirBest: 2, rival: 'gohoardings.com' },
+          { q: 'billboard advertising cost', vol: 880, kd: 26, cpc: 0.44, theirBest: 9, rival: 'gohoardings.com' },
+          { q: 'billboard advertising agency', vol: 720, kd: 28, cpc: 0.52, theirBest: 14, rival: 'gohoardings.com' },
+        ],
+      }],
+    } as any,
+  })
+  if (!withGaps.some(t => t.kind === 'gap')) fail('the content gap stopped producing when the keyword pull failed')
+  else ok('content briefs survive a keyword outage — they come from their own quarterly pull')
 }
