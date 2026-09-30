@@ -387,3 +387,26 @@
   .mw-gapsum-row .top { grid-column: 1 / -1; }
   .mw-gapc > summary { grid-template-columns: 26px 1fr; }
 }
+
+/* import */
+.mw-import { display: flex; flex-direction: column; gap: 14px; max-width: 560px; }
+.mw-import .drop { display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 2px dashed var(--mw-line); border-radius: 11px; background: #fafbfc; cursor: pointer; }
+.mw-import .drop span { font-size: 13px; color: var(--mw-ink-2); }
+.mw-import .pick { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--mw-ink-2); }
+.mw-import .pick select { padding: 8px 10px; border: 1px solid var(--mw-line); border-radius: 8px; font: inherit; font-size: 13px; background: #fff; }
+.mw-import .pick small { font-size: 11.5px; opacity: .8; }
+.mw-import button { align-self: flex-start; }
+.mw-import-result { margin-top: 16px; padding: 13px 15px; border-radius: 10px; border: 1px solid var(--mw-line); }
+.mw-import-result.good { background: #f4fbf7; border-color: #bfe6d2; }
+.mw-import-result.partial { background: #fffcf5; border-color: #e6c49a; }
+.mw-import-result ul { list-style: none; margin: 9px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mw-import-result li { font-size: 12.5px; padding-left: 18px; position: relative; overflow-wrap: anywhere; }
+.mw-import-result li::before { position: absolute; left: 0; }
+.mw-import-result li.yes::before { content: '✓'; color: #17694a; }
+.mw-import-result li.no::before { content: '×'; color: #b23b3b; font-weight: 700; }
+.mw-reports { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.mw-report { padding: 13px 15px; border: 1px solid var(--mw-line); border-radius: 10px; }
+.mw-report b { font-size: 13.5px; }
+.mw-report p { margin: 6px 0 0; font-size: 12.5px; color: var(--mw-ink-2); line-height: 1.5; }
+.mw-report .how { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: #fafbfc; padding: 7px 9px; border-radius: 6px; }
+.mw-report .feeds { font-size: 11.5px; opacity: .8; }

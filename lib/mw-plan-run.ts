@@ -424,30 +424,64 @@ export async function saveMarketSeo(
   cycle: string,
 ): Promise<number> {
   if (!supabaseConfigured) return 0
+
+  // WHAT A FAILED SOURCE MUST NOT DO IS ERASE WHAT IT FOUND LAST TIME.
+  //
+  // This wrote every field unconditionally, so a run where Semrush returned
+  // WRONG KEY stored `keywords: []`, `brand_pct: null`, `traffic: 0` for all
+  // thirty-eight countries -- blanking every keyword table, brand split and
+  // opportunity list on the SEO tab. GA4 and the page audit had answered
+  // perfectly well; their columns were the only ones that should have moved.
+  //
+  // So each source now writes only its own columns, and only when it has
+  // something (owner, 30 Sep 2026).
+  const { data: existing } = await supabase.from('mw_market_seo')
+    .select('*').eq('cycle', cycle)
+  const before = new Map((existing ?? []).map((r: any) => [r.country as string, r]))
+
   const rows = COUNTRIES.map(({ country, market }) => {
     const e = ev.find(x => x.country.key === country.key)
     const g = ga4.find(x => x.country.toLowerCase() === country.ga4.toLowerCase())
     const h = health[`/locations/${country.key}`] ?? null
-    if (!e && !g && !h) return null
-    return {
+    const old = before.get(country.key)
+    if (!e && !g && !h && !old) return null
+
+    const row: Record<string, unknown> = {
+      ...(old ?? {}),
       cycle, country: country.key, market: market.key,
-      db: e?.db ?? null,
-      rank: e?.rank ?? null,
-      keywords_total: e?.keywordsTotal ?? 0,
-      traffic: e?.traffic ?? 0,
-      cost: e?.cost ?? 0,
-      brand_pct: e?.brandPct ?? null,
-      nonbrand_pct: e?.nonBrandPct ?? null,
-      keywords: e?.keywords ?? [],
-      competitors: e?.competitors ?? [],
-      gap: [],
-      health: h,
-      health_baseline: h?.score ?? null,
-      ga4_sessions: g?.sessions ?? 0,
-      ga4_leads: g?.leads ?? 0,
       pulled_at: new Date().toISOString(),
     }
+
+    // Semrush columns: only when Semrush actually answered for this country.
+    if (e) {
+      row.db = e.db
+      row.rank = e.rank
+      row.keywords_total = e.keywordsTotal
+      row.traffic = e.traffic
+      row.cost = e.cost
+      row.brand_pct = e.brandPct
+      row.nonbrand_pct = e.nonBrandPct
+      row.keywords = e.keywords
+      // An empty competitor list means "not pulled", not "no competitors".
+      if (e.competitors.length) row.competitors = e.competitors
+    }
+
+    // Analytics columns.
+    if (g) {
+      row.ga4_sessions = g.sessions
+      row.ga4_leads = g.leads
+    }
+
+    // Audit columns. The baseline is what the monthly run found; the daily
+    // watch updates `health` alone and leaves the baseline to compare against.
+    if (h) {
+      row.health = h
+      row.health_baseline = h.score
+    }
+
+    return row
   }).filter(Boolean)
+
   if (!rows.length) return 0
   const { error } = await supabase.from('mw_market_seo').upsert(rows as any[], { onConflict: 'cycle,country' })
   if (error) throw new Error(`saving market evidence: ${error.message}`)

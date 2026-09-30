@@ -156,3 +156,73 @@ export async function getGaps(quarter?: string): Promise<CountryGap[]> {
     quarter: String(r.quarter),
   }))
 }
+
+// ------------------------------------------------------------ manual import
+/**
+ * Store a hand-uploaded Semrush export.
+ *
+ * Writes into exactly the same tables the API pull filled, so every page,
+ * rule and task downstream is unaware of where the numbers came from. The
+ * only difference is `source`, kept so the dashboard can say honestly when a
+ * market was last refreshed and by whom (owner, 30 Sep 2026).
+ */
+export async function storeImport(f: {
+  kind: 'positions' | 'competitors' | 'gap'
+  country: string
+  market: string
+  db: string | null
+  keywords?: any[]
+  competitors?: any[]
+  gap?: any[]
+  rivals?: string[]
+}): Promise<string> {
+  if (!supabaseConfigured) throw new Error('supabase not configured')
+  const { cycleOf } = await import('./mw-plan-run')
+
+  if (f.kind === 'gap') {
+    const { cleanGap, cluster, worthWriting } = await import('./mw-gap')
+    const quarter = quarterOf()
+    const { data: mineRow } = await supabase.from('mw_market_seo')
+      .select('keywords').eq('country', f.country).order('cycle', { ascending: false }).limit(1).maybeSingle()
+    const mine = ((mineRow?.keywords ?? []) as { q?: string }[]).map(k => String(k.q ?? '')).filter(Boolean)
+    const kept = cleanGap((f.gap ?? []) as any, mine)
+    const clusters = cluster(kept).filter(worthWriting)
+    const { error } = await supabase.from('mw_market_gaps').upsert({
+      quarter, country: f.country, market: f.market, db: f.db,
+      rivals: f.rivals ?? [], clusters,
+      raw_count: f.gap?.length ?? 0, kept_count: kept.length,
+      pulled_at: new Date().toISOString(),
+    }, { onConflict: 'quarter,country' })
+    if (error) throw new Error(error.message)
+    return `${clusters.length} topics from ${f.gap?.length ?? 0} rows`
+  }
+
+  const cycle = cycleOf()
+  // Upsert one column without disturbing the rest of the row: a competitors
+  // file must not wipe the keywords a positions file put there an hour ago.
+  const { data: existing } = await supabase.from('mw_market_seo')
+    .select('*').eq('cycle', cycle).eq('country', f.country).maybeSingle()
+
+  const row: Record<string, unknown> = {
+    ...(existing ?? {}),
+    cycle, country: f.country, market: f.market, db: f.db,
+    pulled_at: new Date().toISOString(),
+  }
+
+  if (f.kind === 'positions') {
+    const { brandSplit } = await import('./mw-semrush')
+    const split = brandSplit((f.keywords ?? []) as any)
+    row.keywords = f.keywords ?? []
+    row.keywords_total = f.keywords?.length ?? 0
+    row.traffic = (f.keywords ?? []).reduce((t: number, k: any) => t + (Number(k.traffic) || 0), 0)
+    row.brand_pct = split.brand
+    row.nonbrand_pct = split.nonBrand
+  }
+  if (f.kind === 'competitors') row.competitors = f.competitors ?? []
+
+  const { error } = await supabase.from('mw_market_seo').upsert(row as any, { onConflict: 'cycle,country' })
+  if (error) throw new Error(error.message)
+  return f.kind === 'positions'
+    ? `${f.keywords?.length ?? 0} keywords into ${cycle}`
+    : `${f.competitors?.length ?? 0} competitors into ${cycle}`
+}

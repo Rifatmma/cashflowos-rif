@@ -2,7 +2,9 @@
 
 import { supabase } from '@/lib/supabase'
 import { currentGuest } from '@/lib/guest'
-import { setRivals } from '@/lib/mw-gap-run'
+import { setRivals, storeImport } from '@/lib/mw-gap-run'
+import { readFile, describe } from '@/lib/mw-import'
+import { COUNTRIES, dbOf } from '@/lib/mw-markets'
 import { revalidatePath } from 'next/cache'
 
 // Recording a decision. The ONLY writes /mw makes.
@@ -97,4 +99,58 @@ export async function saveRivals(formData: FormData) {
     .slice(0, 4)
   await setRivals(country, list)
   revalidatePath('/mw/gaps'); revalidatePath('/mw/seo')
+}
+
+/**
+ * Take a batch of Semrush CSV exports.
+ *
+ * Every file is reported on individually — imported, or skipped with the
+ * reason. Nothing is guessed: a file whose market cannot be read from its
+ * name is handed back for a human to place rather than filed somewhere
+ * plausible (owner, 30 Sep 2026).
+ */
+export async function importSemrush(_prev: unknown, formData: FormData): Promise<{ lines: string[]; ok: number; skipped: number }> {
+  const files = formData.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
+  const pick = String(formData.get('country') ?? '').trim()
+
+  if (!files.length) return { lines: ['No files chosen.'], ok: 0, skipped: 0 }
+
+  const forced = pick
+    ? (() => {
+      const hit = COUNTRIES.find(c => c.country.key === pick)
+      return hit ? { country: hit.country.key, market: hit.market.key, db: dbOf(hit.country) ?? '' } : undefined
+    })()
+    : undefined
+
+  const lines: string[] = []
+  let ok = 0, skipped = 0
+
+  for (const file of files) {
+    const parsed = readFile(file.name, await file.text(), forced)
+    if (parsed.problem || !parsed.kind || !parsed.country) {
+      skipped++
+      lines.push(describe(parsed))
+      continue
+    }
+    try {
+      const what = await storeImport({
+        kind: parsed.kind,
+        country: parsed.country,
+        market: parsed.market!,
+        db: parsed.db,
+        keywords: parsed.keywords,
+        competitors: parsed.competitors,
+        gap: parsed.gap,
+        rivals: parsed.rivals,
+      })
+      ok++
+      lines.push(`${file.name} — ${parsed.country}: ${what}`)
+    } catch (e: any) {
+      skipped++
+      lines.push(`${file.name} — could not be saved: ${String(e?.message ?? e).slice(0, 100)}`)
+    }
+  }
+
+  revalidatePath('/mw/seo'); revalidatePath('/mw/gaps'); revalidatePath('/mw/plan'); revalidatePath('/mw/import')
+  return { lines, ok, skipped }
 }
