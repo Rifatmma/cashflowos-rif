@@ -27,7 +27,51 @@ import { buildPlan, type MarketRow, type Ga4Country, type PlanInput, type PlanTa
 
 const SITE = 'https://www.movingwalls.com'
 const SITE_DOMAIN = 'movingwalls.com'
-const GSC_PROPERTY = (process.env.GSC_PROPERTY || 'sc-domain:movingwalls.com').trim()
+/**
+ * Which Search Console property to read.
+ *
+ * DO NOT HARDCODE ONE. This was pinned to `sc-domain:movingwalls.com` and
+ * every call 403'd for a week, which we read as "nobody has granted us
+ * access". The account had full access the whole time -- to the URL-prefix
+ * property `https://www.movingwalls.com/`. Two properties exist, we asked
+ * for the wrong one, and the error was indistinguishable from a permission
+ * problem.
+ *
+ * So the property is discovered: ask Search Console what this account can
+ * actually read and take the best one. GSC_PROPERTY still overrides, for
+ * when there are several and the right one is not obvious
+ * (owner, 30 Sep 2026).
+ */
+const GSC_OVERRIDE = (process.env.GSC_PROPERTY || '').trim()
+
+/** Permission levels that can read search analytics, best first. */
+const READABLE = ['siteOwner', 'siteFullUser', 'siteRestrictedUser']
+
+let gscProperty: string | null = null
+
+export async function findGscProperty(notes?: string[]): Promise<string | null> {
+  if (GSC_OVERRIDE) return GSC_OVERRIDE
+  if (gscProperty) return gscProperty
+  try {
+    const out = await runTool('GOOGLE_SEARCH_CONSOLE_LIST_SITES', undefined, {})
+    const sites: { siteUrl?: string; permissionLevel?: string }[] = out?.siteEntry ?? []
+    const usable = sites
+      .filter(x => x.siteUrl && READABLE.includes(String(x.permissionLevel)))
+      .sort((a, b) => READABLE.indexOf(String(a.permissionLevel)) - READABLE.indexOf(String(b.permissionLevel)))
+    if (!usable.length) {
+      notes?.push(`Search Console: the connected account can see ${sites.length} properties but can read none of them`)
+      return null
+    }
+    gscProperty = usable[0].siteUrl!
+    if (sites.length > 1) {
+      notes?.push(`Search Console: using ${gscProperty} (${usable[0].permissionLevel}) of ${sites.length} properties`)
+    }
+    return gscProperty
+  } catch (e: any) {
+    notes?.push(`Search Console: could not list properties — ${String(e?.message ?? e).slice(0, 90)}`)
+    return null
+  }
+}
 const GA4 = (() => {
   const raw = (process.env.GA4_PROPERTY_ID || '342007847').trim()
   return raw.startsWith('properties/') ? raw : `properties/${raw}`
@@ -103,12 +147,14 @@ export async function fetchGa4Countries(): Promise<Ga4Country[]> {
  * Returns [] with a reason rather than throwing: the rest of the plan is still
  * worth producing when this is not yet authorised.
  */
-export async function fetchGsc(): Promise<{ rows: MarketRow[]; note: string }> {
+export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; note: string }> {
+  const property = await findGscProperty(notes)
+  if (!property) return { rows: [], note: 'Search Console: no readable property for the connected account' }
   const end = new Date(Date.now() - 3 * 86_400_000)      // GSC lags two to three days
   const start = new Date(end.getTime() - 28 * 86_400_000)
   try {
     const out = await runTool('GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY', undefined, {
-      site_url: GSC_PROPERTY,
+      site_url: property,
       start_date: ymd(start),
       end_date: ymd(end),
       dimensions: ['query', 'page', 'country'],
@@ -130,7 +176,7 @@ export async function fetchGsc(): Promise<{ rows: MarketRow[]; note: string }> {
     return {
       rows: [],
       note: denied
-        ? `Search Console: no access to ${GSC_PROPERTY} yet — the connected Google account must be added as a user on the property`
+        ? `Search Console: no access to ${property} — the connected Google account must be added as a user on that property`
         : `Search Console: ${msg.slice(0, 140)}`,
     }
   }
@@ -347,7 +393,7 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
     const [pages, ga4, gsc, semrush] = await Promise.all([
       fetchPages().catch(e => { notes.push(`sitemap failed: ${String(e?.message ?? e).slice(0, 120)}`); return [] as string[] }),
       fetchGa4Countries().catch(e => { notes.push(`GA4 failed: ${String(e?.message ?? e).slice(0, 120)}`); return [] as Ga4Country[] }),
-      fetchGsc(),
+      fetchGsc(notes),
       fetchSemrush(notes, { competitors: opts.competitors }).catch(e => {
         notes.push(`Semrush failed: ${String(e?.message ?? e).slice(0, 120)}`)
         return [] as MarketEvidence[]
