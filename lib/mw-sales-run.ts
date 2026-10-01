@@ -13,6 +13,7 @@ import 'server-only'
 
 import { supabase, supabaseConfigured } from './supabase'
 import { runTool } from './composio-mcp'
+import { zohoConfigured, fetchTimeline, fetchUsers } from './zoho'
 import { rollUpLead, type Lead, type LeadEvent } from './mw-sales'
 
 /** Only webform leads. Prospecting-tool imports are not the team's inbound work. */
@@ -149,6 +150,56 @@ async function queueHandlers(notes: string[]): Promise<string[]> {
   return ids
 }
 
+/**
+ * Everyone in the CRM, cached in settings.
+ *
+ * The same person reaches this app three ways — "Rukshana Rizwie" on a
+ * timeline entry, rukshana@movingwalls.com on an email, a user id on an
+ * assignment. Deewakshi already appears twice in the scorecard because of
+ * it. One lookup per run fixes all three (owner, 1 Oct 2026).
+ */
+async function syncUsers(notes: string[]): Promise<{ id: string; name: string; email: string }[]> {
+  if (!zohoConfigured) return []
+  try {
+    const users = await fetchUsers()
+    if (users.length) {
+      await supabase.from('mw_settings').upsert({ key: 'zoho_users', value: users }, { onConflict: 'key' })
+      notes.push(`${users.length} CRM users cached for name matching`)
+    }
+    return users
+  } catch (e: any) {
+    notes.push(`users lookup failed: ${String(e?.message ?? e).slice(0, 80)}`)
+    return []
+  }
+}
+
+/**
+ * The audit trail for one lead: who held it, who passed it on, what was
+ * logged. This is the only source that distinguishes a person working from a
+ * rule firing in their name, so a failure here is reported rather than
+ * silently treated as "nothing happened".
+ */
+async function pullTimeline(leadId: string): Promise<number> {
+  if (!zohoConfigured) return 0
+  const rows = await fetchTimeline('Leads', leadId)
+  if (!rows.length) return 0
+  const { error } = await supabase.from('mw_lead_timeline').upsert(
+    rows.map((t, i) => ({
+      id: `${leadId}-${t.at}-${t.action}-${i}`,
+      lead_id: leadId,
+      at: t.at, action: t.action,
+      by_name: t.byName, by_id: t.byId,
+      source: t.source, rule_name: t.ruleName,
+      assigned_to_name: t.assignedTo?.name ?? null,
+      assigned_to_id: t.assignedTo?.id ?? null,
+      record_module: t.recordModule, record_name: t.recordName,
+      changes: t.changes,
+      synced_at: new Date().toISOString(),
+    })), { onConflict: 'id' })
+  if (error) throw new Error(error.message)
+  return rows.length
+}
+
 export type SalesRun = { ok: boolean; message: string; notes: string[] }
 
 /**
@@ -167,6 +218,8 @@ export async function refreshSales(
     // and a human reassigns them on. The first responder is often not the
     // current owner, so every active user's mailbox is asked, not just theirs.
     const extraOwnerIds = await queueHandlers(notes)
+    await syncUsers(notes)
+    if (!zohoConfigured) notes.push('ZOHO_* not set — no audit trail, so handoffs cannot be shown')
 
     const leads = await fetchLeads(since, notes)
 
@@ -185,7 +238,8 @@ export async function refreshSales(
     const take = opts.limit ? todo.slice(0, opts.limit) : todo
     if (done.size) notes.push(`${done.size} already pulled in the last 12h, skipped`)
 
-    let stored = 0, failed = 0, withEmail = 0, withNote = 0
+    let stored = 0, failed = 0, withEmail = 0, withNote = 0, withTimeline = 0, tlFailed = 0
+    let tlWhy = ''
     for (const z of take) {
       try {
         const lead: Lead = {
@@ -197,10 +251,14 @@ export async function refreshSales(
         // Every user who might hold this lead's mail. The owner always, plus
         // anyone the team has nominated as a first-touch handler.
         const owners = [String(z.Owner?.id ?? ''), ...extraOwnerIds].filter(Boolean)
-        const [emails, noteRows] = await Promise.all([
+        const [emails, noteRows, tlCount] = await Promise.all([
           fetchEmails(lead.id, owners).catch(() => [] as LeadEvent[]),
           fetchNotes(lead.id).catch(() => [] as LeadEvent[]),
+          // A timeline failure must not cost the lead's email trail, but it
+          // must be visible: without it the page cannot show who held what.
+          pullTimeline(lead.id).catch(err => { tlFailed++; tlWhy = String(err?.message ?? err).slice(0, 80); return 0 }),
         ])
+        if (tlCount) withTimeline++
         const events = [...emails, ...noteRows]
         const r = rollUpLead(lead, events)
         if (emails.length) withEmail++
@@ -245,6 +303,9 @@ export async function refreshSales(
     }
 
     notes.push(`${withEmail} leads have an email trail, ${withNote} have a written note`)
+    notes.push(tlFailed
+      ? `audit trail: ${withTimeline} pulled, ${tlFailed} failed — ${tlWhy}`
+      : `audit trail: ${withTimeline} leads, so handoffs are visible`)
     const remaining = todo.length - take.length
     return {
       ok: stored > 0 || take.length === 0,
@@ -259,13 +320,22 @@ export async function refreshSales(
 
 // -------------------------------------------------------------------- read
 export async function getLeads(since?: string) {
-  if (!supabaseConfigured) return { leads: [], events: [] as any[] }
+  if (!supabaseConfigured) return { leads: [], events: [] as any[], timeline: [] as any[], users: [] as any[] }
   const from = since ?? new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10)
   const { data: leads } = await supabase.from('mw_leads')
     .select('*').gte('created_time', from).order('created_time', { ascending: false })
   const ids = (leads ?? []).map(l => l.id as string)
-  if (!ids.length) return { leads: [], events: [] }
-  const { data: events } = await supabase.from('mw_lead_events')
-    .select('*').in('lead_id', ids).order('at', { ascending: true })
-  return { leads: leads ?? [], events: events ?? [] }
+  if (!ids.length) return { leads: [], events: [], timeline: [], users: [] }
+
+  const [ev, tl, us] = await Promise.all([
+    supabase.from('mw_lead_events').select('*').in('lead_id', ids).order('at', { ascending: true }),
+    supabase.from('mw_lead_timeline').select('*').in('lead_id', ids).order('at', { ascending: true }),
+    supabase.from('mw_settings').select('value').eq('key', 'zoho_users').maybeSingle(),
+  ])
+  return {
+    leads: leads ?? [],
+    events: ev.data ?? [],
+    timeline: tl.data ?? [],
+    users: (us.data?.value as any[]) ?? [],
+  }
 }

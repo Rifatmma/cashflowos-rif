@@ -100,7 +100,31 @@ export type TimelineEntry = {
   byName: string | null
   byId: string | null
   changes: { field: string; from: string | null; to: string | null }[]
+  /**
+   * How the entry came about: 'crm_ui' is a person at a keyboard, everything
+   * else is machinery — 'zoho_forms', 'assignment_rules', 'workflow',
+   * 'pathfinder', 'scoringrule'.
+   *
+   * THIS IS THE MOST IMPORTANT FIELD HERE. Zoho stamps automation with a
+   * person's name in done_by: the assignment rule that files every webform
+   * lead records "Dineshgandhi S" as having done it, and a tagging workflow
+   * records "Franches Ramasamy". Counting those as work is how the first
+   * dashboard decided one man handles a third of all inbound leads. He does
+   * not; he is the name on the rule (owner, 1 Oct 2026).
+   */
+  source: string | null
+  /** For owner_assigned: who the rule handed it to. */
+  assignedTo: { id: string | null; name: string | null } | null
+  /** The automation that fired, when one did. */
+  ruleName: string | null
+  /** What the entry is about — a Task, an Email, the Lead itself. */
+  recordModule: string | null
+  recordName: string | null
 }
+
+/** Actions a person performed by hand, as opposed to a rule firing. */
+export const isHumanAction = (e: TimelineEntry) =>
+  e.source === 'crm_ui' || e.source === 'mobile' || e.source === 'zoho_mail'
 
 const str = (v: unknown) => (v === null || v === undefined || v === '' ? null : String(v))
 
@@ -121,16 +145,25 @@ export async function fetchTimeline(module: string, recordId: string, pages = 3)
     })
     const rows: any[] = res?.__timeline ?? []
     for (const r of rows) {
+      const auto = r.automation_details ?? null
       out.push({
         at: String(r.audited_time),
         action: String(r.action ?? 'updated'),
         byName: str(r.done_by?.name),
         byId: str(r.done_by?.id),
+        // Zoho nests the before/after under `_value.old` / `_value.new`. The
+        // first build guessed at `_field_history_value_before`, so every
+        // change rendered as "∅ → ∅" — present, and saying nothing.
         changes: (r.field_history ?? []).map((f: any) => ({
           field: String(f.api_name ?? f.field_label ?? '?'),
-          from: str(f._field_history_value_before ?? f.old_value),
-          to: str(f._field_history_value_after ?? f.new_value),
+          from: str(f._value?.old),
+          to: str(f._value?.new),
         })),
+        source: str(r.source),
+        assignedTo: auto?.owner ? { id: str(auto.owner.id), name: str(auto.owner.name) } : null,
+        ruleName: str(auto?.rule?.name),
+        recordModule: str(r.record?.module?.api_name),
+        recordName: str(r.record?.name),
       })
     }
     token = res?.info?.next_page_token

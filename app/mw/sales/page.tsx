@@ -3,28 +3,34 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { currentGuest } from '@/lib/guest'
 import { getLeads } from '@/lib/mw-sales-run'
+import { sayHours, SLA_HOURS, type Lead, type LeadEvent } from '@/lib/mw-sales'
 import {
-  rollUpLead, scoreByRep, summarise, sayHours, SLA_HOURS,
-  type Lead, type LeadEvent, type LeadRollup,
-} from '@/lib/mw-sales'
+  buildLeadJourney, contributions, makeResolver, median,
+  type LeadJourney, type TimelineLike,
+} from '@/lib/mw-journey'
 import { MwHero, Tiles, Section } from '../_ui'
-import { Scoreboard, LeadRow } from './_sales-ui'
+import { Contributions, TeamQueue, JourneyRow } from './_sales-ui'
 
 // 👉 Moving Walls → Sales. What happened after the lead arrived.
 //
 // Marketing spends money generating these; this is whether anyone acted on
-// them. Two separate questions, deliberately kept apart:
+// them, and who.
 //
-//   Was the lead answered, and how fast — from the email trail, which is
-//   automatic and cannot be forgotten or massaged.
+// THIS PAGE WAS WRONG TWICE, both times about named people, and both times
+// the team caught it rather than me. First it reported thirty-six leads as
+// ignored because Zoho only returns the mail the connecting account may see.
+// Then it scored everyone by the leads they currently own, which showed the
+// person who answered thirty-three leads first as having one.
 //
-//   Was any of it written down — which, on the first sample, four leads in
-//   five were not. That gap is reported rather than scored as inactivity,
-//   because the emails prove the work happened (owner, 1 Oct 2026).
+// So it is now built on the audit trail instead of on ownership: who held
+// the lead, when it changed hands, and which actions a person actually took
+// as opposed to a rule firing in their name (owner, 1 Oct 2026).
 
 export const dynamic = 'force-dynamic'
 
-type Q = { who?: string; show?: string }
+type Q = { who?: string; show?: string; days?: string }
+
+const WINDOWS = [30, 60, 90] as const
 
 export default async function MwSales({ searchParams }: { searchParams: Promise<Q> }) {
   const guest = await currentGuest()
@@ -32,91 +38,91 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
   const isOwner = !!jar.get('cfo_session')?.value
   if (!isOwner && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
-  const { who, show } = await searchParams
-  const { leads, events } = await getLeads('2026-09-01')
+  const { who, show, days } = await searchParams
+  const window = WINDOWS.includes(Number(days) as any) ? Number(days) : 30
+  // Pull the widest window once, then narrow in memory: switching the filter
+  // should not cost another round of queries.
+  const widest = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
+  const { leads, events, timeline, users } = await getLeads(widest)
 
-  const byLead = new Map<string, LeadEvent[]>()
+  // IDENTITY. The same colleague reaches this page three ways: a display name
+  // on an audit entry, an address on an email, a user id on an assignment.
+  // Without resolving them Sukriti appears twice — once with 33 first
+  // responses and once with a single lead — which is the exact confusion this
+  // rebuild exists to end.
+  //
+  // The CRM user list is the good source, cached by the daily run. Until that
+  // has run, the owner_name/owner_email pairs already in our own leads table
+  // cover most of the team, so the page is right from the first load rather
+  // than right tomorrow.
+  const fromLeads = (leads as any[])
+    .filter(l => l.owner_email && l.owner_name)
+    .map(l => ({ id: '', name: String(l.owner_name), email: String(l.owner_email) }))
+  const name = makeResolver([...(users as any[]), ...fromLeads])
+
+  const evByLead = new Map<string, LeadEvent[]>()
   for (const e of events as any[]) {
     const ev: LeadEvent = {
       id: e.id, kind: e.kind, at: e.at, direction: e.direction,
       actor: e.actor, actorEmail: e.actor_email, subject: e.subject,
       body: e.body, meta: e.meta ?? {},
     }
-    byLead.set(e.lead_id, [...(byLead.get(e.lead_id) ?? []), ev])
+    evByLead.set(e.lead_id, [...(evByLead.get(e.lead_id) ?? []), ev])
   }
 
-  const all: LeadRollup[] = (leads as any[]).map(l => {
-    const lead: Lead = {
-      id: l.id, createdTime: l.created_time, fullName: l.full_name, company: l.company,
-      email: l.email, leadStatus: l.lead_status, ownerName: l.owner_name, country: l.country,
+  const tlByLead = new Map<string, TimelineLike[]>()
+  for (const t of timeline as any[]) {
+    const row: TimelineLike = {
+      at: t.at, action: t.action, byName: t.by_name, byId: t.by_id,
+      changes: (t.changes ?? []) as any,
+      source: t.source, ruleName: t.rule_name,
+      assignedTo: t.assigned_to_name ? { id: t.assigned_to_id, name: t.assigned_to_name } : null,
+      recordModule: t.record_module, recordName: t.record_name,
     }
-    return rollUpLead(lead, byLead.get(l.id) ?? [])
-  })
+    tlByLead.set(t.lead_id, [...(tlByLead.get(t.lead_id) ?? []), row])
+  }
 
-  const owners = [...new Set(all.map(r => r.lead.ownerName ?? 'Unassigned'))].sort()
-  let rows = who ? all.filter(r => (r.lead.ownerName ?? 'Unassigned') === who) : all
-  if (show === 'never') rows = rows.filter(r => r.band === 'never')
-  if (show === 'late') rows = rows.filter(r => r.band === 'late')
-  if (show === 'blank') rows = rows.filter(r => r.unrecordedWork)
-  if (show === 'silent') rows = rows.filter(r => r.prospectReplied && (r.silentDays ?? 0) >= 7)
+  const cut = Date.now() - window * 86_400_000
+  const all: LeadJourney[] = (leads as any[])
+    .filter(l => +new Date(l.created_time) >= cut)
+    .map(l => {
+      const lead: Lead = {
+        id: l.id, createdTime: l.created_time, fullName: l.full_name, company: l.company,
+        email: l.email, leadStatus: l.lead_status, ownerName: l.owner_name, country: l.country,
+      }
+      return buildLeadJourney(lead, evByLead.get(l.id) ?? [], tlByLead.get(l.id) ?? [], name)
+    })
 
-  const sum = summarise(all)
-  const reps = scoreByRep(all)
+  const haveTimeline = all.filter(j => (tlByLead.get(j.lead.id) ?? []).length > 0).length
+  const contrib = contributions(all)
+  const unanswered = all.filter(j => j.firstResponder === null)
+  const answered = all.filter(j => j.teamHours !== null)
+
+  const teamMedian = median(answered.map(j => j.teamHours!))
+  const late = answered.filter(j => j.teamHours! > SLA_HOURS).length
+  const replied = all.filter(j => j.prospectReplied).length
+  const noWriteUp = all.filter(j => j.emailsOut > 0 && j.recorded === 0).length
+  const silent = all.filter(j => j.prospectReplied && (j.silentDays ?? 0) >= 7).length
+  const handedOn = all.filter(j => j.held.length > 1).length
+
+  const people = [...new Set(contrib.map(c => c.who))].sort()
+  let rows = all
+  if (who) rows = rows.filter(j => j.steps.some(s => !s.byMachine && s.actor === who) || j.held.some(h => h.who === who))
+  if (show === 'never') rows = rows.filter(j => j.firstResponder === null)
+  if (show === 'late') rows = rows.filter(j => (j.teamHours ?? 0) > SLA_HOURS)
+  if (show === 'blank') rows = rows.filter(j => j.emailsOut > 0 && j.recorded === 0)
+  if (show === 'silent') rows = rows.filter(j => j.prospectReplied && (j.silentDays ?? 0) >= 7)
+  if (show === 'handed') rows = rows.filter(j => j.held.length > 1)
 
   const link = (o: Q) => {
     const q = new URLSearchParams()
     if (o.who) q.set('who', o.who)
     if (o.show) q.set('show', o.show)
+    if (o.days && Number(o.days) !== 30) q.set('days', o.days)
     const s = q.toString()
     return s ? `/mw/sales?${s}` : '/mw/sales'
   }
-
-  // ── HELD BACK ─────────────────────────────────────────────────────────
-  // The first pull read emails with Zoho's default call, which only returns
-  // what the connecting account is permitted to see under email-sharing
-  // rules. Two people therefore showed as having ignored thirty-six leads
-  // between them; both had in fact answered, and the proof came back the
-  // moment the call was made per-owner (type=user_emails + owner_id).
-  //
-  // Numbers that name individuals and are wrong about them do more damage
-  // than no numbers at all, so the page shows nothing until it is refetched.
-  // Flip this off when the rebuild lands (owner, 1 Oct 2026).
-  const REBUILDING = false
-  if (REBUILDING) {
-    return (
-      <div className="mw-wrap">
-        <MwHero tab="sales" pulled="held back" stale={false}
-          headline="Being rebuilt — the first numbers were wrong">
-          <p>
-            This page measured how quickly each person answered their leads. The measurement was
-            wrong, in a way that named people unfairly, so it has been taken down rather than left up
-            with a caveat.
-          </p>
-        </MwHero>
-
-        <Section title="What went wrong">
-          <p className="lede">
-            Response times were read from each lead&rsquo;s email trail. Zoho&rsquo;s default call
-            returns only the emails the connecting account is allowed to see, and most of the
-            team&rsquo;s mail is not shared with it — so leads that had been answered came back
-            looking untouched. Two people appeared to have ignored thirty-six leads between them.
-            Both had answered; one within five hours.
-          </p>
-          <p className="lede" style={{ marginTop: 10 }}>
-            Asking per owner instead returns the missing mail, so the fix is real rather than a
-            workaround. The page returns once all {`${all.length || 93}`} September leads have been
-            refetched that way, with the handoff chain included: these leads are auto-assigned to one
-            person and passed on, and the clock should be split across whoever actually held it.
-          </p>
-        </Section>
-
-        <p className="lede">
-          <Link href="/mw">Overview</Link> · <Link href="/mw/plan">Market plan</Link> ·{' '}
-          <Link href="/mw/seo">SEO &amp; organic</Link>
-        </p>
-      </div>
-    )
-  }
+  const d = String(window)
 
   if (!all.length) {
     return (
@@ -124,8 +130,8 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
         <MwHero tab="sales" pulled="—" stale={false} headline="Sales follow-up" />
         <Section title="Nothing pulled yet">
           <p className="lede">
-            The lead trail comes from Zoho CRM through Composio on the daily run. Once it has run,
-            every webform lead appears here with how long it took to answer and what was recorded.
+            The lead trail comes from Zoho CRM on the daily run. Once it has run, every webform lead
+            appears here with its whole journey: who it reached, who answered, and who passed it on.
           </p>
         </Section>
       </div>
@@ -134,74 +140,107 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
 
   return (
     <div className="mw-wrap">
-      <MwHero tab="sales" pulled={`${sum.leads} webform leads`} stale={false}
-        headline={sum.never > 0
-          ? `${sum.never} of ${sum.leads} leads were never answered`
-          : `Every lead answered, median ${sayHours(sum.medianHours)}`}>
+      <MwHero tab="sales" pulled={`${all.length} webform leads · last ${window} days`} stale={false}
+        headline={unanswered.length > 0
+          ? `${unanswered.length} of ${all.length} leads are still waiting for a first reply`
+          : `Every lead answered, typically in ${sayHours(teamMedian)}`}>
         <p>
-          What happened after each webform lead arrived: how long before anyone replied, whether the
-          prospect wrote back, and whether any of it was written down. Response times come from the
-          email trail, so nobody has to remember to log anything for this to be true.
-          {guest ? ` Signed in as ${guest}.` : ''}
+          Every webform lead, from the moment it arrived to the last thing anyone did with it.
+          Response times come from the email trail and the CRM audit log, so nobody has to remember
+          to log anything for this to be true — and nobody is credited for work a rule did in their
+          name.{guest ? ` Signed in as ${guest}.` : ''}
         </p>
       </MwHero>
 
+      <Section title="Window">
+        <div className="mw-filters">
+          {WINDOWS.map(w => (
+            <Link key={w} href={link({ who, show, days: String(w) })}
+              aria-current={window === w ? 'page' : undefined}>Last {w} days</Link>
+          ))}
+        </div>
+      </Section>
+
       <Tiles items={[
-        { k: 'Webform leads', v: String(sum.leads) },
-        { k: 'Typical reply time', v: sayHours(sum.medianHours), tone: (sum.medianHours ?? 99) <= SLA_HOURS ? 'up' : 'dn' },
-        { k: 'Never answered', v: String(sum.never), tone: sum.never ? 'dn' : 'up' },
-        { k: `Slower than ${SLA_HOURS}h`, v: String(sum.late) },
-        { k: 'They wrote back', v: `${sum.replyRate}%` },
-        { k: 'Notes in CRM', v: `${sum.recordedRate}%`, d: `${sum.unrecorded} leads with none`, tone: sum.recordedRate < 50 ? 'dn' : 'up' },
+        { k: 'Webform leads', v: String(all.length) },
+        { k: 'Company reply time', v: sayHours(teamMedian), tone: (teamMedian ?? 99) <= SLA_HOURS ? 'up' : 'dn' },
+        { k: 'Still waiting', v: String(unanswered.length), tone: unanswered.length ? 'dn' : 'up' },
+        { k: `Slower than ${SLA_HOURS}h`, v: String(late) },
+        { k: 'They wrote back', v: `${all.length ? Math.round((replied / all.length) * 100) : 0}%` },
+        { k: 'Changed hands', v: String(handedOn), d: 'at least once' },
       ]} />
 
-      {sum.unrecorded > 0 && (
-        <Section title="The CRM is not being kept up"
-          sub="This is the gap worth fixing first — and it is not the same as nobody doing the work.">
+      {haveTimeline < all.length && (
+        <Section title="Part of the trail is missing"
+          sub="Said plainly rather than quietly averaged over.">
           <p className="lede">
-            <b>{sum.unrecorded} of {sum.leads} leads have a real email conversation and no note, call log
-              or task against them.</b> On those leads the emails prove somebody was working; the CRM
-            just cannot show you what was said or agreed. Anyone picking one of them up — covering a
-            holiday, or after somebody leaves — starts from nothing.
-            {' '}<Link href={link({ show: 'blank' })}>See them</Link>.
+            <b>{haveTimeline} of {all.length} leads</b> have their CRM audit trail pulled. For the rest,
+            the handoff chain is not known yet, so they show only their email history and their
+            current owner. The daily run fills these in a batch at a time; this number should climb
+            to the full count within a few days.
           </p>
         </Section>
       )}
 
-      <Section title="By person"
-        sub="How quickly each person answers, how many they never answered, and whether they wrote down what happened.">
-        <Scoreboard reps={reps} />
+      <Section title="What everyone did"
+        sub="Contribution counted four ways, because one number would have to decide whether answering a lead beats routing forty of them — and that is your call, not mine.">
+        <Contributions rows={contrib} />
       </Section>
+
+      {unanswered.length > 0 && (
+        <Section title={`${unanswered.length} leads nobody has answered`}
+          sub="A shared queue, not a list of failures.">
+          <TeamQueue rows={unanswered} />
+        </Section>
+      )}
+
+      {noWriteUp > 0 && (
+        <Section title="The CRM is not being kept up"
+          sub="Not the same as nobody doing the work — the emails prove otherwise.">
+          <p className="lede">
+            <b>{noWriteUp} of {all.length} leads have a real email conversation and nothing written
+              against them</b> — no note, no call log, no task. The emails prove somebody was working;
+            the CRM just cannot show what was said or agreed. Anyone picking one of these up —
+            covering a holiday, or after somebody leaves — starts from nothing.
+            {' '}<Link href={link({ show: 'blank', days: d })}>See them</Link>.
+          </p>
+        </Section>
+      )}
 
       <Section title="Filter">
         <div className="mw-filters">
-          <Link href={link({ show })} aria-current={!who ? 'page' : undefined}>Everyone</Link>
-          {owners.map(o => (
-            <Link key={o} href={link({ who: o, show })} aria-current={who === o ? 'page' : undefined}>{o}</Link>
+          <Link href={link({ show, days: d })} aria-current={!who ? 'page' : undefined}>Everyone</Link>
+          {people.map(p => (
+            <Link key={p} href={link({ who: p, show, days: d })} aria-current={who === p ? 'page' : undefined}>{p}</Link>
           ))}
         </div>
         <div className="mw-filters">
-          <Link href={link({ who })} aria-current={!show ? 'page' : undefined}>All leads</Link>
-          <Link href={link({ who, show: 'never' })} aria-current={show === 'never' ? 'page' : undefined}>Never answered ({sum.never})</Link>
-          <Link href={link({ who, show: 'late' })} aria-current={show === 'late' ? 'page' : undefined}>Past {SLA_HOURS}h ({sum.late})</Link>
-          <Link href={link({ who, show: 'blank' })} aria-current={show === 'blank' ? 'page' : undefined}>No write-up ({sum.unrecorded})</Link>
-          <Link href={link({ who, show: 'silent' })} aria-current={show === 'silent' ? 'page' : undefined}>Gone quiet ({sum.silent})</Link>
+          <Link href={link({ who, days: d })} aria-current={!show ? 'page' : undefined}>All leads</Link>
+          <Link href={link({ who, show: 'never', days: d })} aria-current={show === 'never' ? 'page' : undefined}>Still waiting ({unanswered.length})</Link>
+          <Link href={link({ who, show: 'late', days: d })} aria-current={show === 'late' ? 'page' : undefined}>Past {SLA_HOURS}h ({late})</Link>
+          <Link href={link({ who, show: 'handed', days: d })} aria-current={show === 'handed' ? 'page' : undefined}>Changed hands ({handedOn})</Link>
+          <Link href={link({ who, show: 'blank', days: d })} aria-current={show === 'blank' ? 'page' : undefined}>No write-up ({noWriteUp})</Link>
+          <Link href={link({ who, show: 'silent', days: d })} aria-current={show === 'silent' ? 'page' : undefined}>Gone quiet ({silent})</Link>
         </div>
+        {who && (
+          <p className="lede" style={{ marginTop: 10 }}>
+            Showing every lead <b>{who}</b> touched in any way — answered, emailed, wrote up, or
+            routed on — not only the ones they own.
+          </p>
+        )}
       </Section>
 
       <Section title={`${rows.length} ${rows.length === 1 ? 'lead' : 'leads'}`}
-        sub="Newest first. Open one to see every email, note and meeting in order.">
+        sub="Newest first. Open one to see the whole journey, with every hand on it named.">
         {rows.length === 0
           ? <p className="lede">Nothing matches that filter — which is good news.</p>
-          : rows.map(r => (
-            <LeadRow key={r.lead.id} r={r} events={byLead.get(r.lead.id) ?? []} owner={isOwner} />
-          ))}
+          : rows.map(j => <JourneyRow key={j.lead.id} j={j} owner={isOwner} />)}
       </Section>
 
       <p className="lede" style={{ marginTop: 8 }}>
-        Email bodies are not shown because Zoho does not expose them for mail synced from a mailbox —
-        only mail composed inside the CRM carries readable content. Notes, call logs and meeting
-        records do, and appear in full wherever the team wrote them.
+        Email bodies are not shown because Zoho does not expose them for mail synced from a
+        mailbox — only mail composed inside the CRM carries readable content. Notes, call logs,
+        tasks and meetings do, and appear in full wherever the team recorded them.
       </p>
     </div>
   )

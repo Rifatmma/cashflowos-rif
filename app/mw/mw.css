@@ -445,9 +445,34 @@
 .mw-timeline li .t { color: var(--mw-ink-2); font-size: 11.5px; }
 .mw-timeline li .w { font-weight: 600; overflow-wrap: anywhere; }
 .mw-timeline li .s { color: var(--mw-ink-2); overflow-wrap: anywhere; }
+/* Journey steps. An automatic step is deliberately faint: it happened, it is
+   part of the record, and nobody should read it as somebody's work. */
+.mw-timeline li.created { background: #f3f6fb; font-weight: 500; }
+.mw-timeline li.assigned, .mw-timeline li.transferred { background: #f6f3fb; }
+.mw-timeline li.task, .mw-timeline li.call, .mw-timeline li.meeting { background: #fffcf5; }
+.mw-timeline li.status { background: transparent; }
+.mw-timeline li.email-out { background: #fafbfc; }
+.mw-timeline li.email-in { background: #f4fbf7; }
+.mw-timeline li.auto { opacity: .62; }
+.mw-timeline li.auto .w { font-weight: 500; font-style: italic; color: var(--mw-ink-3); }
 .mw-timeline .zia { font-style: normal; margin-left: 7px; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: #eef1f4; color: var(--mw-ink-2); }
 @media (max-width: 680px) {
   .mw-lead > summary { grid-template-columns: auto 1fr; }
   .mw-lead-flags { grid-column: 1 / -1; }
   .mw-timeline li { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* A wide table on a phone. Squeezing eight columns into 375px turned every
+   name into a vertical stack of single letters, so it scrolls sideways
+   instead -- the first column stays put so you always know whose row you are
+   reading (owner, 1 Oct 2026). */
+@media (max-width: 680px) {
+  .mw-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+  .mw-scroll-x .mw-kw { min-width: 640px; }
+  .mw-scroll-x .mw-kw td:first-child,
+  .mw-scroll-x .mw-kw th:first-child {
+    position: sticky; left: 0; background: var(--mw-surface);
+    box-shadow: 1px 0 0 var(--mw-line); white-space: nowrap;
+  }
+  .mw-scroll-x .mw-kw td:first-child { overflow-wrap: normal; }
 }
