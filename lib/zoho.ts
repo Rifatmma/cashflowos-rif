@@ -1,4 +1,5 @@
 import 'server-only'
+import { createHash } from 'crypto'
 import { supabase, supabaseConfigured } from './supabase'
 // 👉 A direct line to Zoho CRM, alongside the Composio one.
 //
@@ -65,12 +66,30 @@ let inFlight: Promise<string> | null = null
 
 const TOKEN_KEY = 'zoho_access_token'
 
+/**
+ * Which refresh token this cached access token came from.
+ *
+ * A FINGERPRINT, NOT THE TOKEN. Eight characters of a SHA-256 — enough to
+ * tell one refresh token from another, useless to anyone who reads the row.
+ *
+ * Why it exists: the scopes on the Self Client were wrong, so a new refresh
+ * token was issued with the right ones — and nothing changed, because this
+ * cache still held an access token minted from the OLD one and happily
+ * served it for another hour. Redeploying does not clear a database row.
+ * Now a new refresh token invalidates the cache by itself (owner, 2 Oct 2026).
+ */
+const refreshFingerprint = () =>
+  createHash('sha256').update(env('ZOHO_REFRESH_TOKEN')).digest('hex').slice(0, 8)
+
 async function readStoredToken(): Promise<{ token: string; until: number } | null> {
   if (!supabaseConfigured) return null
   try {
     const { data } = await supabase.from('mw_settings').select('value').eq('key', TOKEN_KEY).maybeSingle()
     const v = data?.value as any
-    if (v?.token && Number(v.until) > Date.now() + 60_000) return { token: String(v.token), until: Number(v.until) }
+    if (!v?.token) return null
+    if (v.from !== refreshFingerprint()) return null          // minted from a different refresh token
+    if (Number(v.until) <= Date.now() + 60_000) return null    // too close to expiry to be worth it
+    return { token: String(v.token), until: Number(v.until) }
   } catch { /* a cache miss is not an error */ }
   return null
 }
@@ -78,7 +97,8 @@ async function readStoredToken(): Promise<{ token: string; until: number } | nul
 async function storeToken(t: { token: string; until: number }) {
   if (!supabaseConfigured) return
   try {
-    await supabase.from('mw_settings').upsert({ key: TOKEN_KEY, value: t }, { onConflict: 'key' })
+    await supabase.from('mw_settings')
+      .upsert({ key: TOKEN_KEY, value: { ...t, from: refreshFingerprint() } }, { onConflict: 'key' })
   } catch { /* worst case the next invocation mints one */ }
 }
 
