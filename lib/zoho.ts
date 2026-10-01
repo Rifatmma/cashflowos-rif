@@ -57,26 +57,56 @@ let cached: { token: string; until: number } | null = null
 
 async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token
-  const body = new URLSearchParams({
+
+  const params = {
     grant_type: 'refresh_token',
     client_id: env('ZOHO_CLIENT_ID'),
     client_secret: env('ZOHO_CLIENT_SECRET'),
     refresh_token: env('ZOHO_REFRESH_TOKEN'),
+  }
+  const qs = new URLSearchParams(params)
+
+  // QUERY STRING FIRST, FORM BODY SECOND.
+  //
+  // Zoho's refresh grant wants its parameters on the URL. Posting them as a
+  // form body — which is what the authorisation-code exchange accepts, and
+  // what I therefore assumed — gets "Access Denied", a message that reads
+  // exactly like a wrong secret and sent us looking at Vercel for an hour.
+  //
+  // The code exchange was verified by hand; the refresh was not, because the
+  // script that would have tested it was blocked for holding credentials. So
+  // both forms are tried and the one that works is reported, rather than
+  // trusting either (owner, 1 Oct 2026).
+  const attempts: { how: string; res: Response }[] = []
+  attempts.push({
+    how: 'query',
+    res: await fetch(`${ACCOUNTS}/oauth/v2/token?${qs}`, { method: 'POST' }),
   })
-  const res = await fetch(`${ACCOUNTS}/oauth/v2/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  })
-  const j = await res.json().catch(() => ({}))
+
+  let j: any = await attempts[0].res.json().catch(() => ({}))
+  if (!j?.access_token) {
+    const res2 = await fetch(`${ACCOUNTS}/oauth/v2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params),
+    })
+    attempts.push({ how: 'body', res: res2 })
+    j = await res2.json().catch(() => ({}))
+  }
+
   if (!j?.access_token) {
     // Never echo the response wholesale — it can carry the token on success
     // and the client id on failure. The shape report says which credential is
     // malformed without showing any of them.
-    const why = String(j?.error ?? res.status)
-    throw new Error(`Zoho auth failed: ${why}${
-      why === 'Access Denied' ? ' (client id/secret rejected — check for a stray space in Vercel)' : ''}`)
+    const why = String(j?.error ?? attempts[attempts.length - 1].res.status)
+    throw new Error(
+      `Zoho auth failed: ${why} (tried ${attempts.map(a => a.how).join(' then ')})`
+      + (why === 'Access Denied'
+        ? ' — credentials are the right shape, so this is most likely a revoked refresh token'
+        : ''),
+    )
   }
+
   cached = { token: j.access_token, until: Date.now() + (Number(j.expires_in ?? 3600) - 120) * 1000 }
   return cached.token
 }
