@@ -202,7 +202,8 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
               against them</b> — no note, no call log, no task. The emails prove somebody was working;
             the CRM just cannot show what was said or agreed. Anyone picking one of these up —
             covering a holiday, or after somebody leaves — starts from nothing.
-            {' '}<Link href={link({ show: 'blank', days: d })}>See them</Link>.
+            {' '}<Link href={link({ show: 'blank', days: d })}>See them</Link>, or read{' '}
+            <Link href="/mw/playbook">the standard for writing them up</Link>.
           </p>
         </Section>
       )}

@@ -476,3 +476,23 @@
   }
   .mw-scroll-x .mw-kw td:first-child { overflow-wrap: normal; }
 }
+
+/* ---- How we log work ---------------------------------------------------- */
+.mw-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; line-height: 1.6; color: var(--mw-ink-2); }
+.mw-list b { color: var(--mw-ink); }
+.mw-list.numbered { padding-left: 22px; }
+
+/* A template is meant to be selected and copied, so it keeps its line breaks
+   and wraps rather than scrolling sideways on a phone. */
+.mw-template {
+  margin: 0; padding: 12px 14px; background: #f8fafc; border: .8px solid var(--mw-line);
+  border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.65; color: var(--mw-ink);
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}
+.mw-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.mw-compare h4 { margin: 0 0 8px; font-size: 12.5px; }
+.mw-ok-h { color: #2f9e6e; }
+.mw-bad-h { color: #c2410c; }
+.mw-note.dim { background: #fdf4f3; border-left-color: #c2410c; color: var(--mw-ink-2); }
+@media (max-width: 680px) { .mw-compare { grid-template-columns: 1fr; } }

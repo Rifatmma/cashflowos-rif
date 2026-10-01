@@ -5,13 +5,15 @@ import type { Alert } from '@/lib/mw-data'
 // Styling lives in mw.css, scoped under .mw — see app/mw/layout.tsx.
 
 export function MwHero({
-  tab, pulled, stale, headline, children,
+  tab, pulled, stale, headline, children, sources,
 }: {
-  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales'
+  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook'
   pulled: string
   stale: boolean
   headline: string
   children?: React.ReactNode
+  /** Override the source list: not every tab is built from Ads, GA4 and Semrush. */
+  sources?: string
 }) {
   const tabs = [
     { key: 'overview', href: '/mw', label: 'Overview' },
@@ -20,6 +22,7 @@ export function MwHero({
     { key: 'plan', href: '/mw/plan', label: 'Market plan' },
     { key: 'gaps', href: '/mw/gaps', label: 'Content gap' },
     { key: 'sales', href: '/mw/sales', label: 'Sales follow-up' },
+    { key: 'playbook', href: '/mw/playbook', label: 'How we log work' },
     { key: 'import', href: '/mw/import', label: 'Import' },
   ] as const
   return (
@@ -29,7 +32,11 @@ export function MwHero({
         <span className="mw-dot" style={{ width: 4, height: 4, top: '56%', right: '16%', opacity: .6 }} />
         <span className="mw-dot" style={{ width: 3, height: 3, top: '32%', right: '25%', opacity: .5 }} />
         <span className="mw-dot" style={{ width: 5, height: 5, bottom: '16%', right: '5%', opacity: .7 }} />
-        <p className="eyebrow"><i />Moving Walls · Google Ads · GA4 · Semrush · pulled {pulled}</p>
+        {/* "pulled" belongs to the tabs that really are a data pull. A page
+            of standards is not pulled from anywhere, so it says its own thing. */}
+        <p className="eyebrow">
+          <i />{sources ?? `Moving Walls · Google Ads · GA4 · Semrush · pulled`} {pulled}
+        </p>
         <h1>{headline}</h1>
         {children}
         {stale && (
