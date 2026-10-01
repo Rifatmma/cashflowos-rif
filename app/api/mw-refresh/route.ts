@@ -2,6 +2,8 @@ import { refreshMw } from '@/lib/mw-refresh'
 import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
+import { zohoConfigured, fetchTimeline, fetchUsers } from '@/lib/zoho'
+import { supabase } from '@/lib/supabase'
 import { cookies } from 'next/headers'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -53,6 +55,38 @@ export async function GET(req: Request) {
     const sv = await refreshSales({ since, limit, force: q.get('force') === '1' })
     return Response.json({ ok: sv.ok, sales: sv.message, notes: sv.notes })
   }
+  // ?only=zoho-check proves the direct Zoho line works BEFORE anything is
+  // built on it. The Semrush build reached a finished dashboard before anyone
+  // noticed the app could not reach the data; this is the cheap check that
+  // would have caught it (owner, 1 Oct 2026).
+  if (only === 'zoho-check') {
+    if (!zohoConfigured) {
+      return Response.json({ ok: false, why: 'ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not all set' })
+    }
+    try {
+      const users = await fetchUsers()
+      const { data } = await supabase.from('mw_leads')
+        .select('id, full_name, owner_name').order('created_time', { ascending: false }).limit(1)
+      const lead = data?.[0]
+      if (!lead) return Response.json({ ok: true, users: users.length, timeline: 'no lead stored yet to test against' })
+      const tl = await fetchTimeline('Leads', String(lead.id))
+      const owner = tl.filter(e => e.changes.some(c => /owner/i.test(c.field)))
+      return Response.json({
+        ok: true,
+        users: users.length,
+        testedLead: lead.full_name ?? lead.id,
+        timelineEntries: tl.length,
+        ownerChanges: owner.length,
+        sample: tl.slice(0, 12).map(e => ({
+          at: e.at, action: e.action, by: e.byName,
+          changed: e.changes.map(c => `${c.field}: ${c.from ?? '∅'} → ${c.to ?? '∅'}`),
+        })),
+      })
+    } catch (e: any) {
+      return Response.json({ ok: false, why: String(e?.message ?? e).slice(0, 300) })
+    }
+  }
+
   if (only === 'gap') {
     const one = new URL(req.url).searchParams.get('country') ?? undefined
     const g = await refreshGaps({ only: one })
