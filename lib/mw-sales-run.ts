@@ -247,6 +247,11 @@ export async function refreshSales(
 ): Promise<SalesRun> {
   const notes: string[] = []
   const since = opts.since ?? new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10)
+  // THE BUDGET STARTS HERE, not when the lead loop starts. The first attempt
+  // measured it from after the user sync and the lead search, which had
+  // already spent ten seconds of the sixty — so a 48-second budget could not
+  // be met and the function was killed anyway (owner, 1 Oct 2026).
+  const startedAt = Date.now()
   try {
     if (!supabaseConfigured) return { ok: false, message: 'supabase not configured', notes }
 
@@ -264,15 +269,20 @@ export async function refreshSales(
     // so ninety-two leads cannot be done in one go. Leads pulled recently are
     // skipped, which means calling this repeatedly walks through the backlog
     // instead of restarting it (owner, 1 Oct 2026).
-    const fresh = new Date(Date.now() - 12 * 3_600_000).toISOString()
-    let done = new Set<string>()
-    if (!opts.force) {
-      const { data } = await supabase.from('mw_leads').select('id').gte('synced_at', fresh)
-      done = new Set((data ?? []).map(r => String(r.id)))
-    }
+    // FORCE SHORTENS THE WINDOW, IT DOES NOT REMOVE IT.
+    //
+    // Turning the skip off entirely means every call starts at the top of the
+    // same list, so a backfill that needs four calls repeats its first batch
+    // four times and never reaches the end. force=1 exists to re-pull leads
+    // fetched yesterday, not to forget what this backfill did ninety seconds
+    // ago (owner, 1 Oct 2026).
+    const windowMs = opts.force ? 10 * 60_000 : 12 * 3_600_000
+    const fresh = new Date(Date.now() - windowMs).toISOString()
+    const { data: doneRows } = await supabase.from('mw_leads').select('id').gte('synced_at', fresh)
+    const done = new Set((doneRows ?? []).map(r => String(r.id)))
     const todo = leads.filter(z => !done.has(String(z.id)))
     const take = opts.limit ? todo.slice(0, opts.limit) : todo
-    if (done.size) notes.push(`${done.size} already pulled in the last 12h, skipped`)
+    if (done.size) notes.push(`${done.size} already pulled in the last ${opts.force ? '10 min' : '12h'}, skipped`)
 
     // A DEADLINE, NOT A GUESSED BATCH SIZE.
     //
@@ -285,7 +295,18 @@ export async function refreshSales(
     // finished. Calling it again picks up where it left off, because leads
     // pulled recently are skipped. The batch size stops mattering
     // (owner, 1 Oct 2026).
-    const deadline = Date.now() + 48_000
+    // Three separate guards, because the first version had only the weakest.
+    //
+    //   startNoLater  — do not BEGIN another lead after this point.
+    //   PER_LEAD      — no single lead may hold a lane longer than this.
+    //   hardStop      — return no matter what is still in flight.
+    //
+    // Checking only the first is what failed: three lanes each began a lead
+    // at 47 seconds, every one of them took fifteen, and the function died at
+    // sixty-two having reported nothing.
+    const startNoLater = startedAt + 30_000
+    const PER_LEAD = 14_000
+    const hardStop = startedAt + 45_000
     let ranOut = false
 
     let stored = 0, failed = 0, withEmail = 0, withNote = 0, withTimeline = 0, tlFailed = 0
@@ -296,9 +317,13 @@ export async function refreshSales(
     const queue = [...take]
     const worker = async () => {
       while (queue.length) {
-        if (Date.now() > deadline) { ranOut = true; return }
+        if (Date.now() > startNoLater) { ranOut = true; return }
         const z = queue.shift()!
-        await one(z)
+        // A lead that hangs must cost one lane, not the whole run.
+        await Promise.race([
+          one(z),
+          new Promise<void>(r => setTimeout(() => { failed++; r() }, PER_LEAD)),
+        ])
       }
     }
 
@@ -364,8 +389,17 @@ export async function refreshSales(
       }
     }
 
-    await Promise.all(Array.from({ length: LANES }, worker))
-    if (ranOut) notes.push('stopped at the time limit rather than timing out — call again to continue')
+    // Whatever is still in flight at the hard stop is abandoned, not awaited.
+    // Anything it had already written to the database is kept; anything it
+    // had not is picked up by the next call. Returning late is worse than
+    // returning short, because a 504 reports the finished work as nothing.
+    await Promise.race([
+      Promise.all(Array.from({ length: LANES }, worker)),
+      new Promise<void>(r => setTimeout(() => { ranOut = true; r() }, Math.max(1_000, hardStop - Date.now()))),
+    ])
+    if (ranOut) {
+      notes.push(`stopped after ${Math.round((Date.now() - startedAt) / 1000)}s to avoid a timeout — call again to continue`)
+    }
 
     notes.push(`${withEmail} leads have an email trail, ${withNote} have a written note`)
     notes.push(tlFailed
