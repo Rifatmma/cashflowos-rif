@@ -45,8 +45,12 @@ export async function GET(req: Request) {
   }
   if (only === 'sales') {
     // ?since=YYYY-MM-DD backfills; without it the daily window is used.
-    const since = new URL(req.url).searchParams.get('since') ?? undefined
-    const sv = await refreshSales({ since })
+    const q = new URL(req.url).searchParams
+    const since = q.get('since') ?? undefined
+    // A backfill is walked in batches; 20 leads is about 40 Composio calls,
+    // which lands inside the 60s function limit with room to spare.
+    const limit = Number(q.get('limit') ?? 20) || undefined
+    const sv = await refreshSales({ since, limit, force: q.get('force') === '1' })
     return Response.json({ ok: sv.ok, sales: sv.message, notes: sv.notes })
   }
   if (only === 'gap') {

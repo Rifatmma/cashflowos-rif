@@ -95,14 +95,30 @@ export type SalesRun = { ok: boolean; message: string; notes: string[] }
  * Pull, roll up and store. Never throws: one lead failing must not lose the
  * other ninety-one.
  */
-export async function refreshSales(opts: { since?: string; limit?: number } = {}): Promise<SalesRun> {
+export async function refreshSales(
+  opts: { since?: string; limit?: number; force?: boolean } = {},
+): Promise<SalesRun> {
   const notes: string[] = []
   const since = opts.since ?? new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10)
   try {
     if (!supabaseConfigured) return { ok: false, message: 'supabase not configured', notes }
 
     const leads = await fetchLeads(since, notes)
-    const take = opts.limit ? leads.slice(0, opts.limit) : leads
+
+    // RESUMABLE, because a backfill does not fit in one request. Each lead
+    // costs two Composio calls and Vercel kills a function at sixty seconds,
+    // so ninety-two leads cannot be done in one go. Leads pulled recently are
+    // skipped, which means calling this repeatedly walks through the backlog
+    // instead of restarting it (owner, 1 Oct 2026).
+    const fresh = new Date(Date.now() - 12 * 3_600_000).toISOString()
+    let done = new Set<string>()
+    if (!opts.force) {
+      const { data } = await supabase.from('mw_leads').select('id').gte('synced_at', fresh)
+      done = new Set((data ?? []).map(r => String(r.id)))
+    }
+    const todo = leads.filter(z => !done.has(String(z.id)))
+    const take = opts.limit ? todo.slice(0, opts.limit) : todo
+    if (done.size) notes.push(`${done.size} already pulled in the last 12h, skipped`)
 
     let stored = 0, failed = 0, withEmail = 0, withNote = 0
     for (const z of take) {
@@ -161,10 +177,12 @@ export async function refreshSales(opts: { since?: string; limit?: number } = {}
     }
 
     notes.push(`${withEmail} leads have an email trail, ${withNote} have a written note`)
+    const remaining = todo.length - take.length
     return {
-      ok: stored > 0,
+      ok: stored > 0 || take.length === 0,
       notes,
-      message: `sales: ${stored} leads stored${failed ? `, ${failed} failed` : ''} since ${since}`,
+      message: `sales: ${stored} leads stored${failed ? `, ${failed} failed` : ''}`
+        + (remaining > 0 ? ` · ${remaining} still to pull — call again` : ' · up to date'),
     }
   } catch (e: any) {
     return { ok: false, notes, message: `sales pull failed: ${String(e?.message ?? e).slice(0, 160)}` }
