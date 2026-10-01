@@ -40,12 +40,38 @@ export async function fetchLeads(since: string, notes: string[]): Promise<ZohoLe
   return out
 }
 
-/** Emails on one lead. Bodies are not available for IMAP-synced mail. */
-async function fetchEmails(leadId: string): Promise<LeadEvent[]> {
-  const res = await runTool('ZOHO_GET_RECORD_EMAILS', undefined, {
+/**
+ * Emails on one lead.
+ *
+ * ASK PER OWNER, NEVER THE DEFAULT CALL. Zoho returns only the mail the
+ * connecting account is permitted to see under email-sharing settings, and
+ * most of this team's mail is not shared with it. The default call reported
+ * Manjusha Jain as having answered none of fifteen leads; asking with
+ * type=user_emails and her user id returned the reply she had sent within
+ * hours. Two people were wrongly shown as ignoring thirty-six leads between
+ * them because of that one parameter (owner, 1 Oct 2026).
+ *
+ * `owners` is every user who has held the lead, so a handoff does not hide
+ * the first responder's mail behind the current owner.
+ */
+async function fetchEmails(leadId: string, owners: string[]): Promise<LeadEvent[]> {
+  const seen = new Map<string, any>()
+
+  // The default call still catches anything shared openly.
+  const base = await runTool('ZOHO_GET_RECORD_EMAILS', undefined, {
     module_api_name: 'Leads', record_id: leadId,
-  })
-  const rows: any[] = res?.Emails ?? []
+  }).catch(() => ({ Emails: [] }))
+  for (const m of (base?.Emails ?? [])) if (m?.message_id) seen.set(String(m.message_id), m)
+
+  for (const ownerId of owners.filter(Boolean)) {
+    const mine = await runTool('ZOHO_GET_RECORD_EMAILS', undefined, {
+      module_api_name: 'Leads', record_id: leadId,
+      type: 'user_emails', owner_id: ownerId,
+    }).catch(() => ({ Emails: [] }))
+    for (const m of (mine?.Emails ?? [])) if (m?.message_id) seen.set(String(m.message_id), m)
+  }
+
+  const rows: any[] = [...seen.values()]
   return rows.map(m => ({
     id: String(m.message_id),
     kind: 'email' as const,
@@ -89,6 +115,35 @@ async function fetchNotes(leadId: string): Promise<LeadEvent[]> {
   })).filter(e => e.at)
 }
 
+/**
+ * The people a lead passes through before it reaches its owner.
+ *
+ * Asking EVERY user per lead would be thousands of calls; the queue is in
+ * fact short. An assignment rule drops every webform lead on one person and
+ * a second reassigns them on, so their two mailboxes plus the current
+ * owner's cover almost everything. Editable in mw_settings without a deploy
+ * as the team changes (owner, 1 Oct 2026).
+ */
+const QUEUE_SEED = [
+  '5289273000017034001', // Dineshgandhi S — assignment-rule default holder
+  '5289273000068406001', // Sukriti Taneja — reassigns leads onward
+]
+
+async function queueHandlers(notes: string[]): Promise<string[]> {
+  if (!supabaseConfigured) return QUEUE_SEED
+  const { data } = await supabase.from('mw_settings')
+    .select('value').eq('key', 'sales_queue_handlers').maybeSingle()
+  if (!data?.value) {
+    await supabase.from('mw_settings')
+      .upsert({ key: 'sales_queue_handlers', value: QUEUE_SEED }, { onConflict: 'key' })
+    notes.push(`queue handlers: ${QUEUE_SEED.length} seeded`)
+    return QUEUE_SEED
+  }
+  const ids = (data.value as string[]).filter(Boolean).slice(0, 4)
+  notes.push(`queue handlers: ${ids.length} — their mail is checked on every lead`)
+  return ids
+}
+
 export type SalesRun = { ok: boolean; message: string; notes: string[] }
 
 /**
@@ -102,6 +157,11 @@ export async function refreshSales(
   const since = opts.since ?? new Date(Date.now() - 35 * 86_400_000).toISOString().slice(0, 10)
   try {
     if (!supabaseConfigured) return { ok: false, message: 'supabase not configured', notes }
+
+    // Leads pass through a queue: an assignment rule gives them to one person
+    // and a human reassigns them on. The first responder is often not the
+    // current owner, so every active user's mailbox is asked, not just theirs.
+    const extraOwnerIds = await queueHandlers(notes)
 
     const leads = await fetchLeads(since, notes)
 
@@ -129,8 +189,11 @@ export async function refreshSales(
           fullName: s(z.Full_Name), company: s(z.Company), email: s(z.Email),
           leadStatus: s(z.Lead_Status), ownerName: s(z.Owner?.name), country: s(z.Country),
         }
+        // Every user who might hold this lead's mail. The owner always, plus
+        // anyone the team has nominated as a first-touch handler.
+        const owners = [String(z.Owner?.id ?? ''), ...extraOwnerIds].filter(Boolean)
         const [emails, noteRows] = await Promise.all([
-          fetchEmails(lead.id).catch(() => [] as LeadEvent[]),
+          fetchEmails(lead.id, owners).catch(() => [] as LeadEvent[]),
           fetchNotes(lead.id).catch(() => [] as LeadEvent[]),
         ])
         const events = [...emails, ...noteRows]

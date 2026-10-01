@@ -81,7 +81,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
   // Numbers that name individuals and are wrong about them do more damage
   // than no numbers at all, so the page shows nothing until it is refetched.
   // Flip this off when the rebuild lands (owner, 1 Oct 2026).
-  const REBUILDING = true
+  const REBUILDING = false
   if (REBUILDING) {
     return (
       <div className="mw-wrap">
