@@ -114,7 +114,7 @@ async function fetchEmails(leadId: string, owners: string[]): Promise<LeadEvent[
 async function fetchWrittenWork(leadId: string): Promise<LeadEvent[]> {
   const seen = new Map<string, LeadEvent>()
 
-  if (zohoConfigured) {
+  if (zohoConfigured && !zohoDown) {
     try {
       for (const w of await fetchWritten(leadId)) {
         seen.set(`${w.kind}-${w.at}`, {
@@ -125,7 +125,11 @@ async function fetchWrittenWork(leadId: string): Promise<LeadEvent[]> {
           meta: { via: 'zoho' },
         })
       }
-    } catch { /* fall through to Composio */ }
+    } catch (e: any) {
+      const why = String(e?.message ?? e)
+      if (/auth failed/i.test(why)) zohoDown = why.slice(0, 120)
+      /* fall through to Composio */
+    }
   }
 
   for (const n of await fetchNotes(leadId).catch(() => [] as LeadEvent[])) {
@@ -215,8 +219,17 @@ async function syncUsers(notes: string[]): Promise<{ id: string; name: string; e
  * rule firing in their name, so a failure here is reported rather than
  * silently treated as "nothing happened".
  */
+/**
+ * Set once the Zoho line is known to be refusing us.
+ *
+ * Without it, an auth failure became one failed token request per lead per
+ * list — hundreds of them — which burns the very allowance that caused the
+ * refusal and turns a recoverable rate limit into a long outage.
+ */
+let zohoDown: string | null = null
+
 async function pullTimeline(leadId: string): Promise<number> {
-  if (!zohoConfigured) return 0
+  if (!zohoConfigured || zohoDown) return 0
   const rows = await fetchTimeline('Leads', leadId)
   if (!rows.length) return 0
   const { error } = await supabase.from('mw_lead_timeline').upsert(
@@ -252,6 +265,7 @@ export async function refreshSales(
   // already spent ten seconds of the sixty — so a 48-second budget could not
   // be met and the function was killed anyway (owner, 1 Oct 2026).
   const startedAt = Date.now()
+  zohoDown = null
   try {
     if (!supabaseConfigured) return { ok: false, message: 'supabase not configured', notes }
 
@@ -318,6 +332,9 @@ export async function refreshSales(
     const worker = async () => {
       while (queue.length) {
         if (Date.now() > startNoLater) { ranOut = true; return }
+        // No point storing eighty more leads with no audit trail on them;
+        // they would only have to be pulled again.
+        if (zohoDown) return
         const z = queue.shift()!
         // A lead that hangs must cost one lane, not the whole run.
         await Promise.race([
@@ -343,7 +360,13 @@ export async function refreshSales(
           fetchWrittenWork(lead.id).catch(() => [] as LeadEvent[]),
           // A timeline failure must not cost the lead's email trail, but it
           // must be visible: without it the page cannot show who held what.
-          pullTimeline(lead.id).catch(err => { tlFailed++; tlWhy = String(err?.message ?? err).slice(0, 80); return 0 }),
+          pullTimeline(lead.id).catch(err => {
+            tlFailed++
+            const why = String(err?.message ?? err)
+            tlWhy = why.slice(0, 120)
+            if (/auth failed/i.test(why)) zohoDown = tlWhy
+            return 0
+          }),
         ])
         if (tlCount) withTimeline++
         const events = [...emails, ...noteRows]
@@ -405,6 +428,11 @@ export async function refreshSales(
     notes.push(tlFailed
       ? `audit trail: ${withTimeline} pulled, ${tlFailed} failed — ${tlWhy}`
       : `audit trail: ${withTimeline} leads, so handoffs are visible`)
+    if (zohoDown) {
+      notes.push('STOPPED EARLY: the Zoho line is refusing us, so the rest would have no audit trail. '
+        + 'If this says Access Denied, the refresh token has minted too many access tokens recently — '
+        + 'wait ten minutes and call again; the token is now cached between runs so it should not recur.')
+    }
     const remaining = todo.length - stored - failed
     return {
       ok: stored > 0 || take.length === 0,

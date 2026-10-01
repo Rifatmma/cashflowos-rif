@@ -1,4 +1,5 @@
 import 'server-only'
+import { supabase, supabaseConfigured } from './supabase'
 // 👉 A direct line to Zoho CRM, alongside the Composio one.
 //
 // WHY BOTH. Composio handles the ordinary reads well and needs no secrets in
@@ -50,13 +51,48 @@ export function zohoCredentialShape() {
   }
 }
 
-// Access tokens last an hour. A daily pull makes ~200 calls in a couple of
-// minutes, so one token covers a whole run; caching it in module scope saves
-// 200 round trips to the accounts server.
+// Access tokens last an hour, and ZOHO LIMITS HOW MANY A REFRESH TOKEN MAY
+// MINT. On a serverless host a module variable dies with the invocation, so
+// every run minted fresh ones and a backfill clicked five times in a row
+// exhausted the allowance -- after which every call answers "Access Denied",
+// which looks exactly like a broken credential and is not one.
+//
+// So the token is cached in the database, where it survives between
+// invocations, and concurrent callers inside one invocation share a single
+// request instead of racing to make three (owner, 1 Oct 2026).
 let cached: { token: string; until: number } | null = null
+let inFlight: Promise<string> | null = null
+
+const TOKEN_KEY = 'zoho_access_token'
+
+async function readStoredToken(): Promise<{ token: string; until: number } | null> {
+  if (!supabaseConfigured) return null
+  try {
+    const { data } = await supabase.from('mw_settings').select('value').eq('key', TOKEN_KEY).maybeSingle()
+    const v = data?.value as any
+    if (v?.token && Number(v.until) > Date.now() + 60_000) return { token: String(v.token), until: Number(v.until) }
+  } catch { /* a cache miss is not an error */ }
+  return null
+}
+
+async function storeToken(t: { token: string; until: number }) {
+  if (!supabaseConfigured) return
+  try {
+    await supabase.from('mw_settings').upsert({ key: TOKEN_KEY, value: t }, { onConflict: 'key' })
+  } catch { /* worst case the next invocation mints one */ }
+}
 
 async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token
+  // One request per invocation, however many callers arrive at once.
+  if (inFlight) return inFlight
+  inFlight = mintToken().finally(() => { inFlight = null })
+  return inFlight
+}
+
+async function mintToken(): Promise<string> {
+  const stored = await readStoredToken()
+  if (stored) { cached = stored; return stored.token }
 
   const params = {
     grant_type: 'refresh_token',
@@ -107,7 +143,8 @@ async function accessToken(): Promise<string> {
     )
   }
 
-  cached = { token: j.access_token, until: Date.now() + (Number(j.expires_in ?? 3600) - 120) * 1000 }
+  cached = { token: j.access_token, until: Date.now() + (Number(j.expires_in ?? 3600) - 300) * 1000 }
+  await storeToken(cached)
   return cached.token
 }
 
@@ -131,8 +168,9 @@ export async function zohoGet<T = any>(
   const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${token}` } })
   if (res.status === 204) return null
   if (res.status === 401) {
-    // Token rejected mid-run: drop the cache and try once more.
+    // Token rejected mid-run: drop both caches and try once more.
     cached = null
+    if (supabaseConfigured) await supabase.from('mw_settings').delete().eq('key', TOKEN_KEY).then(() => {}, () => {})
     const retry = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` } })
     if (retry.status === 204) return null
     if (!retry.ok) throw new Error(`Zoho ${retry.status} on ${path}`)
