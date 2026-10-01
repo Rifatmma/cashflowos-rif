@@ -24,17 +24,22 @@ type ZohoLead = Record<string, any>
 
 /** Webform leads created since `since` (YYYY-MM-DD). */
 export async function fetchLeads(since: string, notes: string[]): Promise<ZohoLead[]> {
+  // SMALL PAGES ON PURPOSE. Composio parks any oversized tool response in
+  // its sandbox and returns a preview instead of the data, which surfaces as
+  // "response too large" — two hundred leads with eleven fields each trips
+  // it every time. Fifty does not (owner, 1 Oct 2026).
+  const PAGE = 50
   const out: ZohoLead[] = []
-  for (let page = 1; page <= 10; page++) {
+  for (let page = 1; page <= 20; page++) {
     const res = await runTool('ZOHO_SEARCH_LEADS', undefined, {
       criteria: `((Lead_Source:equals:${WEBFORM})and(Created_Time:greater_equal:${since}T00:00:00+08:00))`,
-      fields: 'id,Full_Name,Company,Email,Phone,Lead_Source,Lead_Status,Owner,Country,City,Created_Time',
-      per_page: 200,
+      fields: 'id,Full_Name,Company,Email,Lead_Status,Owner,Country,Created_Time',
+      per_page: PAGE,
       page,
     })
     const rows: ZohoLead[] = res?.data ?? []
     out.push(...rows)
-    if (rows.length < 200) break
+    if (rows.length < PAGE) break
   }
   notes.push(`Zoho: ${out.length} webform leads since ${since}`)
   return out
@@ -207,10 +212,10 @@ export async function refreshSales(
         const { error } = await supabase.from('mw_leads').upsert({
           id: lead.id,
           created_time: lead.createdTime,
-          full_name: lead.fullName, company: lead.company, email: lead.email, phone: s(z.Phone),
+          full_name: lead.fullName, company: lead.company, email: lead.email,
           lead_source: s(z.Lead_Source), lead_status: lead.leadStatus,
           owner_name: lead.ownerName, owner_email: s(z.Owner?.email),
-          country: lead.country, city: s(z.City),
+          country: lead.country,
           first_response_at: r.firstResponseAt, first_responder: r.firstResponder,
           response_hours: r.responseHours,
           emails_out: r.emailsOut, emails_in: r.emailsIn,
