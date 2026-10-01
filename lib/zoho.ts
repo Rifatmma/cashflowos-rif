@@ -156,6 +156,40 @@ async function mintToken(): Promise<string> {
  * distinction has already caused four separate bugs on this dashboard where a
  * silent source was read as "the thing is gone".
  */
+/**
+ * Why a call was refused, in Zoho's own words.
+ *
+ * A 401 is not one thing. INVALID_TOKEN means mint a new one.
+ * OAUTH_SCOPE_MISMATCH means this token will never read this list, however
+ * many times you mint. Treating the second as the first is what drained the
+ * allowance: eight activity lists per lead, a scope error on some of them,
+ * and a fresh token requested every time (owner, 1 Oct 2026).
+ */
+/** Which related lists came back refused, and with what code. */
+export const refusedLists = new Map<string, string>()
+
+export class ZohoRefused extends Error {
+  constructor(public code: string, public status: number, public path: string) {
+    super(`Zoho ${status} ${code} on ${path}`)
+  }
+}
+
+/** At most one re-mint per invocation, however many 401s arrive. */
+let remints = 0
+const NOT_WORTH_RETRYING = /OAUTH_SCOPE_MISMATCH|NO_PERMISSION|INVALID_URL_PATTERN|FORBIDDEN/i
+
+const codeOf = (text: string) => {
+  try { return String(JSON.parse(text)?.code ?? 'UNKNOWN') } catch { return 'UNKNOWN' }
+}
+
+/**
+ * One GET against the CRM.
+ *
+ * Returns null for 204 — Zoho's way of saying "no related records", which is
+ * an answer, not a failure, and must not be confused with one. That
+ * distinction has already caused four separate bugs on this dashboard where a
+ * silent source was read as "the thing is gone".
+ */
 export async function zohoGet<T = any>(
   path: string,
   params: Record<string, string | number | undefined> = {},
@@ -167,21 +201,33 @@ export async function zohoGet<T = any>(
 
   const res = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${token}` } })
   if (res.status === 204) return null
+
   if (res.status === 401) {
-    // Token rejected mid-run: drop both caches and try once more.
+    const code = codeOf(await res.text().catch(() => ''))
+
+    // A scope we were never granted. Minting a new token cannot fix it, and
+    // asking for one is what caused the outage.
+    if (NOT_WORTH_RETRYING.test(code) || remints >= 1) {
+      throw new ZohoRefused(code, 401, path)
+    }
+
+    remints++
     cached = null
     if (supabaseConfigured) await supabase.from('mw_settings').delete().eq('key', TOKEN_KEY).then(() => {}, () => {})
     const retry = await fetch(url, { headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` } })
     if (retry.status === 204) return null
-    if (!retry.ok) throw new Error(`Zoho ${retry.status} on ${path}`)
+    if (!retry.ok) throw new ZohoRefused(codeOf(await retry.text().catch(() => '')), retry.status, path)
     return retry.json() as Promise<T>
   }
+
   if (!res.ok) {
-    const t = await res.text().catch(() => '')
-    throw new Error(`Zoho ${res.status} on ${path}: ${t.slice(0, 200)}`)
+    throw new ZohoRefused(codeOf(await res.text().catch(() => '')), res.status, path)
   }
   return res.json() as Promise<T>
 }
+
+/** Reset between runs so a later invocation may retry once more. */
+export function zohoResetRetries() { remints = 0 }
 
 export async function zohoPost<T = any>(path: string, body: unknown): Promise<T | null> {
   const token = await accessToken()
@@ -357,18 +403,28 @@ export async function fetchWritten(leadId: string): Promise<WrittenRecord[]> {
     at: r.Created_Time, title: strip(r.Subject), body: strip(r.Description),
   })
 
+  // A refused list is recorded, not swallowed. "No meetings came back" and
+  // "we are not allowed to read meetings" look identical in the data and
+  // mean completely different things.
+  const note = (e: any) => {
+    const code = e instanceof ZohoRefused ? e.code : 'ERROR'
+    const path = e instanceof ZohoRefused ? e.path.split('/').pop() : '?'
+    refusedLists.set(String(path), code)
+    if (code === 'INVALID_TOKEN' || code === 'AUTHENTICATION_FAILURE') throw e
+  }
+
   // Each list is asked for independently: one module being unavailable on
   // this plan must not cost the others.
   await Promise.all([
     grab('Notes', 'note', 'Note_Title,Note_Content,Created_Time,Owner,Created_By',
-      r => ({ at: r.Created_Time, title: strip(r.Note_Title), body: strip(r.Note_Content) })).catch(() => {}),
-    grab('Tasks', 'task', TASK_FIELDS, asTask).catch(() => {}),
-    grab('Tasks_History', 'task', TASK_FIELDS, asTask).catch(() => {}),
-    grab('Calls', 'call', CALL_FIELDS, asCall).catch(() => {}),
-    grab('Calls_History', 'call', CALL_FIELDS, asCall).catch(() => {}),
-    grab('Events', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
-    grab('Events_History', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
-    grab('Invited_Events', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
+      r => ({ at: r.Created_Time, title: strip(r.Note_Title), body: strip(r.Note_Content) })).catch(note),
+    grab('Tasks', 'task', TASK_FIELDS, asTask).catch(note),
+    grab('Tasks_History', 'task', TASK_FIELDS, asTask).catch(note),
+    grab('Calls', 'call', CALL_FIELDS, asCall).catch(note),
+    grab('Calls_History', 'call', CALL_FIELDS, asCall).catch(note),
+    grab('Events', 'meeting', EVENT_FIELDS, asEvent).catch(note),
+    grab('Events_History', 'meeting', EVENT_FIELDS, asEvent).catch(note),
+    grab('Invited_Events', 'meeting', EVENT_FIELDS, asEvent).catch(note),
   ])
 
   // The same meeting can appear in two lists — open and invited, say. Keyed

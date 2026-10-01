@@ -13,7 +13,7 @@ import 'server-only'
 
 import { supabase, supabaseConfigured } from './supabase'
 import { runTool } from './composio-mcp'
-import { zohoConfigured, fetchTimeline, fetchUsers, fetchWritten } from './zoho'
+import { zohoConfigured, fetchTimeline, fetchUsers, fetchWritten, refusedLists, zohoResetRetries } from './zoho'
 import { rollUpLead, type Lead, type LeadEvent } from './mw-sales'
 
 /** Only webform leads. Prospecting-tool imports are not the team's inbound work. */
@@ -266,6 +266,8 @@ export async function refreshSales(
   // be met and the function was killed anyway (owner, 1 Oct 2026).
   const startedAt = Date.now()
   zohoDown = null
+  zohoResetRetries()
+  refusedLists.clear()
   try {
     if (!supabaseConfigured) return { ok: false, message: 'supabase not configured', notes }
 
@@ -428,6 +430,12 @@ export async function refreshSales(
     notes.push(tlFailed
       ? `audit trail: ${withTimeline} pulled, ${tlFailed} failed — ${tlWhy}`
       : `audit trail: ${withTimeline} leads, so handoffs are visible`)
+    if (refusedLists.size) {
+      // Named, because "no meetings exist" and "we may not read meetings"
+      // are different facts and only one of them is about the sales team.
+      notes.push('refused by Zoho: '
+        + [...refusedLists.entries()].map(([list, code]) => `${list} (${code})`).join(', '))
+    }
     if (zohoDown) {
       notes.push('STOPPED EARLY: the Zoho line is refusing us, so the rest would have no audit trail. '
         + 'If this says Access Denied, the refresh token has minted too many access tokens recently — '
