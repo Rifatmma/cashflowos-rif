@@ -137,6 +137,57 @@ export function TeamQueue({ rows }: { rows: LeadJourney[] }) {
   )
 }
 
+/**
+ * The conversations that left no trace, named.
+ *
+ * The first version of this section described the problem and listed one
+ * example, which is the shape of a lecture rather than a worklist. If six
+ * meetings need a recap, the six have to be on the page with enough detail to
+ * go and write them (owner, 2 Oct 2026).
+ */
+export function NoRecap({ rows }: { rows: LeadJourney[] }) {
+  if (!rows.length) return null
+  const spoke = (j: LeadJourney) =>
+    [...j.steps].reverse().find(s => (s.kind === 'call' || s.kind === 'meeting') && !s.byMachine)
+  return (
+    <div className="mw-scroll-x">
+      <table className="mw-kw wide">
+        <thead>
+          <tr>
+            <th>Lead</th><th>What happened</th><th>Who was there</th>
+            <th>When</th><th className="num">Days ago</th><th>Owner now</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(j => {
+            const s = spoke(j)
+            const days = s ? Math.floor((Date.now() - +new Date(s.at)) / 86_400_000) : null
+            return (
+              <tr key={j.lead.id}>
+                <td>
+                  <b>{j.lead.company || j.lead.fullName || 'Unnamed'}</b>
+                  {j.lead.country && <small> · {j.lead.country}</small>}
+                </td>
+                <td>
+                  {s?.kind === 'call' ? 'Call' : 'Meeting'}
+                  {s?.detail && <small> · {s.detail.replace(/^.*?(?:booked a meeting|logged a call): /, '')}</small>}
+                </td>
+                <td>{s?.actor ?? '—'}</td>
+                <td>{s ? whenTime(s.at) : '—'}</td>
+                <td className="num">
+                  {days === null ? '—'
+                    : <span className={`mw-rt ${days >= 7 ? 'late' : days >= 3 ? 'ok' : 'fast'}`}>{days}d</span>}
+                </td>
+                <td>{j.lead.ownerName ?? 'unassigned'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // --------------------------------------------------------------- a journey
 
 const ICON: Record<JourneyStep['kind'], string> = {

@@ -9,7 +9,7 @@ import {
   type LeadJourney, type TimelineLike,
 } from '@/lib/mw-journey'
 import { MwHero, Tiles, Section } from '../_ui'
-import { Contributions, TeamQueue, JourneyRow } from './_sales-ui'
+import { Contributions, TeamQueue, NoRecap, JourneyRow } from './_sales-ui'
 
 // 👉 Moving Walls → Sales. What happened after the lead arrived.
 //
@@ -201,17 +201,18 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
       {noRecap.length > 0 && (
         <Section title={`${noRecap.length} conversations happened and left no trace`}
           sub="A call or a meeting took place, and within two days nothing was sent to the prospect and nothing written for us.">
-          <p className="lede">
-            This is the gap that made the dashboard wrong about MeetSocial: Manson held a 45-minute
-            meeting on 16 September and the lead still showed as never answered, because a meeting
-            is invisible to anyone who was not in it. The meeting was the answer. What is missing is
-            the record of what was said — and that only exists in one person&rsquo;s head.
-          </p>
-          <p className="lede" style={{ marginTop: 10 }}>
+          <NoRecap rows={noRecap} />
+          <p className="lede" style={{ marginTop: 12 }}>
             <b>Every call or meeting needs a recap email afterwards.</b> It gives the prospect a
             written record, it puts the substance where the rest of the team can see it, and it
-            costs five minutes. {' '}
-            <Link href={link({ show: 'norecap', days: d })}>See the {noRecap.length}</Link> ·{' '}
+            costs five minutes. Each of these is still worth writing even now — the detail fades,
+            but a line saying what was agreed is better than nothing on the record.
+          </p>
+          <p className="lede" style={{ marginTop: 10 }}>
+            A meeting is invisible to anyone who was not in it, which is why these leads looked
+            untouched until the CRM activity lists were connected. They were not untouched; they
+            were unwritten. {' '}
+            <Link href={link({ show: 'norecap', days: d })}>Open them as journeys</Link> ·{' '}
             <Link href="/mw/playbook#recap">the recap rule</Link>.
           </p>
         </Section>
