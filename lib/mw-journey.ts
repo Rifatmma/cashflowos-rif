@@ -85,17 +85,31 @@ const hrs = (a: string, b: string) =>
  * Deewakshi already appears twice in the scorecard because of it.
  */
 export function makeResolver(users: { id: string; name: string; email: string }[]) {
-  const byEmail = new Map(users.map(u => [u.email.toLowerCase(), u.name]))
-  const byId = new Map(users.map(u => [u.id, u.name]))
+  const byEmail = new Map<string, string>()
+  const byId = new Map<string, string>()
+  // CASE AND SPACING TOO. "sumaiya shukri" and "Sumaiya Shukri" were two rows
+  // in the scorecard, which is the same failure as the email/name split and
+  // just as visible to the person it names.
+  const byName = new Map<string, string>()
+  const key = (n: string) => n.toLowerCase().replace(/\s+/g, ' ').trim()
+
+  for (const u of users) {
+    if (u.email) byEmail.set(u.email.toLowerCase(), u.name)
+    if (u.id) byId.set(u.id, u.name)
+    // First spelling seen wins, so the canonical form stays stable between
+    // loads rather than flipping with row order.
+    if (u.name && !byName.has(key(u.name))) byName.set(key(u.name), u.name)
+  }
+
   return (v: string | null | undefined): string | null => {
     const s = String(v ?? '').trim()
     if (!s) return null
     if (byId.has(s)) return byId.get(s)!
     const e = s.toLowerCase()
     if (byEmail.has(e)) return byEmail.get(e)!
-    // An address we do not know is a prospect, not a colleague.
-    if (e.includes('@')) return byEmail.get(e) ?? s
-    return s
+    // An address we do not know belongs to a prospect, not a colleague.
+    if (e.includes('@')) return s
+    return byName.get(key(s)) ?? s
   }
 }
 
