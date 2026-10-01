@@ -69,11 +69,15 @@ async function fetchEmails(leadId: string, owners: string[]): Promise<LeadEvent[
   }).catch(() => ({ Emails: [] }))
   for (const m of (base?.Emails ?? [])) if (m?.message_id) seen.set(String(m.message_id), m)
 
-  for (const ownerId of owners.filter(Boolean)) {
-    const mine = await runTool('ZOHO_GET_RECORD_EMAILS', undefined, {
+  // Asked in parallel. Three owners done one after another is three round
+  // trips to Composio per lead, and with the activity lists added that was
+  // enough to push a twenty-lead batch past Vercel's sixty seconds.
+  const perOwner = await Promise.all(owners.filter(Boolean).map(ownerId =>
+    runTool('ZOHO_GET_RECORD_EMAILS', undefined, {
       module_api_name: 'Leads', record_id: leadId,
       type: 'user_emails', owner_id: ownerId,
-    }).catch(() => ({ Emails: [] }))
+    }).catch(() => ({ Emails: [] }))))
+  for (const mine of perOwner) {
     for (const m of (mine?.Emails ?? [])) if (m?.message_id) seen.set(String(m.message_id), m)
   }
 
@@ -270,9 +274,35 @@ export async function refreshSales(
     const take = opts.limit ? todo.slice(0, opts.limit) : todo
     if (done.size) notes.push(`${done.size} already pulled in the last 12h, skipped`)
 
+    // A DEADLINE, NOT A GUESSED BATCH SIZE.
+    //
+    // Each lead now costs about fifteen API calls -- emails per owner, eight
+    // activity lists, the audit trail -- where it used to cost three. Twenty
+    // leads went past Vercel's sixty seconds and returned a 504, which loses
+    // the work already done and tells you nothing about how far it got.
+    //
+    // So the run stops itself with ten seconds to spare and reports what it
+    // finished. Calling it again picks up where it left off, because leads
+    // pulled recently are skipped. The batch size stops mattering
+    // (owner, 1 Oct 2026).
+    const deadline = Date.now() + 48_000
+    let ranOut = false
+
     let stored = 0, failed = 0, withEmail = 0, withNote = 0, withTimeline = 0, tlFailed = 0
     let tlWhy = ''
-    for (const z of take) {
+    // Three leads at a time. Enough to hide the latency of forty sequential
+    // HTTP calls; not so many that Zoho starts refusing them.
+    const LANES = 3
+    const queue = [...take]
+    const worker = async () => {
+      while (queue.length) {
+        if (Date.now() > deadline) { ranOut = true; return }
+        const z = queue.shift()!
+        await one(z)
+      }
+    }
+
+    const one = async (z: any) => {
       try {
         const lead: Lead = {
           id: String(z.id),
@@ -334,11 +364,14 @@ export async function refreshSales(
       }
     }
 
+    await Promise.all(Array.from({ length: LANES }, worker))
+    if (ranOut) notes.push('stopped at the time limit rather than timing out — call again to continue')
+
     notes.push(`${withEmail} leads have an email trail, ${withNote} have a written note`)
     notes.push(tlFailed
       ? `audit trail: ${withTimeline} pulled, ${tlFailed} failed — ${tlWhy}`
       : `audit trail: ${withTimeline} leads, so handoffs are visible`)
-    const remaining = todo.length - take.length
+    const remaining = todo.length - stored - failed
     return {
       ok: stored > 0 || take.length === 0,
       notes,
