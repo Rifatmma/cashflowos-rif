@@ -2,7 +2,7 @@ import { refreshMw } from '@/lib/mw-refresh'
 import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
-import { zohoConfigured, fetchTimeline, fetchUsers } from '@/lib/zoho'
+import { zohoConfigured, fetchUsers, zohoGet as zohoGetRaw } from '@/lib/zoho'
 import { supabase } from '@/lib/supabase'
 import { cookies } from 'next/headers'
 
@@ -64,23 +64,46 @@ export async function GET(req: Request) {
       return Response.json({ ok: false, why: 'ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not all set' })
     }
     try {
+      const q = new URL(req.url).searchParams
       const users = await fetchUsers()
-      const { data } = await supabase.from('mw_leads')
-        .select('id, full_name, owner_name').order('created_time', { ascending: false }).limit(1)
-      const lead = data?.[0]
+
+      // PICK A LEAD THAT ACTUALLY CHANGED HANDS. The first version of this
+      // check took the newest lead, which was hours old and had no journey
+      // yet -- it proved the call worked and nothing about the data. A lead
+      // whose first responder is not its current owner is precisely the case
+      // the dashboard gets wrong today (owner, 1 Oct 2026).
+      let lead: any = null
+      if (q.get('lead')) {
+        const { data } = await supabase.from('mw_leads')
+          .select('id, full_name, owner_name, first_responder').eq('id', q.get('lead')!).maybeSingle()
+        lead = data
+      } else {
+        const { data } = await supabase.from('mw_leads')
+          .select('id, full_name, owner_name, first_responder')
+          .not('first_responder', 'is', null)
+          .order('created_time', { ascending: false }).limit(50)
+        lead = (data ?? []).find(l => l.first_responder && l.owner_name
+          && !String(l.first_responder).startsWith(String(l.owner_name).split(' ')[0])) ?? data?.[0]
+      }
       if (!lead) return Response.json({ ok: true, users: users.length, timeline: 'no lead stored yet to test against' })
-      const tl = await fetchTimeline('Leads', String(lead.id))
-      const owner = tl.filter(e => e.changes.some(c => /owner/i.test(c.field)))
+
+      // RAW, not my parse of it. The parse already read ownership as a field
+      // change when Zoho files it as an action, and reported zero handoffs on
+      // a record that plainly had one. Print what Zoho sends.
+      const raw: any = await zohoGetRaw(`Leads/${lead.id}/__timeline`, { per_page: 100 })
+      const rows: any[] = raw?.__timeline ?? []
+      const actions: Record<string, number> = {}
+      for (const r of rows) actions[String(r.action ?? '?')] = (actions[String(r.action ?? '?')] ?? 0) + 1
+
       return Response.json({
         ok: true,
         users: users.length,
-        testedLead: lead.full_name ?? lead.id,
-        timelineEntries: tl.length,
-        ownerChanges: owner.length,
-        sample: tl.slice(0, 12).map(e => ({
-          at: e.at, action: e.action, by: e.byName,
-          changed: e.changes.map(c => `${c.field}: ${c.from ?? '∅'} → ${c.to ?? '∅'}`),
-        })),
+        testedLead: { id: lead.id, name: lead.full_name, owner: lead.owner_name, firstResponder: lead.first_responder },
+        entries: rows.length,
+        actionCounts: actions,
+        // Every entry verbatim, so the handoff target can be located rather
+        // than guessed at.
+        rawSample: rows.slice(0, 20),
       })
     } catch (e: any) {
       return Response.json({ ok: false, why: String(e?.message ?? e).slice(0, 300) })
