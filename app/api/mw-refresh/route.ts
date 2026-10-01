@@ -1,6 +1,7 @@
 import { refreshMw } from '@/lib/mw-refresh'
 import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
+import { refreshSales } from '@/lib/mw-sales-run'
 import { cookies } from 'next/headers'
 
 // 🔒 Don't edit — this keeps your robot safe.
@@ -42,6 +43,12 @@ export async function GET(req: Request) {
     const h = await refreshHealth()
     return Response.json({ ok: h.ok, health: h.message, broken: h.broken })
   }
+  if (only === 'sales') {
+    // ?since=YYYY-MM-DD backfills; without it the daily window is used.
+    const since = new URL(req.url).searchParams.get('since') ?? undefined
+    const sv = await refreshSales({ since })
+    return Response.json({ ok: sv.ok, sales: sv.message, notes: sv.notes })
+  }
   if (only === 'gap') {
     const one = new URL(req.url).searchParams.get('country') ?? undefined
     const g = await refreshGaps({ only: one })
@@ -74,6 +81,11 @@ export async function GET(req: Request) {
   const gap = gapDay ? await refreshGaps() : null
   if (gap && !gap.ok) console.error('[CFO]', gap.message)
 
+  // Sales runs DAILY, unlike the plan: a lead nobody answered is useful to
+  // know about tomorrow, not on the first of next month.
+  const sales = await refreshSales()
+  if (!sales.ok) console.error('[CFO]', sales.message)
+
   const health = await refreshHealth()
   if (!health.ok) console.error('[CFO]', health.message)
 
@@ -84,6 +96,7 @@ export async function GET(req: Request) {
     health: health.message,
     broken: health.broken,
     gap: gap ? gap.message : 'not a gap day (runs on the 1st of a quarter)',
+    sales: sales.message,
     notes: plan?.notes ?? [],
   })
 }
