@@ -12,6 +12,40 @@ export type Template = {
 
 export const TEMPLATES: Template[] = [
   {
+    id: 'recap',
+    when: 'After every call, meeting or conversation that did not happen in email',
+    object: 'Note',
+    title: 'The recap email — send this first',
+    why:
+      'A meeting that produces no email is invisible. MeetSocial had a 45-minute call on 16 '
+      + 'September and the dashboard reported the lead as never answered, because nothing in any '
+      + 'system could see it. The recap fixes three things with one action: the client has a '
+      + 'written record of what was agreed, the CRM captures it automatically because it is an '
+      + 'email, and the next person can pick the lead up. Send it to the prospect, copy nobody '
+      + 'internal unless it helps, and keep it short.',
+    body: `Subject: Recap — our call today
+
+Hi Ahmed,
+
+Thanks for your time. Writing down what we covered so we are
+both working from the same note:
+
+- Where you are: 40 static sites in Riyadh, 12 moving to
+  digital in Q1, booking handled on spreadsheets today.
+- What you need first: inventory management; programmatic
+  later.
+- Your concern: training the ops team.
+- Timing: decision in November, budget approved in principle.
+
+What I owe you: implementation timeline by Friday 18 Oct.
+What I think you owe me: nothing yet — I will chase Layla's
+availability after you have seen the timeline.
+
+If I have any of that wrong, correct me and I will update it.
+
+Manson`,
+  },
+  {
     id: 'offcrm',
     when: 'LinkedIn, WhatsApp, a phone call, a corridor conversation at a show',
     object: 'Note',

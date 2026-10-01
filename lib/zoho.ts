@@ -224,24 +224,51 @@ export async function fetchWritten(leadId: string): Promise<WrittenRecord[]> {
     }
   }
 
+  // SIX LISTS, NOT THREE. Zoho splits every activity in two: `Tasks` is open
+  // tasks and `Tasks_History` is completed ones, and the same for Calls and
+  // Events. Asking only the first three returned nothing but unfinished work,
+  // so a 45-minute meeting that actually took place was invisible and its
+  // lead was reported as never answered.
+  //
+  // `Invited_Events` is a seventh case: a meeting whose "related to" is not
+  // this lead but which the lead was invited to. That is where the MeetSocial
+  // call sat (owner, 1 Oct 2026).
+  const CALL_FIELDS = 'Subject,Description,Call_Purpose,Call_Result,Call_Start_Time,Created_Time,Owner,Created_By'
+  const EVENT_FIELDS = 'Event_Title,Description,Start_DateTime,Created_Time,Owner,Created_By'
+  const TASK_FIELDS = 'Subject,Description,Status,Created_Time,Closed_Time,Owner,Created_By'
+
+  const asCall = (r: any) => ({
+    at: r.Call_Start_Time ?? r.Created_Time,
+    title: strip(r.Subject),
+    body: [strip(r.Call_Purpose), strip(r.Call_Result), strip(r.Description)].filter(Boolean).join(' · ') || null,
+  })
+  const asEvent = (r: any) => ({
+    at: r.Start_DateTime ?? r.Created_Time,
+    title: strip(r.Event_Title),
+    body: strip(r.Description),
+  })
+  const asTask = (r: any) => ({
+    at: r.Created_Time, title: strip(r.Subject), body: strip(r.Description),
+  })
+
   // Each list is asked for independently: one module being unavailable on
   // this plan must not cost the others.
   await Promise.all([
     grab('Notes', 'note', 'Note_Title,Note_Content,Created_Time,Owner,Created_By',
       r => ({ at: r.Created_Time, title: strip(r.Note_Title), body: strip(r.Note_Content) })).catch(() => {}),
-    grab('Tasks', 'task', 'Subject,Description,Status,Created_Time,Closed_Time,Owner,Created_By',
-      r => ({ at: r.Created_Time, title: strip(r.Subject), body: strip(r.Description) })).catch(() => {}),
-    grab('Calls', 'call', 'Subject,Description,Call_Purpose,Call_Result,Call_Start_Time,Owner,Created_By',
-      r => ({
-        at: r.Call_Start_Time ?? r.Created_Time,
-        title: strip(r.Subject),
-        body: [strip(r.Call_Purpose), strip(r.Call_Result), strip(r.Description)].filter(Boolean).join(' · ') || null,
-      })).catch(() => {}),
-    grab('Events', 'meeting', 'Event_Title,Description,Start_DateTime,Owner,Created_By',
-      r => ({ at: r.Start_DateTime ?? r.Created_Time, title: strip(r.Event_Title), body: strip(r.Description) })).catch(() => {}),
+    grab('Tasks', 'task', TASK_FIELDS, asTask).catch(() => {}),
+    grab('Tasks_History', 'task', TASK_FIELDS, asTask).catch(() => {}),
+    grab('Calls', 'call', CALL_FIELDS, asCall).catch(() => {}),
+    grab('Calls_History', 'call', CALL_FIELDS, asCall).catch(() => {}),
+    grab('Events', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
+    grab('Events_History', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
+    grab('Invited_Events', 'meeting', EVENT_FIELDS, asEvent).catch(() => {}),
   ])
 
-  return out.sort((a, b) => +new Date(a.at) - +new Date(b.at))
+  // The same meeting can appear in two lists — open and invited, say. Keyed
+  // on the record id, so it is counted once.
+  const once = new Map(out.map(r => [r.id, r]))
+  return [...once.values()].sort((a, b) => +new Date(a.at) - +new Date(b.at))
 }
 
 /** Everyone in the CRM, so an actor's email can be matched back to a person. */

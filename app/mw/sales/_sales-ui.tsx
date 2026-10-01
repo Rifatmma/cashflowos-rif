@@ -167,6 +167,7 @@ export function JourneyRow({ j, owner }: { j: LeadJourney; owner: boolean }) {
         </span>
         <span className="mw-lead-flags">
           {j.held.length > 1 && <i title="Changed hands">{j.held.length} holders</i>}
+          {j.noRecap && <i className="bad" title="A call or meeting happened and nothing was sent or written after it">no recap</i>}
           {j.emailsOut > 0 && j.recorded === 0 && <i className="warn" title="Emails exchanged, nothing written down">no write-up</i>}
           {j.prospectReplied && (j.silentDays ?? 0) >= 7 && <i className="bad" title="Prospect engaged, then silence">{j.silentDays}d silent</i>}
         </span>
@@ -177,7 +178,10 @@ export function JourneyRow({ j, owner }: { j: LeadJourney; owner: boolean }) {
           <span><b>Contact</b> {l.fullName ?? '—'}</span>
           <span><b>Email</b> {owner ? (l.email ?? '—') : maskEmail(l.email)}</span>
           <span><b>Country</b> {l.country ?? '—'}</span>
-          <span><b>Answered by</b> {j.firstResponder ?? <em className="mw-bad">nobody yet</em>}</span>
+          <span>
+            <b>Answered by</b> {j.firstResponder ?? <em className="mw-bad">nobody yet</em>}
+            {j.firstContactKind && j.firstContactKind !== 'email' && <> — by {j.firstContactKind}</>}
+          </span>
         </div>
 
         {/* The two clocks, side by side, because they answer different questions. */}
@@ -211,6 +215,15 @@ export function JourneyRow({ j, owner }: { j: LeadJourney; owner: boolean }) {
               </p>
             )}
           </>
+        )}
+
+        {j.noRecap && (
+          <p className="mw-waits">
+            <b>A conversation happened and left no trace.</b> There was a call or meeting here and
+            within two days nothing went to the prospect and nothing was written for us. Whatever
+            was agreed exists only in one person&rsquo;s memory. A recap email would have fixed
+            both at once.
+          </p>
         )}
 
         {/* Lifted out of the timeline on purpose. What a colleague actually

@@ -103,6 +103,8 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
   const replied = all.filter(j => j.prospectReplied).length
   const noWriteUp = all.filter(j => j.emailsOut > 0 && j.recorded === 0).length
   const silent = all.filter(j => j.prospectReplied && (j.silentDays ?? 0) >= 7).length
+  const noRecap = all.filter(j => j.noRecap)
+  const metOrCalled = all.filter(j => j.firstContactKind && j.firstContactKind !== 'email').length
   const handedOn = all.filter(j => j.held.length > 1).length
 
   const people = [...new Set(contrib.map(c => c.who))].sort()
@@ -113,6 +115,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
   if (show === 'blank') rows = rows.filter(j => j.emailsOut > 0 && j.recorded === 0)
   if (show === 'silent') rows = rows.filter(j => j.prospectReplied && (j.silentDays ?? 0) >= 7)
   if (show === 'handed') rows = rows.filter(j => j.held.length > 1)
+  if (show === 'norecap') rows = rows.filter(j => j.noRecap)
 
   const link = (o: Q) => {
     const q = new URLSearchParams()
@@ -168,6 +171,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
         { k: `Slower than ${SLA_HOURS}h`, v: String(late) },
         { k: 'They wrote back', v: `${all.length ? Math.round((replied / all.length) * 100) : 0}%` },
         { k: 'Changed hands', v: String(handedOn), d: 'at least once' },
+        { k: 'Spoke, never wrote it up', v: String(noRecap.length), d: 'call or meeting, no recap', tone: noRecap.length ? 'dn' : 'up' },
       ]} />
 
       {haveTimeline < all.length && (
@@ -191,6 +195,25 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
         <Section title={`${unanswered.length} leads nobody has answered`}
           sub="A shared queue, not a list of failures.">
           <TeamQueue rows={unanswered} />
+        </Section>
+      )}
+
+      {noRecap.length > 0 && (
+        <Section title={`${noRecap.length} conversations happened and left no trace`}
+          sub="A call or a meeting took place, and within two days nothing was sent to the prospect and nothing written for us.">
+          <p className="lede">
+            This is the gap that made the dashboard wrong about MeetSocial: Manson held a 45-minute
+            meeting on 16 September and the lead still showed as never answered, because a meeting
+            is invisible to anyone who was not in it. The meeting was the answer. What is missing is
+            the record of what was said — and that only exists in one person&rsquo;s head.
+          </p>
+          <p className="lede" style={{ marginTop: 10 }}>
+            <b>Every call or meeting needs a recap email afterwards.</b> It gives the prospect a
+            written record, it puts the substance where the rest of the team can see it, and it
+            costs five minutes. {' '}
+            <Link href={link({ show: 'norecap', days: d })}>See the {noRecap.length}</Link> ·{' '}
+            <Link href="/mw/playbook#recap">the recap rule</Link>.
+          </p>
         </Section>
       )}
 
@@ -220,6 +243,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
           <Link href={link({ who, show: 'never', days: d })} aria-current={show === 'never' ? 'page' : undefined}>Still waiting ({unanswered.length})</Link>
           <Link href={link({ who, show: 'late', days: d })} aria-current={show === 'late' ? 'page' : undefined}>Past {SLA_HOURS}h ({late})</Link>
           <Link href={link({ who, show: 'handed', days: d })} aria-current={show === 'handed' ? 'page' : undefined}>Changed hands ({handedOn})</Link>
+          <Link href={link({ who, show: 'norecap', days: d })} aria-current={show === 'norecap' ? 'page' : undefined}>No recap ({noRecap.length})</Link>
           <Link href={link({ who, show: 'blank', days: d })} aria-current={show === 'blank' ? 'page' : undefined}>No write-up ({noWriteUp})</Link>
           <Link href={link({ who, show: 'silent', days: d })} aria-current={show === 'silent' ? 'page' : undefined}>Gone quiet ({silent})</Link>
         </div>

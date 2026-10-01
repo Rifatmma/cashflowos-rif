@@ -54,6 +54,11 @@ export type JourneyStep = {
   byMachine: boolean
   /** One sentence a manager can read without knowing the CRM. */
   detail: string
+  /**
+   * The record carried real written content of its own, as opposed to just a
+   * title. A meeting called "Lucy x Manson" is not a write-up of that meeting.
+   */
+  hasText?: boolean
 }
 
 export type Holding = {
@@ -230,6 +235,7 @@ export function buildJourney(
       out.push({
         id: e.id, at: e.at, kind: e.kind, actor: who, byMachine: false,
         detail: `${who ?? 'Someone'} ${label}${text ? `: ${text}` : ' (no text written)'}`,
+        hasText: !!e.body,
       })
     }
   }
@@ -278,9 +284,23 @@ export type LeadJourney = {
   lead: Lead
   steps: JourneyStep[]
   held: Holding[]
-  /** First human outbound email after the lead arrived. */
+  /** First human outbound contact of ANY kind after the lead arrived. */
   firstResponder: string | null
   firstResponseHours: number | null
+  /** How they were first reached: email, a call, or a meeting. */
+  firstContactKind: 'email' | 'call' | 'meeting' | null
+  /**
+   * A call or meeting took place and nothing followed it — no recap email to
+   * the prospect, no note for us — within two days.
+   *
+   * The reason this is its own category: MeetSocial had a 45-minute meeting
+   * on 16 Sept and showed as never answered, because the only thing the
+   * dashboard could see was email. The meeting was the answer. The missing
+   * recap is the real problem, and it is a different problem from silence.
+   */
+  noRecap: boolean
+  /** When the un-recapped conversation happened. */
+  unrecappedAt: string | null
   /** Hours the company took, regardless of who had it. */
   teamHours: number | null
   prospectReplied: boolean
@@ -312,7 +332,30 @@ export function buildLeadJourney(
   const outbound = steps
     .filter(s => s.kind === 'email-out' && +new Date(s.at) >= born)
     .sort((a, b) => +new Date(a.at) - +new Date(b.at))
-  const first = outbound[0] ?? null
+
+  // REACHING A PROSPECT IS NOT ONLY EMAIL. A meeting is the strongest answer
+  // there is, and counting only email filed one as "nobody ever replied".
+  const CONTACT = ['email-out', 'call', 'meeting'] as const
+  const contacts = steps
+    .filter(s => (CONTACT as readonly string[]).includes(s.kind) && !s.byMachine && +new Date(s.at) >= born)
+    .sort((a, b) => +new Date(a.at) - +new Date(b.at))
+  const first = contacts[0] ?? null
+  const firstContactKind: 'email' | 'call' | 'meeting' | null = first
+    ? (first.kind === 'email-out' ? 'email' : first.kind === 'call' ? 'call' : 'meeting')
+    : null
+
+  // A spoken conversation with nothing written after it. Two days of grace:
+  // a meeting on Friday afternoon recapped on Monday is fine.
+  const spoken = steps.filter(s => (s.kind === 'call' || s.kind === 'meeting') && !s.byMachine)
+  let unrecappedAt: string | null = null
+  for (const sp of spoken) {
+    const t = +new Date(sp.at)
+    if (t > Date.now()) continue                       // still in the diary
+    const followed = steps.some(s =>
+      (s.kind === 'email-out' || s.kind === 'note') &&
+      +new Date(s.at) >= t && +new Date(s.at) <= t + 2 * 86_400_000)
+    if (!followed && !sp.hasText) unrecappedAt = sp.at
+  }
 
   const inbound = steps.filter(s => s.kind === 'email-in')
   const last = steps.length ? steps[steps.length - 1].at : null
@@ -321,6 +364,9 @@ export function buildLeadJourney(
     lead, steps, held,
     firstResponder: first?.actor ?? null,
     firstResponseHours: first ? hrs(lead.createdTime, first.at) : null,
+    firstContactKind,
+    noRecap: unrecappedAt !== null,
+    unrecappedAt,
     teamHours: first ? hrs(lead.createdTime, first.at) : null,
     prospectReplied: inbound.length > 0,
     recorded: steps.filter(s => ['note', 'task', 'call', 'meeting'].includes(s.kind) && !s.byMachine).length,

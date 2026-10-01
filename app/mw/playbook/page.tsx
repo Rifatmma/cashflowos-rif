@@ -130,10 +130,19 @@ export default async function MwPlaybook() {
 
       <Section title="The standard"
         sub="Four things that must always be written down, within 24 hours.">
-        <ol className="mw-list numbered">
+        <ol className="mw-list numbered" id="recap">
           <li>
-            <b>Anything that happened outside the CRM.</b> LinkedIn, WhatsApp, a phone call, a chat
-            at a trade show. If the CRM cannot see it, it needs a note.
+            <b>A recap email after every call, meeting or off-email conversation.</b> Sent to the
+            prospect, same day where you can. Write what you covered, what was agreed, and who owes
+            what next. This is the single most useful habit on this list: the client gets a written
+            record, the CRM captures it automatically because it is an email, and the lead stops
+            looking untouched. <i>If you send the recap, you have met the write-up requirement for
+            that conversation</i> — you do not have to do it twice.
+          </li>
+          <li>
+            <b>Anything else that happened outside the CRM.</b> LinkedIn, WhatsApp, a chat at a
+            trade show — anything where a recap email would be odd. If the CRM cannot see it, it
+            needs a note.
           </li>
           <li>
             <b>Every handoff.</b> Before you pass a lead to someone else, write what has been said,
@@ -154,6 +163,13 @@ export default async function MwPlaybook() {
           <b>Within {LOG_WITHIN_HOURS} hours of the conversation</b>, and before you finish for the
           day where you can. A note written three days later is half a note — the detail that
           mattered has already gone.
+        </p>
+        <p className="lede" style={{ marginTop: 12 }}>
+          <b>Why the recap email is rule one.</b> On 16 September one of us held a 45-minute meeting
+          with a prospect. Nothing was emailed afterwards and nothing was written, so every system
+          we have — including this dashboard — recorded that lead as never answered. The meeting had
+          gone well. Nobody could tell. A five-minute email would have been the proof, the record
+          and the next step in one.
         </p>
       </Section>
 
@@ -259,10 +275,11 @@ export default async function MwPlaybook() {
           exist because of what the data showed, and they can be rewritten the same way.
         </p>
         <p className="lede" style={{ marginTop: 10 }}>
-          Three numbers get looked at, all at the top of this page: the share of worked leads with
-          anything written against them, whether leads that changed hands carried a handover note,
-          and whether closed deals say why. Nothing is scored per person on this page — the point is
-          the record, not a league table.
+          Four numbers get looked at, all at the top of this page or the Sales tab: the share of
+          worked leads with anything written against them, whether a call or meeting was followed by
+          a recap, whether leads that changed hands carried a handover note, and whether closed
+          deals say why. Nothing is scored per person on this page — the point is the record, not a
+          league table.
         </p>
       </Section>
 
