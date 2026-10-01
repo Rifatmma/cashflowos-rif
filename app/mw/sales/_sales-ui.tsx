@@ -18,12 +18,16 @@ const whenTime = (iso: string) =>
 export function Scoreboard({ reps }: { reps: RepScore[] }) {
   if (!reps.length) return <p className="lede">No leads in this window.</p>
   return (
+    <>
     <table className="mw-kw wide">
       <thead>
         <tr>
-          <th>Who</th><th className="num">Leads</th><th className="num">Median reply</th>
-          <th className="num">Never answered</th><th className="num">Past {SLA_HOURS}h</th>
-          <th className="num">Prospect replied</th><th className="num">Written up</th>
+          <th>Who</th><th className="num">Leads</th>
+          <th className="num">Typical reply time</th>
+          <th className="num">Never answered</th>
+          <th className="num">Slower than {SLA_HOURS}h</th>
+          <th className="num">They wrote back</th>
+          <th className="num">Notes in CRM</th>
         </tr>
       </thead>
       <tbody>
@@ -41,12 +45,21 @@ export function Scoreboard({ reps }: { reps: RepScore[] }) {
             <td className="num">{r.replyRate}%</td>
             <td className="num">
               <span className={r.recordedRate < 50 ? 'mw-bad' : ''}>{r.recordedRate}%</span>
-              {r.unrecorded > 0 && <small> ({r.unrecorded} blank)</small>}
+              {r.unrecorded > 0 && <small> · {r.unrecorded} with emails but no note</small>}
             </td>
           </tr>
         ))}
       </tbody>
     </table>
+    <p className="lede" style={{ marginTop: 12 }}>
+      <b>Typical reply time</b> is the middle one: half their answered leads were faster, half slower.
+      Median rather than average, so a single late reply does not define someone&rsquo;s month.{' '}
+      <b>Never answered</b> means no email was ever sent to that lead by anyone.{' '}
+      <b>Notes in CRM</b> is whether a person wrote down what happened — a note, a call log or a task.
+      Emails do not count; they are automatic. A lead with emails but no note means the work happened
+      and no record of it exists, so nobody else can pick it up.
+    </p>
+    </>
   )
 }
 

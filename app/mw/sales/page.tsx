@@ -101,11 +101,11 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
 
       <Tiles items={[
         { k: 'Webform leads', v: String(sum.leads) },
-        { k: 'Median first reply', v: sayHours(sum.medianHours), tone: (sum.medianHours ?? 99) <= SLA_HOURS ? 'up' : 'dn' },
+        { k: 'Typical reply time', v: sayHours(sum.medianHours), tone: (sum.medianHours ?? 99) <= SLA_HOURS ? 'up' : 'dn' },
         { k: 'Never answered', v: String(sum.never), tone: sum.never ? 'dn' : 'up' },
         { k: `Slower than ${SLA_HOURS}h`, v: String(sum.late) },
-        { k: 'Prospect replied', v: `${sum.replyRate}%` },
-        { k: 'Written up', v: `${sum.recordedRate}%`, d: `${sum.unrecorded} with none`, tone: sum.recordedRate < 50 ? 'dn' : 'up' },
+        { k: 'They wrote back', v: `${sum.replyRate}%` },
+        { k: 'Notes in CRM', v: `${sum.recordedRate}%`, d: `${sum.unrecorded} leads with none`, tone: sum.recordedRate < 50 ? 'dn' : 'up' },
       ]} />
 
       {sum.unrecorded > 0 && (
@@ -122,7 +122,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
       )}
 
       <Section title="By person"
-        sub={`Median first reply, how many went unanswered, and how much got written up. Median rather than average, so one bad week does not define a month.`}>
+        sub="How quickly each person answers, how many they never answered, and whether they wrote down what happened.">
         <Scoreboard reps={reps} />
       </Section>
 
