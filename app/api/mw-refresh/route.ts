@@ -2,7 +2,7 @@ import { refreshMw } from '@/lib/mw-refresh'
 import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
-import { zohoConfigured, fetchUsers, zohoGet as zohoGetRaw } from '@/lib/zoho'
+import { zohoConfigured, fetchUsers, zohoCredentialShape, zohoGet as zohoGetRaw } from '@/lib/zoho'
 import { supabase } from '@/lib/supabase'
 import { cookies } from 'next/headers'
 
@@ -63,7 +63,11 @@ export async function GET(req: Request) {
   // would have caught it (owner, 1 Oct 2026).
   if (only === 'zoho-check') {
     if (!zohoConfigured) {
-      return Response.json({ ok: false, why: 'ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not all set' })
+      return Response.json({
+        ok: false,
+        why: 'ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET / ZOHO_REFRESH_TOKEN not all set',
+        credentials: zohoCredentialShape(),
+      })
     }
     try {
       const q = new URL(req.url).searchParams
@@ -108,7 +112,13 @@ export async function GET(req: Request) {
         rawSample: rows.slice(0, 20),
       })
     } catch (e: any) {
-      return Response.json({ ok: false, why: String(e?.message ?? e).slice(0, 300) })
+      // Say which credential is the wrong shape. Lengths and the client id's
+      // prefix only — never a secret.
+      return Response.json({
+        ok: false,
+        why: String(e?.message ?? e).slice(0, 300),
+        credentials: zohoCredentialShape(),
+      })
     }
   }
 

@@ -14,10 +14,41 @@ import 'server-only'
 const DC = 'https://www.zohoapis.com'
 const ACCOUNTS = 'https://accounts.zoho.com'
 
+// TRIMMED ON READ. A credential pasted into a web form picks up a trailing
+// space or newline more often than anyone expects, and the failure it causes
+// is indistinguishable from a wrong secret: Zoho answers "Access Denied" and
+// says no more than that (owner, 1 Oct 2026).
+const env = (k: string) => (process.env[k] ?? '').trim()
+
 export const zohoConfigured =
-  !!process.env.ZOHO_CLIENT_ID &&
-  !!process.env.ZOHO_CLIENT_SECRET &&
-  !!process.env.ZOHO_REFRESH_TOKEN
+  !!env('ZOHO_CLIENT_ID') && !!env('ZOHO_CLIENT_SECRET') && !!env('ZOHO_REFRESH_TOKEN')
+
+/**
+ * Enough to diagnose a rejected credential without printing one.
+ *
+ * Lengths and first characters only — a client id is not secret and its
+ * shape is the thing that is usually wrong; the secret and token are
+ * described, never shown.
+ */
+export function zohoCredentialShape() {
+  const id = env('ZOHO_CLIENT_ID')
+  const secret = env('ZOHO_CLIENT_SECRET')
+  const refresh = env('ZOHO_REFRESH_TOKEN')
+  const raw = (k: string) => process.env[k] ?? ''
+  return {
+    clientId: id ? `${id.slice(0, 14)}… (${id.length} chars)` : 'MISSING',
+    clientIdLooksRight: /^1000\.[A-Z0-9]{20,}$/i.test(id),
+    clientSecret: secret ? `${secret.length} chars` : 'MISSING',
+    clientSecretLooksRight: /^[a-f0-9]{40,}$/i.test(secret),
+    refreshToken: refresh ? `${refresh.length} chars` : 'MISSING',
+    refreshTokenLooksRight: /^1000\./.test(refresh),
+    hadWhitespace: [
+      raw('ZOHO_CLIENT_ID') !== id && 'ZOHO_CLIENT_ID',
+      raw('ZOHO_CLIENT_SECRET') !== secret && 'ZOHO_CLIENT_SECRET',
+      raw('ZOHO_REFRESH_TOKEN') !== refresh && 'ZOHO_REFRESH_TOKEN',
+    ].filter(Boolean),
+  }
+}
 
 // Access tokens last an hour. A daily pull makes ~200 calls in a couple of
 // minutes, so one token covers a whole run; caching it in module scope saves
@@ -28,16 +59,23 @@ async function accessToken(): Promise<string> {
   if (cached && Date.now() < cached.until) return cached.token
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
-    client_id: process.env.ZOHO_CLIENT_ID!,
-    client_secret: process.env.ZOHO_CLIENT_SECRET!,
-    refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
+    client_id: env('ZOHO_CLIENT_ID'),
+    client_secret: env('ZOHO_CLIENT_SECRET'),
+    refresh_token: env('ZOHO_REFRESH_TOKEN'),
   })
-  const res = await fetch(`${ACCOUNTS}/oauth/v2/token`, { method: 'POST', body })
+  const res = await fetch(`${ACCOUNTS}/oauth/v2/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
   const j = await res.json().catch(() => ({}))
   if (!j?.access_token) {
     // Never echo the response wholesale — it can carry the token on success
-    // and the client id on failure.
-    throw new Error(`Zoho auth failed: ${String(j?.error ?? res.status)}`)
+    // and the client id on failure. The shape report says which credential is
+    // malformed without showing any of them.
+    const why = String(j?.error ?? res.status)
+    throw new Error(`Zoho auth failed: ${why}${
+      why === 'Access Denied' ? ' (client id/secret rejected — check for a stray space in Vercel)' : ''}`)
   }
   cached = { token: j.access_token, until: Date.now() + (Number(j.expires_in ?? 3600) - 120) * 1000 }
   return cached.token
