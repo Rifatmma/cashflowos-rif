@@ -325,7 +325,7 @@ export async function refreshSales(
     const hardStop = startedAt + 45_000
     let ranOut = false
 
-    let stored = 0, failed = 0, withEmail = 0, withNote = 0, withTimeline = 0, tlFailed = 0
+    let stored = 0, failed = 0, ranLong = 0, withEmail = 0, withNote = 0, withTimeline = 0, tlFailed = 0
     let tlWhy = ''
     // Three leads at a time. Enough to hide the latency of forty sequential
     // HTTP calls; not so many that Zoho starts refusing them.
@@ -339,9 +339,13 @@ export async function refreshSales(
         if (zohoDown) return
         const z = queue.shift()!
         // A lead that hangs must cost one lane, not the whole run.
+        // A lead cut off by the lane cap has not FAILED, it is unfinished —
+        // the next call picks it up. Counting it as a failure made a healthy
+        // run read as "21 stored, 12 failed" and sent me looking for a bug
+        // that was not there.
         await Promise.race([
           one(z),
-          new Promise<void>(r => setTimeout(() => { failed++; r() }, PER_LEAD)),
+          new Promise<void>(r => setTimeout(() => { ranLong++; r() }, PER_LEAD)),
         ])
       }
     }
@@ -446,6 +450,7 @@ export async function refreshSales(
       ok: stored > 0 || take.length === 0,
       notes,
       message: `sales: ${stored} leads stored${failed ? `, ${failed} failed` : ''}`
+        + (ranLong ? `, ${ranLong} ran long and will be retried` : '')
         + (remaining > 0 ? ` · ${remaining} still to pull — call again` : ' · up to date'),
     }
   } catch (e: any) {
