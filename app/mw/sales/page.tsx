@@ -71,6 +71,53 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
     return s ? `/mw/sales?${s}` : '/mw/sales'
   }
 
+  // ── HELD BACK ─────────────────────────────────────────────────────────
+  // The first pull read emails with Zoho's default call, which only returns
+  // what the connecting account is permitted to see under email-sharing
+  // rules. Two people therefore showed as having ignored thirty-six leads
+  // between them; both had in fact answered, and the proof came back the
+  // moment the call was made per-owner (type=user_emails + owner_id).
+  //
+  // Numbers that name individuals and are wrong about them do more damage
+  // than no numbers at all, so the page shows nothing until it is refetched.
+  // Flip this off when the rebuild lands (owner, 1 Oct 2026).
+  const REBUILDING = true
+  if (REBUILDING) {
+    return (
+      <div className="mw-wrap">
+        <MwHero tab="sales" pulled="held back" stale={false}
+          headline="Being rebuilt — the first numbers were wrong">
+          <p>
+            This page measured how quickly each person answered their leads. The measurement was
+            wrong, in a way that named people unfairly, so it has been taken down rather than left up
+            with a caveat.
+          </p>
+        </MwHero>
+
+        <Section title="What went wrong">
+          <p className="lede">
+            Response times were read from each lead&rsquo;s email trail. Zoho&rsquo;s default call
+            returns only the emails the connecting account is allowed to see, and most of the
+            team&rsquo;s mail is not shared with it — so leads that had been answered came back
+            looking untouched. Two people appeared to have ignored thirty-six leads between them.
+            Both had answered; one within five hours.
+          </p>
+          <p className="lede" style={{ marginTop: 10 }}>
+            Asking per owner instead returns the missing mail, so the fix is real rather than a
+            workaround. The page returns once all {`${all.length || 93}`} September leads have been
+            refetched that way, with the handoff chain included: these leads are auto-assigned to one
+            person and passed on, and the clock should be split across whoever actually held it.
+          </p>
+        </Section>
+
+        <p className="lede">
+          <Link href="/mw">Overview</Link> · <Link href="/mw/plan">Market plan</Link> ·{' '}
+          <Link href="/mw/seo">SEO &amp; organic</Link>
+        </p>
+      </div>
+    )
+  }
+
   if (!all.length) {
     return (
       <div className="mw-wrap">
