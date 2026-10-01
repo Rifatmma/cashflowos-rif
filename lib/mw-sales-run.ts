@@ -13,7 +13,7 @@ import 'server-only'
 
 import { supabase, supabaseConfigured } from './supabase'
 import { runTool } from './composio-mcp'
-import { zohoConfigured, fetchTimeline, fetchUsers } from './zoho'
+import { zohoConfigured, fetchTimeline, fetchUsers, fetchWritten } from './zoho'
 import { rollUpLead, type Lead, type LeadEvent } from './mw-sales'
 
 /** Only webform leads. Prospecting-tool imports are not the team's inbound work. */
@@ -96,6 +96,38 @@ async function fetchEmails(leadId: string, owners: string[]): Promise<LeadEvent[
       threadId: s(m.thread_id),
     },
   })).filter(e => e.id && e.at)
+}
+
+/**
+ * Everything written down by hand, from both sources, merged.
+ *
+ * Composio's related-records call found exactly one note across ninety-five
+ * leads. The team says people do write notes, and the identical symptom on
+ * emails was a visibility rule rather than an absence. So both are asked and
+ * the union is kept: whichever can see a record, the record is kept
+ * (owner, 1 Oct 2026).
+ */
+async function fetchWrittenWork(leadId: string): Promise<LeadEvent[]> {
+  const seen = new Map<string, LeadEvent>()
+
+  if (zohoConfigured) {
+    try {
+      for (const w of await fetchWritten(leadId)) {
+        seen.set(`${w.kind}-${w.at}`, {
+          id: w.id, kind: w.kind, at: w.at, direction: null,
+          actor: w.actor, actorEmail: w.actorEmail,
+          subject: w.title,
+          body: w.body,
+          meta: { via: 'zoho' },
+        })
+      }
+    } catch { /* fall through to Composio */ }
+  }
+
+  for (const n of await fetchNotes(leadId).catch(() => [] as LeadEvent[])) {
+    if (!seen.has(`note-${n.at}`)) seen.set(`note-${n.at}`, n)
+  }
+  return [...seen.values()]
 }
 
 /** Notes, which unlike emails do carry what the rep actually wrote. */
@@ -253,7 +285,7 @@ export async function refreshSales(
         const owners = [String(z.Owner?.id ?? ''), ...extraOwnerIds].filter(Boolean)
         const [emails, noteRows, tlCount] = await Promise.all([
           fetchEmails(lead.id, owners).catch(() => [] as LeadEvent[]),
-          fetchNotes(lead.id).catch(() => [] as LeadEvent[]),
+          fetchWrittenWork(lead.id).catch(() => [] as LeadEvent[]),
           // A timeline failure must not cost the lead's email trail, but it
           // must be visible: without it the page cannot show who held what.
           pullTimeline(lead.id).catch(err => { tlFailed++; tlWhy = String(err?.message ?? err).slice(0, 80); return 0 }),

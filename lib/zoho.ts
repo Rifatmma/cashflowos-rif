@@ -172,6 +172,78 @@ export async function fetchTimeline(module: string, recordId: string, pages = 3)
   return out.sort((a, b) => +new Date(a.at) - +new Date(b.at))
 }
 
+// ------------------------------------------------------------ related work
+
+export type WrittenRecord = {
+  id: string
+  kind: 'note' | 'task' | 'call' | 'meeting'
+  at: string
+  actor: string | null
+  actorEmail: string | null
+  title: string | null
+  body: string | null
+}
+
+const strip = (v: unknown) =>
+  v === null || v === undefined ? null
+    : String(v).replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>').replace(/&#39;|&rsquo;/g, "'").replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ').trim() || null
+
+/**
+ * Everything a person wrote down against a lead: notes, tasks, call logs and
+ * meetings, with their text.
+ *
+ * ASKED DIRECTLY RATHER THAN THROUGH COMPOSIO. The Composio related-records
+ * call returned exactly one note across ninety-five leads, which the team
+ * says is wrong — and the identical symptom on emails turned out to be a
+ * visibility rule on the connecting account, not an absence of data. Asking
+ * with our own token at least makes the two sources comparable, and the
+ * audit trail gives a third opinion: if it records a note being added and no
+ * note comes back, that gap is reported rather than read as "nobody wrote
+ * anything" (owner, 1 Oct 2026).
+ */
+export async function fetchWritten(leadId: string): Promise<WrittenRecord[]> {
+  const out: WrittenRecord[] = []
+
+  const grab = async (
+    list: string, kind: WrittenRecord['kind'],
+    fields: string, pick: (r: any) => { at: string; title: string | null; body: string | null },
+  ) => {
+    const res: any = await zohoGet(`Leads/${leadId}/${list}`, { fields, per_page: 100 })
+    for (const r of (res?.data ?? [])) {
+      const p = pick(r)
+      if (!p.at) continue
+      out.push({
+        id: `${kind}-${r.id}`, kind, at: String(p.at),
+        actor: str(r.Owner?.name ?? r.Created_By?.name),
+        actorEmail: str(r.Owner?.email ?? r.Created_By?.email),
+        title: p.title, body: p.body,
+      })
+    }
+  }
+
+  // Each list is asked for independently: one module being unavailable on
+  // this plan must not cost the others.
+  await Promise.all([
+    grab('Notes', 'note', 'Note_Title,Note_Content,Created_Time,Owner,Created_By',
+      r => ({ at: r.Created_Time, title: strip(r.Note_Title), body: strip(r.Note_Content) })).catch(() => {}),
+    grab('Tasks', 'task', 'Subject,Description,Status,Created_Time,Closed_Time,Owner,Created_By',
+      r => ({ at: r.Created_Time, title: strip(r.Subject), body: strip(r.Description) })).catch(() => {}),
+    grab('Calls', 'call', 'Subject,Description,Call_Purpose,Call_Result,Call_Start_Time,Owner,Created_By',
+      r => ({
+        at: r.Call_Start_Time ?? r.Created_Time,
+        title: strip(r.Subject),
+        body: [strip(r.Call_Purpose), strip(r.Call_Result), strip(r.Description)].filter(Boolean).join(' · ') || null,
+      })).catch(() => {}),
+    grab('Events', 'meeting', 'Event_Title,Description,Start_DateTime,Owner,Created_By',
+      r => ({ at: r.Start_DateTime ?? r.Created_Time, title: strip(r.Event_Title), body: strip(r.Description) })).catch(() => {}),
+  ])
+
+  return out.sort((a, b) => +new Date(a.at) - +new Date(b.at))
+}
+
 /** Everyone in the CRM, so an actor's email can be matched back to a person. */
 export async function fetchUsers(): Promise<{ id: string; name: string; email: string }[]> {
   const res: any = await zohoGet('users', { type: 'AllUsers', per_page: 200 })

@@ -219,19 +219,32 @@ export function buildJourney(
           ? `The prospect replied${e.subject ? ` — "${e.subject}"` : ''}`
           : `${who ?? 'Someone'} emailed them${e.subject ? ` — "${e.subject}"` : ''}`,
       })
-    } else if (e.kind === 'note') {
+    } else if (e.kind === 'note' || e.kind === 'task' || e.kind === 'call' || e.kind === 'meeting') {
+      // The written word is the whole point of this section, so it is shown
+      // in full rather than truncated — a note cut off at 160 characters is
+      // the half of a handover that gets someone into trouble.
+      const label = e.kind === 'note' ? 'wrote'
+        : e.kind === 'task' ? 'set a task'
+        : e.kind === 'call' ? 'logged a call' : 'booked a meeting'
+      const text = [e.subject, e.body].filter(Boolean).join(' — ')
       out.push({
-        id: e.id, at: e.at, kind: 'note', actor: who, byMachine: false,
-        detail: `${who ?? 'Someone'} wrote: ${e.body?.slice(0, 160) ?? '(empty note)'}`,
+        id: e.id, at: e.at, kind: e.kind, actor: who, byMachine: false,
+        detail: `${who ?? 'Someone'} ${label}${text ? `: ${text}` : ' (no text written)'}`,
       })
     }
   }
 
-  // De-duplicate: a task appears both in the timeline and the related list.
-  const seen = new Set<string>()
-  return out
-    .filter(s => (seen.has(`${s.kind}-${s.at}`) ? false : (seen.add(`${s.kind}-${s.at}`), true)))
-    .sort((a, b) => +new Date(a.at) - +new Date(b.at))
+  // De-duplicate. A task reaches us twice — once from the audit trail, which
+  // knows it happened, and once from the record itself, which knows what it
+  // said. Keep the fuller of the two. Matched to the minute because the two
+  // sources stamp the same act a second or two apart.
+  const best = new Map<string, JourneyStep>()
+  for (const s of out) {
+    const key = `${s.kind}-${s.at.slice(0, 16)}`
+    const had = best.get(key)
+    if (!had || s.detail.length > had.detail.length) best.set(key, s)
+  }
+  return [...best.values()].sort((a, b) => +new Date(a.at) - +new Date(b.at))
 }
 
 // ------------------------------------------------------------ contribution

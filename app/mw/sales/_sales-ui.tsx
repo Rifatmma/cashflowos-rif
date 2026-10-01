@@ -147,7 +147,12 @@ const ICON: Record<JourneyStep['kind'], string> = {
 /** One lead, open: the whole journey with every hand on it named. */
 export function JourneyRow({ j, owner }: { j: LeadJourney; owner: boolean }) {
   const l = j.lead
-  const hands = [...new Set(j.steps.filter(s => !s.byMachine && s.actor).map(s => s.actor!))]
+  // The prospect is not one of the hands. An inbound email carries their
+  // name, and including it put a customer in the middle of the chain —
+  // "Venkatraj → Hatem Sadek → Rukshana", where Hatem is the lead.
+  const hands = [...new Set(
+    j.steps.filter(s => !s.byMachine && s.actor && s.kind !== 'email-in').map(s => s.actor!),
+  )]
   return (
     <details className={`mw-lead is-${band(j.teamHours)}`}>
       <summary>
@@ -207,6 +212,33 @@ export function JourneyRow({ j, owner }: { j: LeadJourney; owner: boolean }) {
             )}
           </>
         )}
+
+        {/* Lifted out of the timeline on purpose. What a colleague actually
+            wrote is the thing a manager reads first, and hunting for it
+            among forty automatic entries is how it gets missed. */}
+        {(() => {
+          const written = j.steps.filter(s =>
+            !s.byMachine && ['note', 'task', 'call', 'meeting'].includes(s.kind))
+          if (!written.length) {
+            return (
+              <p className="mw-waits">
+                <b>Nothing written down.</b> {j.emailsOut + j.emailsIn} emails on this lead and not
+                one note, call log or task. The conversation happened; the record of it did not.
+              </p>
+            )
+          }
+          return (
+            <>
+              <h4>What the team wrote</h4>
+              {written.map(s => (
+                <p className="mw-note" key={s.id}>
+                  <span className="who">{s.actor ?? 'someone'} · {whenTime(s.at)}</span>
+                  {s.detail.replace(/^[^:]*?(wrote|set a task|logged a call|booked a meeting): /, '')}
+                </p>
+              ))}
+            </>
+          )
+        })()}
 
         <h4>Everything that happened</h4>
         {j.steps.length === 0 ? (
