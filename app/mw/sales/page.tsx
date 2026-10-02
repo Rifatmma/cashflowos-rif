@@ -10,6 +10,7 @@ import {
 } from '@/lib/mw-journey'
 import { MwHero, Tiles, Section } from '../_ui'
 import { Contributions, TeamQueue, NoRecap, JourneyRow } from './_sales-ui'
+import { PersonPicker } from './_person-picker'
 
 // 👉 Moving Walls → Sales. What happened after the lead arrived.
 //
@@ -107,7 +108,11 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
   const metOrCalled = all.filter(j => j.firstContactKind && j.firstContactKind !== 'email').length
   const handedOn = all.filter(j => j.held.length > 1).length
 
-  const people = [...new Set(contrib.map(c => c.who))].sort()
+  // Busiest first: the people a manager opens this page to look at are the
+  // ones with the most on them, not the ones whose name starts with A.
+  const people = contrib
+    .map(c => ({ name: c.who, touched: c.leadsTouched }))
+    .sort((a, b) => b.touched - a.touched || a.name.localeCompare(b.name))
   let rows = all
   if (who) rows = rows.filter(j => j.steps.some(s => !s.byMachine && s.actor === who) || j.held.some(h => h.who === who))
   if (show === 'never') rows = rows.filter(j => j.firstResponder === null)
@@ -233,12 +238,7 @@ export default async function MwSales({ searchParams }: { searchParams: Promise<
       )}
 
       <Section title="Filter">
-        <div className="mw-filters">
-          <Link href={link({ show, days: d })} aria-current={!who ? 'page' : undefined}>Everyone</Link>
-          {people.map(p => (
-            <Link key={p} href={link({ who: p, show, days: d })} aria-current={who === p ? 'page' : undefined}>{p}</Link>
-          ))}
-        </div>
+        <PersonPicker people={people} who={who} show={show} days={d} />
         <div className="mw-filters">
           <Link href={link({ who, days: d })} aria-current={!show ? 'page' : undefined}>All leads</Link>
           <Link href={link({ who, show: 'never', days: d })} aria-current={show === 'never' ? 'page' : undefined}>Still waiting ({unanswered.length})</Link>
