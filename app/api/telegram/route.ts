@@ -1542,7 +1542,7 @@ async function decideAndFile(a: {
       `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
     const ask = await askAmounts(chatId, staffFiling ? 'chat' : filer.id, payload.items, (done.result as any)?.record_id ?? null)
     if (staffFiling) {
-      await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${ask}${FIX_HINT_STAFF}`)
+      await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${recordTag((done.result as any)?.record_id)}${ask}${FIX_HINT_STAFF}`)
       await remember(chatId, `[${filer.name} filed a receipt]`, `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
       if (OWNER) {
         await remember(OWNER, `[${filer.name} filed a receipt in the group]`, `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
@@ -1553,7 +1553,7 @@ async function decideAndFile(a: {
           `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       }
     } else {
-      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${ask}
+      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${recordTag((done.result as any)?.record_id)}${ask}
 
 Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
@@ -1896,12 +1896,12 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     const recordId = (done.result as any)?.record_id ?? null
     if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: recordId, what: `the ${rm(amount)} bill`, amount })
     const hint = staffTyped ? FIX_HINT_STAFF : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`
-    const reply = `✅ Filed <b>${what}</b>${staffTyped ? ` — thanks ${esc(filer.name)}` : ''}.${detail}${askPhoto}${hint}`
+    const reply = `✅ Filed <b>${what}</b>${staffTyped ? ` — thanks ${esc(filer.name)}` : ''}.${detail}${recordTag(recordId)}${askPhoto}${hint}`
     await sendMessage(chatId, reply)
     await remember(chatId, `[${staffTyped ? filer.name + ' ' : ''}typed a bill]`, `Filed ${what} as record #${recordId}.${detail}`)
     if (staffTyped && OWNER) {
       await sendMessage(Number(OWNER),
-        `🧾 ${esc(filer.name)} typed a bill: <b>${what}</b>.${detail}\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
+        `🧾 ${esc(filer.name)} typed a bill: <b>${what}</b>.${detail}${recordTag(recordId)}\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       await remember(OWNER, `[${filer.name} typed a bill in the group]`, `Filed ${what} as record #${recordId}.${detail}`)
     }
     return
@@ -2026,7 +2026,11 @@ function receiptSummary(v: VisionResult): string {
   } else if (v.expense_type) {
     bits.push(`Booked as <b>${esc(TYPE_WORD[v.expense_type] ?? v.expense_type)}</b>`)
   }
-  if (v.receipt_no) bits.push(`#${esc(v.receipt_no)}`)
+  // THE SHOP'S OWN NUMBER, NOT OURS. Printed as "#PHCJ262750900311" it read
+  // exactly like a record number, so the owner tried to correct a receipt with
+  // it and could not ("what is that random number, how can I use it?",
+  // 2 Oct 2026). Our record number goes on separately and says what it is.
+  if (v.receipt_no) bits.push(`shop ref ${esc(v.receipt_no)}`)
   const head = bits.length ? `\n${bits.join(' · ')}` : ''
 
   if (!items.length) {
@@ -2088,6 +2092,22 @@ function fixHint(recordId: unknown): string {
   return FIX_HINT + (url ? `\n<a href="${url}">✏️ Correct it with the photo</a>` : '')
 }
 const FIX_HINT_STAFF = `\n\n<i>If that looks wrong, tell ${ownerName()} — only they can correct it.</i>`
+
+/**
+ * The number the owner quotes to correct this receipt.
+ *
+ * Every filing card carried the SHOP's reference and never ours, so when the
+ * owner wanted a bill re-filed he had no number to name. A correction aimed at
+ * the wrong receipt is how RM 146 of prawns ended up in owner's drawings. The
+ * correction tool matches on this number first, so it belongs on the card that
+ * files it (owner, 2 Oct 2026).
+ */
+function recordTag(recordId: unknown): string {
+  const n = Number(recordId)
+  return Number.isFinite(n) && n > 0
+    ? `\n\n\u{1F516} Record <b>#${n}</b> \u2014 quote this number to change it.`
+    : ''
+}
 
 // The 🟡 proposal wording. Low confidence gets the "robot unsure" flag so the human
 // double-checks the amount (the evaluation-loop teach); a clear over-threshold
