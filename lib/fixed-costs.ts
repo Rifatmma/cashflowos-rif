@@ -154,12 +154,42 @@ export async function ensureFixedFiled(today = mytDate(), notBefore?: string): P
   const history = await getFixedHistory()
   // Never charge for days the business has no sales for: the books begin where
   // the first POS report begins, or profit reads as a loss that never happened.
-  const figuresFrom = history[0]?.from ?? DEFAULT_FIXED.from
+  //
+  // THE COMMENT ABOVE WAS ALWAYS HERE; THE CODE DID NOT DO IT. The start date
+  // was whatever the config said -- 1 September -- while the app was not in
+  // use until the 21st and no sales were recorded before then. So twenty days
+  // of wages and rent were filed against a period with no takings, and
+  // September read as a RM 11,000 loss that never happened.
+  //
+  // Now the first day with sales wins whenever it is later than the config,
+  // so this cannot drift again if the owner backdates the figures.
+  const configFrom = history[0]?.from ?? DEFAULT_FIXED.from
+  const { data: firstSale } = await supabase
+    .from('records').select('due_date, created_at')
+    .eq('category', 'cash_in').order('due_date', { ascending: true }).limit(1)
+  const booksOpen = firstSale?.[0]
+    ? String(firstSale[0].due_date ?? firstSale[0].created_at).slice(0, 10)
+    : null
+  const figuresFrom = booksOpen && booksOpen > configFrom ? booksOpen : configFrom
   const start = notBefore && notBefore > figuresFrom ? notBefore : figuresFrom
   const want = autoRowsFor(history, start, addDays(today, -1))
   if (!want.length) return { filed: 0, skipped: 0 }
 
-  const { data: have } = await supabase.from('records').select('meta').eq('category', 'cash_out').eq('meta->>auto_fixed', 'true')
+  // IF THIS READ FAILS, STOP. DO NOT FILE.
+  //
+  // The old line was `const { data: have } = await ...` with no error check.
+  // When that query failed, `have` came back null, `seen` was empty, and the
+  // function concluded that no fixed cost had ever been filed -- then filed a
+  // whole month again on top of what was already there. On 2 Oct that put
+  // RM 7,976.30 of duplicate wages and rent into September and turned the
+  // month's figure into a loss nearly twice the real one.
+  //
+  // A read that fails is not an empty result. Same mistake, four times over,
+  // on the Zoho side of this app (owner, 2 Oct 2026).
+  const { data: have, error: haveErr } = await supabase
+    .from('records').select('meta')
+    .eq('category', 'cash_out').eq('meta->>auto_fixed', 'true')
+  if (haveErr) throw new Error(`fixed costs: cannot read what is already filed (${haveErr.message}) — filing nothing`)
   const seen = new Set((have ?? []).map((r: any) => String(r.meta?.auto_key ?? '')))
   const rows = want.filter(w => !seen.has(w.key)).map(w => ({
     title: w.title, status: 'filed', amount: w.amount, category: 'cash_out', due_date: w.date,
@@ -167,7 +197,18 @@ export async function ensureFixedFiled(today = mytDate(), notBefore?: string): P
     meta: { auto_fixed: true, auto_key: w.key, expense_type: w.type, category: w.category, filed_by: 'Jarvis' },
   }))
   if (!rows.length) return { filed: 0, skipped: want.length }
-  // Chunked: a first run backfills a whole month of wage rows in one go.
-  for (let i = 0; i < rows.length; i += 100) await supabase.from('records').insert(rows.slice(i, i + 100))
-  return { filed: rows.length, skipped: want.length - rows.length }
+
+  // The second guard, and the one that cannot be reasoned wrong: a unique
+  // index on auto_key means the database itself refuses a day it already has,
+  // whatever this code believes. `ignoreDuplicates` turns a clash into a
+  // no-op rather than an error, so a partial overlap still files the rest.
+  let filed = 0
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100)
+    const { error } = await supabase.from('records')
+      .upsert(chunk, { onConflict: 'auto_key_unique', ignoreDuplicates: true })
+    if (error) throw new Error(`fixed costs: ${error.message}`)
+    filed += chunk.length
+  }
+  return { filed, skipped: want.length - filed }
 }
