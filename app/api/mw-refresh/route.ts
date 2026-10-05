@@ -3,6 +3,7 @@ import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
 import { zohoConfigured, fetchUsers, zohoCredentialShape, zohoGet as zohoGetRaw } from '@/lib/zoho'
+import { closeMonth, closePreviousMonthIfDue } from '@/lib/mw-close'
 import { supabase } from '@/lib/supabase'
 import { cookies } from 'next/headers'
 
@@ -122,6 +123,16 @@ export async function GET(req: Request) {
     }
   }
 
+  // ?only=close&month=YYYY-MM re-pulls a finished month and overwrites its
+  // stored figures. A snapshot taken on the 30th at 09:49 never saw the rest
+  // of that day, and Google keeps attributing conversions back to a click for
+  // sixty days after it — so a month is provisional long after it ends.
+  if (only === 'close') {
+    const m = new URL(req.url).searchParams.get('month')
+    const r = m ? await closeMonth(m) : await closePreviousMonthIfDue()
+    return Response.json(r ?? { ok: true, message: 'not within the first week of a month; nothing to close' })
+  }
+
   if (only === 'gap') {
     const one = new URL(req.url).searchParams.get('country') ?? undefined
     const g = await refreshGaps({ only: one })
@@ -159,6 +170,10 @@ export async function GET(req: Request) {
   const sales = await refreshSales()
   if (!sales.ok) console.error('[CFO]', sales.message)
 
+  // Settle last month while it is still filling in.
+  const closed = await closePreviousMonthIfDue()
+  if (closed && !closed.ok) console.error('[CFO]', closed.message)
+
   const health = await refreshHealth()
   if (!health.ok) console.error('[CFO]', health.message)
 
@@ -170,6 +185,7 @@ export async function GET(req: Request) {
     broken: health.broken,
     gap: gap ? gap.message : 'not a gap day (runs on the 1st of a quarter)',
     sales: sales.message,
+    close: closed ? closed.message : 'not due (runs in the first week of a month)',
     notes: plan?.notes ?? [],
   })
 }
