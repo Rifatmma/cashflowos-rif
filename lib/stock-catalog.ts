@@ -53,13 +53,18 @@ export const ITEMS: ItemDef[] = [
     aliases: ['lidah', 'tongue'] },
   // Thai names, owner 24 Sep 2026: กุ้งขาว or plain กุ้ง is this one; กุ้งแม่น้ำ
   // ("river prawn") is udang galah, which is why กุ้ง must not swallow it.
-  // Owner, 24 Sep 2026: "a kilo of shrimp is about 30-35 pieces". 33 it is --
-  // the interview figure of 38 was too many.
-  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 33, fallbackCost: 0.75,
+  // Owner, 24 Sep 2026: "a kilo of shrimp is about 30-35 pieces". 33 was taken
+  // as the middle of that; he settled it at the top of his own range on 6 Oct
+  // 2026 -- "each kg have about 33 pieces of shrimp. Let's do 35 instead."
+  //
+  // This is the rate a weight is READ AT, nothing more. Stock moves already
+  // written keep the piece counts they were saved with, so changing it does not
+  // rewrite history; it changes what the next bill is converted to.
+  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 35, fallbackCost: 0.75,
     aliases: ['udang(?! galah)', 'prawn', 'shrimp', 'กุ้ง(?!แม่น้ำ)'] },
   // Owner, 23 Sep 2026: frozen shrimp is a different item -- it only goes into
   // fried rice; every other shrimp dish uses fresh. Checked BEFORE 'shrimp'.
-  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 33, fallbackCost: 0.5,
+  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 35, fallbackCost: 0.5,
     aliases: ['(frz|frozen|beku|iqf)[^a-z]*(isi )?(udang|prawn|shrimp)', '(udang|prawn|shrimp)[^a-z]*(frz|frozen|beku|iqf)'] },
   { key: 'galah', name: 'Udang galah', unit: 'pc', sort: 31, perKg: 20, fallbackCost: 3,
     aliases: ['udang galah', 'river prawn', 'galah', 'กุ้งแม่น้ำ'] },

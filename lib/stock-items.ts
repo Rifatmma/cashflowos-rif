@@ -124,20 +124,30 @@ export function choiceFromLine(l: ReceiptLine, extraAliases: Record<string, stri
   if (def.unit === 'fish') return { item: key, qty: round(q), unit: 'fish' }
   if (key === 'egg') return q % EGGS_PER_TRAY === 0 ? { item: key, qty: q / EGGS_PER_TRAY, unit: 'tray' } : { item: key, qty: round(q), unit: 'pcs' }
 
-  // A PIECE ITEM READ FROM A WEIGHT STAYS IN KILOGRAMS. This is deliberate and
-  // it is the one place the owner asked for pieces and does not get them.
+  // A PIECE ITEM READ FROM A WEIGHT IS CONVERTED TO PIECES.
   //
-  // If the bill prints "2 KG UDANG" and we render "66 pcs", a reading has been
-  // turned into a guess and shown with the same authority as the paper. This
-  // file is full of comments about exactly that failure. What changed instead
-  // is the PICKER beside it, which now offers pieces first — so one tap
-  // converts it, and the note still shows the working (owner, 5 Oct 2026).
+  // I argued the other way on 5 Oct 2026: that turning "2 KG UDANG" into a
+  // piece count dresses a conversion up as a reading. The owner overruled it,
+  // and he is right about his own system:
   //
-  // When the line states a count rather than a weight, pieces win outright.
-  const counted = /^(pcs?|pieces?|ekor|biji|unit)$/i.test(String(l.unit ?? ''))
-  if (counted) return { item: key, qty: round(q), unit: 'pcs' }
-  const kg = def.perKg ? kgOf(l, def) : null
-  return kg ? { item: key, qty: round(kg), unit: 'kg' } : { item: key, qty: round(q), unit: 'pcs' }
+  //   "for me the 2 kg udang should mean 66 pieces cause the logic I set up
+  //    right? The recipe use pieces so you must translate the kg to pieces.
+  //    each kg have about 33 pieces of shrimp. Let's do 35 pieces instead."
+  //                                                     (owner, 6 Oct 2026)
+  //
+  // 66 was his arithmetic at the old rate of 33. At the 35 he set in the same
+  // breath the same bill reads 70.
+  //
+  // Pieces are the kitchen's unit: every recipe is written in them and every
+  // pc item's ledger is kept in them, so a weight was ALWAYS going to be
+  // converted -- stockFromChoice did it one step later, out of sight. Leaving
+  // the picker on kg only meant the owner read a figure the books did not use.
+  //
+  // What answers my objection is that the conversion shows its working rather
+  // than hiding it: the stock note still reads "2 kg at 35 per kg", the bill's
+  // own line keeps the weight exactly as printed, and kg is still in the picker
+  // one tap away for a bill that is better left as a weight.
+  return { item: key, qty: round(q), unit: 'pcs' }
 }
 
 export type StockIn = { item: string; qty: number; unit_cost: number | null; from: string; note?: string }

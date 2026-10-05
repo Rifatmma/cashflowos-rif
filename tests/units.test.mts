@@ -66,9 +66,17 @@ eq(receiptUnitOptions(null)[0].value, 'kg', 'a blank line just gets the list')
 // "2 KG UDANG" must still read as 2 kg. Rendering 66 pcs would turn a reading
 // into a guess and show it with the authority of the paper.
 {
+  // The owner overruled my "keep the weight" default on 6 Oct 2026: the recipes
+  // are written in pieces, so a weight has to be translated into them.
   const c = choiceFromLine({ name: 'UDANG', qty: 2, unit: 'kg', line_total: 66, base_qty: 2, base_unit: 'kg' } as any)
-  eq(c?.unit, 'kg', 'a weight printed on the bill is kept as a weight')
+  eq(c?.unit, 'pcs', 'a weight on the bill is translated into the unit the recipes use')
+  eq(c?.qty, 70, 'and 2 kg of shrimp is 70 pieces, at the 35 a kilo he set')
   eq(c?.item, 'shrimp', 'and still maps to the right item')
+}
+{
+  // A crab is 6 to the kilo, not 35: the rate is per item, never a constant.
+  const c = choiceFromLine({ name: 'KETAM', qty: 3, unit: 'kg', line_total: 90 } as any)
+  eq(c, { item: 'crab', qty: 18, unit: 'pcs' }, '3 kg of crab is 18 pieces, at its own rate')
 }
 {
   const c = choiceFromLine({ name: 'UDANG', qty: 30, unit: 'pcs', line_total: 66 } as any)

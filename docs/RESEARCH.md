@@ -243,7 +243,8 @@ item has `perKg`, so **`kg` is always first and `pcs` is never the default** —
 shrimp, chicken leg, chicken feet, udang galah, crab, mussel and frozen squid.
 
 `choiceFromLine` (`:204-208`) compounds it by preferring kg whenever a weight can
-be derived, including from `defaultPackKg`.
+be derived, including from `defaultPackKg`. (Both are now fixed -- see *Where I
+argued for the opposite, and was overruled*, below.)
 
 And the reason this is a real problem rather than a preference: **recipes are
 written in pieces.** `lib/recipes.ts:82`:
@@ -293,17 +294,35 @@ lists total, all declared in one file. What was wrong before was three lists for
 The whole-bird row is the same bug in miniature: he buys *birds*, and "2 birds" is
 currently untypeable.
 
-### Where I am deliberately not doing what was asked
+### Where I argued for the opposite, and was overruled
 
-`choiceFromLine` will **keep** preferring kg when the bill prints a weight. If a
-receipt says "2 KG UDANG" and the app renders "66 pcs", a reading has been turned
-into a guess and presented with equal authority. `lib/stock-items.ts` is full of
-comments about exactly this failure — *"reading the item from a receipt name, and
-its weight from '2KG' in that name, is what went wrong on line after line"*.
+I proposed that `choiceFromLine` should **keep** preferring kg when the bill
+prints a weight: if a receipt says "2 KG UDANG" and the app renders a piece
+count, a reading has been turned into a conversion and shown with equal
+authority, and `lib/stock-items.ts` is full of comments about exactly that
+failure.
 
-The complaint is answered by the **offered default**: pieces appears first in the
-picker, so one tap converts it, and the existing note still shows the working
-("2 kg at 33 per kg").
+The owner disagreed, and on his own system he is right (6 Oct 2026):
+
+> for me the 2 kg udang should mean 66 pieces cause the logic I set up right?
+> The recipe use pieces so you must translate the kg to pieces. each kg have
+> about 33 pieces of shrimp. Let's do 35 pieces instead.
+
+Pieces are the kitchen's unit. Every recipe is written in them and every `pc`
+item's ledger is kept in them, so a weight was always going to be converted --
+`stockFromChoice` simply did it one step later, out of sight. Defaulting the
+picker to kg meant he read a figure the books did not use.
+
+So a weight on a piece item now converts, and two things keep it honest: the
+stock note still shows the working ("2 kg at 35 per kg"), and the receipt's own
+line keeps the weight exactly as printed, which is also what the RM-per-kg price
+history is built from. kg stays in the picker, one tap away.
+
+**The rate is per item, not a constant** -- shrimp 35 a kilo, crab 6, mussels
+20, chicken leg quarters 3.3. The shrimp figure was 33, the middle of the
+"30-35 pieces" he gave on 24 Sep 2026; he settled it at the top of that range on
+6 Oct. Stock moves already written keep the counts they were saved with, so the
+change does not rewrite history.
 
 ---
 

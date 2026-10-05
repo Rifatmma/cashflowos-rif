@@ -14,9 +14,9 @@ const CASES: Case[] = [
   {
     // The owner's conversion decides, not a count made by eye: Tina typed 50
     // for 2 kg and he said "I don't think that's accurate" (24 Sep 2026).
-    what: 'shrimp: 2 kg, hand-counted at 50, filed at 66',
+    what: 'shrimp: 2 kg, hand-counted at 50, filed at 70',
     text: 'Item Name: Udang \nWeight: 2 kilo \nQuantity: 50 pieces \nPrice: RM 54',
-    totalKg: 2, perKg: 27, stock: ['shrimp', 66],
+    totalKg: 2, perKg: 27, stock: ['shrimp', 70],
   },
   {
     what: 'shrimp: no weight given, so the count is all there is',
@@ -95,7 +95,7 @@ for (const [what, line, want] of EGGS) {
 const SEAFOOD: [string, any, string, number][] = [
   ['siakap, 4 kg typed as 8 fish', { name: 'Ikan siakap (8 pcs)', qty: 8, unit: 'pcs', base_qty: 4, base_unit: 'kg', line_total: 68 }, 'siakap', 7.27],
   ['siakap, 3 fish and no weight', { name: 'Siakap', qty: 3, unit: 'ekor', line_total: 45 }, 'siakap', 3],
-  ['udang, 2 kg typed as 50', { name: 'Udang (50 pcs)', qty: 50, unit: 'pcs', base_qty: 2, base_unit: 'kg', line_total: 54 }, 'shrimp', 66],
+  ['udang, 2 kg typed as 50', { name: 'Udang (50 pcs)', qty: 50, unit: 'pcs', base_qty: 2, base_unit: 'kg', line_total: 54 }, 'shrimp', 70],
   ['sotong beku, 1.078 kg', { name: 'FRZ SOTONG RING SKIN ON IQF*KG', qty: 1.078, unit: 'kg', base_qty: 1.078, base_unit: 'kg', line_total: 8.29 }, 'squid_frozen', 19.4],
   ['sotong segar, 5.2 kg', { name: 'Octopus', qty: 5.2, unit: 'kg', base_qty: 5.2, base_unit: 'kg', line_total: 171.6 }, 'squid', 3900],
   ['udang galah, 1 kg', { name: 'Udang galah', qty: 1, unit: 'kg', base_qty: 1, base_unit: 'kg', line_total: 60 }, 'galah', 20],
