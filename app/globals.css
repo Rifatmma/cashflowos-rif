@@ -831,3 +831,57 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
   .led-date { text-align: left; }
   .led-date button { font-size: 24px; }
 }
+
+/* ============================================================
+   THE BILL, WHILE YOU EDIT  (app/cash-out/[id] ReceiptPhoto)
+   On a phone the photo used to scroll away, so line 6 was corrected from
+   memory. A band pinned to the top of the form keeps it in sight; tapping
+   it opens a zoomable view without leaving the page, which is also what
+   stops "open full size" losing unsaved edits (owner, 5 Oct 2026).
+   ============================================================ */
+
+.rp-band {
+  display: block; position: relative; width: 100%; padding: 0; border: 0;
+  background: var(--paper-2); border-radius: 12px; overflow: hidden; cursor: zoom-in;
+  line-height: 0;
+}
+.rp-band img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.rp-grip {
+  position: absolute; right: 8px; bottom: 8px; z-index: 2;
+  font-size: 11px; line-height: 1; padding: 5px 9px; border-radius: 999px;
+  background: rgba(12, 43, 24, .72); color: #fff; letter-spacing: .01em;
+}
+.rp-none {
+  margin: 0; padding: 14px 16px; font-size: 13.5px; line-height: 1.55;
+  background: var(--bad-tint); border-left: 3px solid var(--bad); border-radius: 0 8px 8px 0;
+}
+.rp-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rp-tools form { margin: 0; }
+.rp-ok  { margin: 10px 0 0; font-size: 13px; color: var(--good); }
+.rp-bad { margin: 10px 0 0; font-size: 13px; color: var(--bad); }
+
+/* Phone: pin it, crop it to the top of the bill, and let the form run under.
+   `display: contents` on the wrapper is load-bearing. A sticky element is
+   bounded by its PARENT's box, and .cr-photo ends where the form begins -- so
+   the band unstuck itself two screens up and the whole point was lost. Letting
+   its children become direct children of .cr-layout, which spans the page,
+   gives the band the full height to stick within. */
+@media (max-width: 899px) {
+  .cr-layout { display: grid; overflow: visible; }
+  .cr-photo { display: contents; }
+  .cr-photo .co-card:last-of-type { position: sticky; top: 0; z-index: 5; margin: 0 0 12px;
+    border-radius: 0 0 12px 12px; box-shadow: 0 6px 14px -10px var(--shadow); }
+  .rp-band { height: 96px; }
+  /* Expanded: tall enough to read a line, short enough to keep the form visible. */
+  .rp.is-open .rp-band { height: 60vh; cursor: zoom-out; overflow: auto; }
+  .rp.is-open .rp-band img { height: auto; min-height: 100%; object-fit: contain; object-position: center; }
+  /* The tools only take space when the photo is open or missing. */
+  .rp:not(.is-open) .rp-tools { margin-top: 8px; }
+}
+
+/* Desktop keeps the two-column sticky layout that already worked. */
+@media (min-width: 900px) {
+  .rp-band { max-height: 70vh; cursor: zoom-in; }
+  .rp.is-open .rp-band { max-height: none; cursor: zoom-out; }
+  .rp.is-open .rp-band img { object-fit: contain; }
+}

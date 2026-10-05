@@ -9,9 +9,10 @@ import { getRecords, rm } from '@/lib/records'
 import { shortDate, mytDate } from '@/lib/period'
 import { taughtAliases } from '@/lib/stock-data'
 import CorrectForm, { type Line } from './CorrectForm'
+import { ReceiptPhoto } from './ReceiptPhoto'
+import { signedPhotoFor } from '@/lib/receipt-photo'
 
 export const dynamic = 'force-dynamic'
-const SIGNED_URL_TTL = 60 * 60
 
 export default async function CorrectReceipt({ params, searchParams }: {
   params: Promise<{ id: string }>; searchParams: Promise<{ need?: string }>
@@ -21,18 +22,11 @@ export default async function CorrectReceipt({ params, searchParams }: {
   const recordId = Number(id)
   const row = (await getRecords()).find(r => r.id === recordId && r.category === 'cash_out')
 
-  let url: string | null = null
-  let mime = ''
-  if (row && supabaseConfigured) {
-    const { data } = await supabase.from('vault_files').select('storage_path, mime')
-      .eq('record_id', recordId).order('created_at', { ascending: false }).limit(1)
-    const file = data?.[0]
-    mime = String(file?.mime ?? '')
-    if (file?.storage_path) {
-      const { data: signed } = await supabase.storage.from('vault').createSignedUrl(file.storage_path, SIGNED_URL_TTL)
-      url = signed?.signedUrl ?? null
-    }
-  }
+  // One helper, not the fourth copy of the same nine lines (lib/receipt-photo.ts).
+  const photo = row ? await signedPhotoFor(recordId) : null
+  const url = photo?.url ?? null
+  const mime = photo?.mime ?? ''
+  const rotate = photo?.rotate ?? 0
   const aliases = row ? await taughtAliases() : {}
 
   const items: any[] = Array.isArray(row?.meta?.items) ? row!.meta.items : []
@@ -69,17 +63,7 @@ export default async function CorrectReceipt({ params, searchParams }: {
               {row.meta?.filed_by && <p className="co-sub">Sent by {String(row.meta.filed_by)}</p>}
             </section>
             <section className="co-card">
-              {url && mime.startsWith('image/') ? (
-                <a href={url} target="_blank" rel="noopener" title="Open full size">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Receipt photo for record ${row.id}`} className="rcpt-img" />
-                </a>
-              ) : url ? (
-                <p className="co-sub" style={{ marginTop: 0 }}><a href={url} target="_blank" rel="noopener">Open the file</a> (PDF)</p>
-              ) : (
-                <p className="co-sub" style={{ marginTop: 0 }}>No photo kept for this one &mdash; it was typed in, or filed before photos were saved.</p>
-              )}
-              {url && mime.startsWith('image/') && <p className="co-meta">Tap the photo to open it full size and zoom.</p>}
+              <ReceiptPhoto id={row.id} url={url} mime={mime} rotate={rotate} />
             </section>
           </div>
 
