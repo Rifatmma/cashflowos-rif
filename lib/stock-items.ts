@@ -1,7 +1,5 @@
-// The ingredients the kitchen tracks, and how a receipt line becomes stock.
-//
-// ONLY THE COSTLY ITEMS (owner's call, 22 Sep 2026): proteins, eggs, rice. Veg,
-// sauces, drinks and noodles are not deducted -- they stay as Cash Out spend.
+// How a receipt line becomes stock. The ingredient catalogue itself now lives in
+// lib/stock-catalog.ts, re-exported here so every existing import still works.
 //
 // Every quantity is held in the item's own unit: grams, pieces, or fish. A
 // receipt says "2 kg", a recipe says "6 shrimp", so the conversions live here in
@@ -9,81 +7,10 @@
 //
 // Pure: no server imports, safe to test directly.
 
-export type Unit = 'g' | 'pc' | 'fish'
-
-export type ItemDef = {
-  key: string
-  name: string
-  unit: Unit
-  /** Receipt names that mean this item. Lower-case regex sources. */
-  aliases: string[]
-  /** Pieces per kg, for items bought by weight and used by the piece. */
-  perKg?: number
-  /** % of the bought weight that reaches a plate after trimming (owner's figures). */
-  usablePct?: number
-  /** Rough cost per unit, used ONLY until a receipt gives the real price. */
-  fallbackCost: number
-  /** Portioned into bags of this many grams (usable, already trimmed): counted in bags. */
-  bagG?: number
-  /** When a receipt line has no weight, assume this pack size in kg. */
-  defaultPackKg?: number
-  sort: number
-}
-
-// Owner's figures, 22 Sep 2026. Where a number is a starting guess it says so;
-// the weekly count shows how far off it is.
-export const ITEMS: ItemDef[] = [
-  { key: 'breast', name: 'Chicken breast (boneless)', unit: 'g', sort: 10,
-    // 2 kg bag loses about 80 g in trimming.
-    usablePct: 96, fallbackCost: 0.012, bagG: 80,
-    aliases: ['boneless breast', 'chicken breast', 'breast', 'dada ayam', 'isi dada', 'fillet ayam'] },
-  { key: 'leg', name: 'Chicken leg quarter', unit: 'pc', sort: 11, perKg: 3.3, fallbackCost: 1.7,
-    aliases: ['leg quarter', 'peha', 'thigh', 'drumstick', 'chicken leg'] },
-  { key: 'feet', name: 'Chicken feet', unit: 'pc', sort: 12, perKg: 30, fallbackCost: 0.2,
-    aliases: ['kaki ayam', 'chicken feet', 'ceker'] },
-  { key: 'beef', name: 'Beef', unit: 'g', sort: 20, usablePct: 80, fallbackCost: 0.035, bagG: 80,
-    // Owner's rule (22 Sep 2026): buffalo meat is stocked and used as beef.
-    aliases: ['daging', 'beef', 'buffalo', 'kerbau', 'carabeef'] },
-  { key: 'tongue', name: 'Beef tongue', unit: 'g', sort: 21, fallbackCost: 0.03, bagG: 120,
-    aliases: ['lidah', 'tongue'] },
-  // Thai names, owner 24 Sep 2026: กุ้งขาว or plain กุ้ง is this one; กุ้งแม่น้ำ
-  // ("river prawn") is udang galah, which is why กุ้ง must not swallow it.
-  // Owner, 24 Sep 2026: "a kilo of shrimp is about 30-35 pieces". 33 it is --
-  // the interview figure of 38 was too many.
-  { key: 'shrimp', name: 'Shrimp (fresh)', unit: 'pc', sort: 30, perKg: 33, fallbackCost: 0.75,
-    aliases: ['udang(?! galah)', 'prawn', 'shrimp', 'กุ้ง(?!แม่น้ำ)'] },
-  // Owner, 23 Sep 2026: frozen shrimp is a different item -- it only goes into
-  // fried rice; every other shrimp dish uses fresh. Checked BEFORE 'shrimp'.
-  { key: 'shrimp_frozen', name: 'Shrimp (frozen)', unit: 'pc', sort: 31, perKg: 33, fallbackCost: 0.5,
-    aliases: ['(frz|frozen|beku|iqf)[^a-z]*(isi )?(udang|prawn|shrimp)', '(udang|prawn|shrimp)[^a-z]*(frz|frozen|beku|iqf)'] },
-  { key: 'galah', name: 'Udang galah', unit: 'pc', sort: 31, perKg: 20, fallbackCost: 3,
-    aliases: ['udang galah', 'river prawn', 'galah', 'กุ้งแม่น้ำ'] },
-  { key: 'crab', name: 'Crab', unit: 'pc', sort: 32, perKg: 6, fallbackCost: 6,
-    aliases: ['ketam', 'crab'] },
-  { key: 'squid', name: 'Squid / octopus', unit: 'g', sort: 33, usablePct: 75, fallbackCost: 0.03, bagG: 80,
-    aliases: ['sotong', 'squid', 'calamari', 'octopus', 'หมึก'] },
-  // Owner, 23 Sep 2026: frozen sotong is its own item -- it goes into the fried
-  // squid dish only; every other sotong dish uses fresh. Rings come cleaned and
-  // cut, so nothing is trimmed off (ASK if that is wrong).
-  { key: 'squid_frozen', name: 'Squid (frozen rings)', unit: 'pc', sort: 33, perKg: 18, fallbackCost: 0.43,
-    aliases: ['(frz|fzn|frozen|beku|iqf)[^a-z]*(sotong|squid|calamari)', '(sotong|squid|calamari)[^a-z]*(frz|fzn|frozen|beku|iqf)'] },
-  { key: 'mussel', name: 'Mussels', unit: 'pc', sort: 34, perKg: 20, fallbackCost: 0.25,
-    // A Sri Ternak bag is about 20 pieces; treated as a 1 kg bag when no weight prints.
-    defaultPackKg: 1,
-    aliases: ['kupang', 'mussel', 'kerang hijau'] },
-  { key: 'lala', name: 'Lala', unit: 'g', sort: 35, fallbackCost: 0.015, bagG: 250,
-    aliases: ['lala', 'clam', 'kepah'] },
-  { key: 'siakap', name: 'Siakap', unit: 'fish', sort: 36, fallbackCost: 12,
-    aliases: ['siakap', 'barramundi', 'sea ?bass', 'kerapu', 'ปลากระพง'] },
-  { key: 'egg', name: 'Eggs', unit: 'pc', sort: 40, fallbackCost: 0.45,
-    aliases: ['telur(?! masin)', '\\begg'] },
-  { key: 'rice', name: 'Rice (uncooked)', unit: 'g', sort: 50, fallbackCost: 0.0046,
-    // "ROYAL UMBRELLA BERAS" prints no weight; the owner buys 10 kg bags.
-    defaultPackKg: 10,
-    aliases: ['beras(?! pulut)', 'royal umbrella', 'jasmine rice', '\\brice\\b'] },
-]
-
-export const ITEM = Object.fromEntries(ITEMS.map(i => [i.key, i])) as Record<string, ItemDef>
+export type { Unit, ItemDef } from './stock-catalog'
+export { ITEMS, ITEM, NOT_STOCK_ITEM, WHOLE_BIRD_ITEM } from './stock-catalog'
+import { ITEMS, ITEM, NOT_STOCK_ITEM, WHOLE_BIRD_ITEM } from './stock-catalog'
+import type { Unit, ItemDef } from './stock-catalog'
 
 // A whole bird isn't a stock item of its own: it becomes leg quarters plus
 // breast the moment it's cut. Starting estimate (owner chose "estimate, the count
@@ -120,35 +47,27 @@ export type ReceiptLine = {
 // a receipt name, and its weight from "2KG" in that name, is what went wrong on
 // line after line; a choice made on the correction page is not guessed at.
 // ---------------------------------------------------------------------------
-export type StockUnit = 'kg' | 'g' | 'pcs' | 'fish' | 'tray' | 'dozen' | 'pkt'
+export type { EntryUnit as StockUnit } from './units'
+import type { EntryUnit } from './units'
 /**
  * A packet only means something with what is in it: "3 pkt, each 1 kg". So
  * `pkt` carries `per` + `perUnit` (one of the item's other units), and is
  * turned into that unit before anything else (owner, 27 Sep 2026).
  */
-export type StockChoice = { item: string; qty: number; unit: StockUnit; per?: number; perUnit?: StockUnit }
-/** Not stock at all -- e.g. "PRAWN MEE" that the name reader took for shrimp. */
-export const NOT_STOCK_ITEM = 'none'
-export const WHOLE_BIRD_ITEM = 'bird'
+export type StockChoice = { item: string; qty: number; unit: EntryUnit; per?: number; perUnit?: EntryUnit }
+export { entryWord as unitWord } from './units'
 
-const UNIT_WORDS: Record<StockUnit, string> = { kg: 'kg', g: 'g', pcs: 'pieces', fish: 'fish', tray: 'trays (30)', dozen: 'dozen', pkt: 'packets (pkt)' }
-export const unitWord = (u: StockUnit) => UNIT_WORDS[u]
-
-/** The units that make sense for an item, the one it is usually bought in first. Packets last. */
-export function unitsFor(item: string): StockUnit[] {
-  const inner = packUnitsFor(item)
-  return inner.length ? [...inner, 'pkt'] : []
-}
-/** What one packet of an item can hold: every unit of it except packets. */
-export function packUnitsFor(item: string): StockUnit[] {
-  if (item === WHOLE_BIRD_ITEM) return ['kg', 'g']
-  if (item === 'egg') return ['tray', 'pcs', 'dozen']
-  const def = ITEM[item]
-  if (!def) return []
-  if (def.unit === 'g') return ['kg', 'g']
-  if (def.unit === 'fish') return ['kg', 'fish']
-  return def.perKg ? ['kg', 'pcs', 'g'] : ['pcs']
-}
+// THE UNIT LISTS NOW LIVE IN lib/units.ts, which is the only place one may be
+// declared. These two stay as the names the rest of the app already calls.
+//
+// The old order put 'kg' first for every piece item that had a perKg, and
+// unitsFor(item)[0] is the default selection -- so shrimp, chicken leg, crab and
+// mussel all defaulted to kilograms while the RECIPES that consume them are
+// written in pieces. The item's own storage unit now comes first
+// (owner, 5 Oct 2026).
+import { entryUnitsFor, packUnitsFor as packUnitsForItem } from './units'
+export const unitsFor = entryUnitsFor
+export const packUnitsFor = packUnitsForItem
 
 /** Stock from an explicit choice. Same conversions and trimming as a read receipt. */
 export function stockFromChoice(c: StockChoice, lineTotal: number, from: string): StockIn[] | { unknownQty: string; item: string } {
@@ -204,6 +123,19 @@ export function choiceFromLine(l: ReceiptLine, extraAliases: Record<string, stri
   if (def.unit === 'g') return { item: key, qty: round(q / 1000 / usable), unit: 'kg' }
   if (def.unit === 'fish') return { item: key, qty: round(q), unit: 'fish' }
   if (key === 'egg') return q % EGGS_PER_TRAY === 0 ? { item: key, qty: q / EGGS_PER_TRAY, unit: 'tray' } : { item: key, qty: round(q), unit: 'pcs' }
+
+  // A PIECE ITEM READ FROM A WEIGHT STAYS IN KILOGRAMS. This is deliberate and
+  // it is the one place the owner asked for pieces and does not get them.
+  //
+  // If the bill prints "2 KG UDANG" and we render "66 pcs", a reading has been
+  // turned into a guess and shown with the same authority as the paper. This
+  // file is full of comments about exactly that failure. What changed instead
+  // is the PICKER beside it, which now offers pieces first — so one tap
+  // converts it, and the note still shows the working (owner, 5 Oct 2026).
+  //
+  // When the line states a count rather than a weight, pieces win outright.
+  const counted = /^(pcs?|pieces?|ekor|biji|unit)$/i.test(String(l.unit ?? ''))
+  if (counted) return { item: key, qty: round(q), unit: 'pcs' }
   const kg = def.perKg ? kgOf(l, def) : null
   return kg ? { item: key, qty: round(kg), unit: 'kg' } : { item: key, qty: round(q), unit: 'pcs' }
 }
@@ -214,6 +146,9 @@ export type StockIn = { item: string; qty: number; unit_cost: number | null; fro
 // under this key in the taught-alias map so the same "this is…" picker can also
 // mean "stop asking me about this one".
 const WEIGHT_UNIT = /^(kg|kilo|kilos|g|gm|gram|grams)$/i
+// A unit column that states a COUNT. Malay and Thai included: a market bill in
+// Selangor prints "ekor" or "biji" as often as "pcs".
+const COUNT_UNIT = /^(pc|pcs|piece|pieces|ekor|biji|butir|unit|units|ตัว)$/i
 
 // A siakap weighs 500-600 g. The owner settled on 550: "cannot be exactly 5
 // every time" (24 Sep 2026), so the middle of his range it is -- 4 kg reads as
@@ -388,6 +323,17 @@ export function stockFromLine(l: ReceiptLine, extraAliases: Record<string, strin
           (counted !== null && Math.abs(counted - byWeight) > 1 ? ` (the bill said ${fmtNum(counted)})` : '')
       }
       else if (counted !== null) { q = counted; how = `${fmtNum(counted)} on the bill` }
+      // A COUNT IN THE LINE'S OWN UNIT COLUMN, when there is no weight at all.
+      // "UDANG  30 PCS  66.00" is thirty prawns. Only `packCount` — a number
+      // printed inside the NAME, like "30S" — used to count, so a bill that put
+      // the count in its own column fell through to "didn't say how much" and
+      // the staff were asked for a quantity that was printed on the paper.
+      //
+      // Still subordinate to weight, which is checked above: the owner's rule
+      // that a kilo of shrimp is 30-35 pieces stands (owner, 5 Oct 2026).
+      else if (COUNT_UNIT.test(String(l.unit ?? '')) && qty > 0) {
+        q = qty; how = `${fmtNum(qty)} ${String(l.unit).toLowerCase()} on the bill`
+      }
       else if (dozens > 1) { q = qty * 12; how = `${fmtNum(qty)} dozen x 12` }
       else if (kg && def.perKg) { q = kg * def.perKg * usable; how = `${fmtNum(kg)} kg at ${def.perKg} per kg${trim}` }
       else q = null

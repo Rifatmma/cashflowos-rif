@@ -5,6 +5,7 @@
 // before it is saved, not at the weekly count.
 import { useActionState, useEffect, useRef, useState } from 'react'
 import { correctReceipt, type CorrectResult } from './actions'
+import { receiptUnitOptions } from '@/lib/units'
 import {
   stockFromLine, stockFromChoice, choiceFromLine, itemForName, unitsFor, packUnitsFor, unitWord, ITEM, ITEMS,
   NOT_STOCK_ITEM, WHOLE_BIRD_ITEM, type StockChoice, type StockUnit,
@@ -17,6 +18,8 @@ export type Line = {
 // sItem: '' = work it out from the name, 'none' = not stock, else a stock item.
 type Draft = {
   name: string; qty: string; unit: string; price: string; total: string; type: string
+  /** True while the owner is typing a unit the picker does not offer. */
+  unitFree?: boolean
   sItem: string; sQty: string; sUnit: StockUnit | ''
   // Only for sUnit 'pkt': what one packet holds.
   sPer: string; sPerUnit: StockUnit | ''
@@ -177,7 +180,32 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
               </label>
               <label className="cr-field">
                 <span>Unit</span>
-                <input value={d.unit} onChange={e => set(i, { unit: e.target.value })} placeholder="pkt, kg, pcs" />
+                {/* A PICKER THAT NEVER REWRITES THE BILL. The common units are one
+                    tap, but whatever the supplier printed stays selectable at the
+                    top of the list ("btl - as printed"), and "Other" reveals the
+                    old free-text box. A receipt is evidence; evidence that does
+                    not fit a dropdown is still evidence (owner, 5 Oct 2026). */}
+                {d.unitFree ? (
+                  <input
+                    value={d.unit} autoFocus placeholder="as printed on the bill"
+                    onChange={e => set(i, { unit: e.target.value })}
+                    onBlur={() => { if (!d.unit.trim()) set(i, { unitFree: false }) }}
+                  />
+                ) : (
+                  <select
+                    value={d.unit}
+                    onChange={e => {
+                      if (e.target.value === '__other') set(i, { unit: '', unitFree: true })
+                      else set(i, { unit: e.target.value })
+                    }}
+                  >
+                    {!d.unit && <option value="">no unit</option>}
+                    {receiptUnitOptions(d.unit).map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                    <option value="__other">Other…</option>
+                  </select>
+                )}
               </label>
               <label className="cr-field">
                 <span>Price each (RM)</span>

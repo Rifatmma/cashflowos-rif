@@ -42,7 +42,11 @@ const one = (r: ReturnType<typeof stockFromChoice>) => (Array.isArray(r) && r.le
 {
   check('not stock -> nothing', JSON.stringify(stockFromChoice({ item: 'none', qty: 0, unit: 'pcs' }, 43, 'MEE PRAWN')) === '[]')
   check('a unit that does not fit is refused', !Array.isArray(stockFromChoice({ item: 'beef', qty: 3, unit: 'tray' }, 10, 'x')))
-  check('beef is bought in kg, g or packets', JSON.stringify(unitsFor('beef')) === JSON.stringify(['kg', 'g', 'pkt']))
+  // Beef gained 'bag': it has a bagG, so the kitchen portions it into bags and
+  // may now count it that way. The order is the item's own unit first, then the
+  // finer one, then how it is stored, then packets (owner, 5 Oct 2026).
+  check('beef is bought in kg, g, bags or packets', JSON.stringify(unitsFor('beef')) === JSON.stringify(['kg', 'g', 'bag', 'pkt']))
+  check('a piece item offers pieces first', unitsFor('shrimp')[0] === 'pcs')
 }
 {
   // The saved choice beats reading the name: "PRAWN MEE" is not shrimp.
