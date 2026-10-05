@@ -100,30 +100,41 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         </Section>
       )}
 
-      {verdicts.length > 0 && (
-        <>
-          <Section title="The auction: where we show and where we don't"
-            sub="Every impression we missed had one of two causes, and they need opposite responses.">
+      {/* ALWAYS RENDERED. Hiding it on a month with no data made the tab look
+          broken when the owner switched to September: "the section is gone, it
+          should always be there." A section that explains why it is empty is
+          information; one that vanishes is a bug (owner, 5 Oct 2026). */}
+      <Section title="The auction: where we show and where we don't"
+        sub="Every impression we missed had one of two causes, and they need opposite responses.">
+        {verdicts.length > 0 ? (
+          <>
             <AuctionBand s={auction} />
             <div style={{ marginTop: 16 }}>
               <AuctionTable rows={verdicts} />
             </div>
-          </Section>
+          </>
+        ) : (
+          <p className="lede">
+            No impression share was stored for {d.meta.monthLabel}. Google reports it only from the
+            day we started asking for it, so months pulled before then cannot show it — the
+            figures are not missing from the account, they were simply never saved here.
+          </p>
+        )}
+      </Section>
 
-          <Section title="What to change"
-            sub="Worst first. Open one for the numbers behind it.">
-            <AuctionActions rows={verdicts} />
-            <p className="lede" style={{ marginTop: 14 }}>
-              <b>On competitors by name.</b> Google's own Auction Insights report — which rivals
-              you overlap with, and how often they outrank you — exists only in the Google Ads
-              interface. It is not in the API: asking for <code>auction_insight_domain</code> returns
-              "unrecognized field". Everything above is our own side of the same auctions, which is
-              where the levers are. If you export Auction Insights to CSV, it can be imported and
-              shown here beside this.
-            </p>
-          </Section>
-        </>
-      )}
+      <Section title="What to change"
+        sub="Worst first. Open one for the numbers behind it.">
+        {verdicts.length > 0
+          ? <AuctionActions rows={verdicts} />
+          : <p className="lede">Nothing to act on until a month with impression share is selected.</p>}
+        <p className="lede" style={{ marginTop: 14 }}>
+          <b>On competitors by name.</b> Google's own Auction Insights report — which rivals you
+          overlap with, and how often they outrank you — exists only in the Google Ads interface.
+          It is not in the API: asking for <code>auction_insight_domain</code> returns "unrecognized
+          field". Everything above is our own side of the same auctions, which is where the levers
+          are. If you export Auction Insights to CSV, it can be imported and shown here beside this.
+        </p>
+      </Section>
 
       <Section title="Targets & pacing"
         sub="Set your numbers once — the gauges here and the pace line below work off them. The daily refresh never overwrites these.">
