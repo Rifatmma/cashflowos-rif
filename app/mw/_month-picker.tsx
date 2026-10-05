@@ -40,19 +40,10 @@ export function MonthPicker({ months, month, base }: {
  */
 export function MonthOverMonth({ now, prev, nowLabel, prevLabel }: {
   now: { spend: number; leads: number; clicks: number; days: number }
-  prev: { spend: number; leads: number; clicks: number; days: number } | null
+  prev: { spend: number; leads: number; clicks: number; days: number }
   nowLabel: string
   prevLabel: string
 }) {
-  if (!prev || !prev.days || !now.days) {
-    return (
-      <p className="lede">
-        No earlier month to compare with yet. Once a second month of pulls exists this shows the
-        change in spend, leads and cost per lead, measured per day.
-      </p>
-    )
-  }
-
   const per = (v: number, d: number) => (d ? v / d : 0)
   const rows = [
     { k: 'Spend a day', a: per(now.spend, now.days), b: per(prev.spend, prev.days), money: true, goodUp: false },

@@ -66,20 +66,24 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         { k: 'Conv. rate', v: `${k.cvr}%`, d: String(k.dCvr ?? ''), tone: 'dn' },
       ]} />
 
-      <Section title={`${d.meta.monthLabel} against ${prevSnap?.data.meta.monthLabel ?? 'the month before'}`}
-        sub="Month over month, measured per delivery day so a part-month is not read as a collapse.">
-        <MonthOverMonth
-          nowLabel={d.meta.monthLabel}
-          prevLabel={prevSnap?.data.meta.monthLabel ?? '—'}
-          now={{ spend: k.spend, leads: k.leads, clicks: k.clicks, days: d.meta.daysDone }}
-          prev={prevSnap ? {
-            spend: prevSnap.data.sem.kpi.spend,
-            leads: prevSnap.data.sem.kpi.leads,
-            clicks: prevSnap.data.sem.kpi.clicks,
-            days: prevSnap.data.meta.daysDone,
-          } : null}
-        />
-      </Section>
+      {/* Only when there is a month to compare with. A card explaining that it
+          has nothing to say is just noise on the oldest month (owner, 5 Oct 2026). */}
+      {prevSnap && prevSnap.data.meta.daysDone > 0 && (
+        <Section title={`${d.meta.monthLabel} against ${prevSnap.data.meta.monthLabel}`}
+          sub="Month over month, measured per delivery day so a part-month is not read as a collapse.">
+          <MonthOverMonth
+            nowLabel={d.meta.monthLabel}
+            prevLabel={prevSnap.data.meta.monthLabel}
+            now={{ spend: k.spend, leads: k.leads, clicks: k.clicks, days: d.meta.daysDone }}
+            prev={{
+              spend: prevSnap.data.sem.kpi.spend,
+              leads: prevSnap.data.sem.kpi.leads,
+              clicks: prevSnap.data.sem.kpi.clicks,
+              days: prevSnap.data.meta.daysDone,
+            }}
+          />
+        </Section>
+      )}
 
       <Section title="Targets & pacing"
         sub="Set your numbers once — the gauges here and the pace line below work off them. The daily refresh never overwrites these.">
