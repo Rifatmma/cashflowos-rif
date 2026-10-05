@@ -7,7 +7,7 @@ import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
 import { MonthPicker, MonthOverMonth } from '../_month-picker'
 import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
 import { AuctionBand, AuctionTable, AuctionActions } from '../_auction-ui'
-import { analyseKeywords, summariseKeywords, pagesToFix, type KeywordRow } from '@/lib/mw-keywords'
+import { analyseKeywords, summariseKeywords, pagesToFix, FAIR_TEST_CLICKS, type KeywordRow } from '@/lib/mw-keywords'
 import { buildSection, type GeneratedSection } from '@/lib/mw-page-content'
 import { auditPage } from '@/lib/mw-pagehealth'
 import { KeywordBand, KeywordTable, KeywordActions, PageFixes } from '../_keyword-ui'
@@ -183,13 +183,21 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         sub="Conversions decide first. Where there are none, the quality score decides whether the fault is the keyword's or ours.">
         <KeywordBand s={kwSummary} />
         <div style={{ marginTop: 18 }}>
-          <KeywordTable rows={kwVerdicts.filter(v => v.verdict !== 'watch').slice(0, 25)} />
+          {/* EVERY keyword, not a top-25. The first version capped the table and
+              hid the "too early" rows, so an account with 233 keywords showed
+              seven and looked broken (owner, 5 Oct 2026). */}
+          <KeywordTable rows={kwVerdicts} />
         </div>
       </Section>
 
       <Section title="The keyword worklist"
         sub="Most money at stake first. Open one to see why it is judged that way.">
         <KeywordActions rows={kwVerdicts} />
+        <p className="lede" style={{ marginTop: 14 }}>
+          Showing every keyword that needs a decision. The ones marked{' '}
+          <b>too early</b> are in the table above but not here — under{' '}
+          {FAIR_TEST_CLICKS} clicks, nothing about them can honestly be concluded yet.
+        </p>
       </Section>
 
       {groups.length > 0 && (

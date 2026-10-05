@@ -73,9 +73,9 @@ export async function closeMonth(month: string): Promise<CloseResult> {
   if (!snap?.data) return { ok: false, message: `no snapshot stored for ${month}` }
 
   const DATES = `segments.date BETWEEN '${from}' AND '${to}'`
-  let camp: any[], days: any[], ishare: any[]
+  let camp: any[], days: any[], ishare: any[], kw: any[], adurls: any[]
   try {
-    [camp, days, ishare] = await Promise.all([
+    [camp, days, ishare, kw, adurls] = await Promise.all([
       gaql(`SELECT campaign.name, metrics.cost_micros, metrics.conversions, metrics.clicks, metrics.impressions FROM campaign WHERE ${DATES}`),
       gaql(`SELECT segments.date, metrics.cost_micros, metrics.conversions FROM customer WHERE ${DATES}`),
       gaql(`SELECT campaign.name, campaign.status, metrics.impressions, metrics.clicks, `
@@ -83,6 +83,20 @@ export async function closeMonth(month: string): Promise<CloseResult> {
          + `metrics.search_rank_lost_impression_share, metrics.search_top_impression_share, `
          + `metrics.search_absolute_top_impression_share, metrics.search_exact_match_impression_share `
          + `FROM campaign WHERE metrics.impressions > 0 AND ${DATES}`),
+      // Keywords with their quality score. The whole set, not a sample: this
+      // account has 233 keywords with impressions and a capped query made the
+      // analysis look like it had nothing to say (owner, 5 Oct 2026).
+      gaql(`SELECT campaign.name, ad_group.name, ad_group.id, `
+         + `ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, `
+         + `ad_group_criterion.quality_info.quality_score, `
+         + `ad_group_criterion.quality_info.creative_quality_score, `
+         + `ad_group_criterion.quality_info.post_click_quality_score, `
+         + `ad_group_criterion.quality_info.search_predicted_ctr, `
+         + `metrics.cost_micros, metrics.conversions, metrics.clicks, `
+         + `metrics.impressions, metrics.ctr `
+         + `FROM keyword_view WHERE metrics.impressions > 0 AND ${DATES}`),
+      gaql(`SELECT ad_group.id, ad_group_ad.ad.final_urls FROM ad_group_ad `
+         + `WHERE ad_group_ad.status != 'REMOVED' AND ad_group.status = 'ENABLED'`),
     ])
   } catch (e: any) {
     // A failed pull must never be written as a month of zeroes.
@@ -134,6 +148,32 @@ export async function closeMonth(month: string): Promise<CloseResult> {
     }))
   }
 
+  if (kw.length) {
+    data.sem.keywords = kw.map(r => ({
+      c: String(pick(r, 'campaign', 'name') ?? ''),
+      ag: pick(r, 'adGroup', 'name') ?? null,
+      agid: pick(r, 'adGroup', 'id') ?? null,
+      k: String(pick(r, 'adGroupCriterion', 'keyword', 'text') ?? ''),
+      mt: pick(r, 'adGroupCriterion', 'keyword', 'matchType') ?? null,
+      qs: pick(r, 'adGroupCriterion', 'qualityInfo', 'qualityScore') ?? null,
+      qAd: pick(r, 'adGroupCriterion', 'qualityInfo', 'creativeQualityScore') ?? null,
+      qPage: pick(r, 'adGroupCriterion', 'qualityInfo', 'postClickQualityScore') ?? null,
+      qCtr: pick(r, 'adGroupCriterion', 'qualityInfo', 'searchPredictedCtr') ?? null,
+      cost: Math.round((num(r, 'costMicros') / 1e6) * 100) / 100,
+      conv: num(r, 'conversions'), clicks: num(r, 'clicks'),
+      impr: num(r, 'impressions'), ctr: num(r, 'ctr'),
+    })).filter(x => x.k)
+  }
+  if (adurls.length) {
+    const seen = new Map<string, string>()
+    for (const r of adurls) {
+      const ag = pick(r, 'adGroup', 'id')
+      const u = (pick(r, 'adGroupAd', 'ad', 'finalUrls') ?? [])[0]
+      if (ag && u && !seen.has(String(ag))) seen.set(String(ag), String(u))
+    }
+    data.sem.adUrls = [...seen.entries()].map(([ag, u]) => ({ ag, u }))
+  }
+
   // Say on the page itself that these are settled figures, not a morning's
   // partial read. The owner spotted the gap by comparing with Google; the
   // dashboard should be the one volunteering it.
@@ -145,8 +185,8 @@ export async function closeMonth(month: string): Promise<CloseResult> {
   return {
     ok: true, before, after: leads,
     message: before === leads
-      ? `${month} unchanged at ${leads} conversions, S$${spend.toFixed(2)}`
-      : `${month} corrected: ${before} → ${leads} conversions, S$${spend.toFixed(2)} (late attribution and the final day)`,
+      ? `${month} unchanged at ${leads} conversions, S$${spend.toFixed(2)}, ${kw.length} keywords, ${ishare.length} campaigns scored`
+      : `${month} corrected: ${before} → ${leads} conversions, S$${spend.toFixed(2)}`,
   }
 }
 

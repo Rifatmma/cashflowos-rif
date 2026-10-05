@@ -46,6 +46,11 @@ export function KeywordBand({ s }: { s: KeywordSummary }) {
 export function KeywordTable({ rows }: { rows: KeywordVerdict[] }) {
   if (!rows.length) return <p className="lede">No keyword has enough traffic to judge yet.</p>
   return (
+    <>
+    <p className="lede" style={{ marginBottom: 10 }}>
+      {rows.length.toLocaleString('en-US')} keywords with impressions, worst problem first.
+      Scroll sideways for the quality score columns.
+    </p>
     <div className="mw-scroll-x">
       <table className="mw-kw wide">
         <thead>
@@ -87,6 +92,7 @@ export function KeywordTable({ rows }: { rows: KeywordVerdict[] }) {
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 
@@ -96,7 +102,7 @@ export function KeywordActions({ rows }: { rows: KeywordVerdict[] }) {
   if (!worth.length) return <p className="lede">Nothing needs a decision. Every keyword with real traffic is converting.</p>
   return (
     <>
-      {worth.slice(0, 20).map(v => (
+      {worth.slice(0, 60).map(v => (
         <details className={`mw-lead is-${v.verdict === 'pause-candidate' ? 'late' : 'ok'}`}
           key={`${v.row.campaign}-${v.row.adGroup}-${v.row.text}`}>
           <summary>
