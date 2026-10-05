@@ -10,6 +10,7 @@ import { getItems, getMoves, stockState, unitCosts, costOfUse } from '@/lib/stoc
 import { fmtQty, stockFromLine } from '@/lib/stock-items'
 import { refreshAds } from '@/lib/ads-refresh'
 import { ensureFixedFiled } from '@/lib/fixed-costs'
+import { pruneEvents } from '@/lib/bot-events'
 
 // 🔒 Don't edit — this keeps your robot safe.
 // THE ONE daily cron (Vercel Hobby allows 2; we ship 1, reserve the other).
@@ -192,6 +193,14 @@ export async function GET(req: Request) {
   // ③ SWEEP the scheduled agents — CREATE proposals only (they pass through ASK).
   const owner = process.env.OWNER_CHAT_ID?.trim()
   let created = 0
+  // Evidence ages out; learning does not. A suggestion copies the exchanges it
+  // cites onto itself when it is raised, so pruning the raw chat after 90 days
+  // takes nothing away from what was decided (owner, 6 Oct 2026).
+  try {
+    const gone = await pruneEvents()
+    if (gone) console.log(`[CFO] pruned ${gone} bot_events older than 90 days`)
+  } catch (e: any) { console.warn('[CFO] prune:', String(e?.message ?? e).slice(0, 120)) }
+
   for (const agent of SCHEDULED) {
     let drafts: ProposalDraft[] = []
     try {

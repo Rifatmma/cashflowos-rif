@@ -12,6 +12,7 @@ import {
   downloadFileBytes,
 } from '@/lib/telegram'
 import { loadTurns, appendTurn, bumpDailyCounter } from '@/lib/bot-memory'
+import { noteEvent } from '@/lib/bot-events'
 import { getRecords, rm, todayISO } from '@/lib/records'
 import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, proposeAndNotify } from '@/lib/actions'
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, TYPE_WORD, type VisionResult } from '@/lib/vision'
@@ -602,6 +603,9 @@ async function refuseOffTemplate(chatId: number, who: string, text: string): Pro
     `<i>Or just send a photo of the bill and I will read it myself.</i>`
   await sendMessage(chatId, reply)
   await remember(chatId, `[${who}: ${String(text).slice(0, 80)}]`, 'Not in the template, so nothing was filed. Sent them the template.')
+  // Durable, unlike the twelve-turn ring buffer above: this is one of the seven
+  // friction points the daily read is built from (owner, 6 Oct 2026).
+  await noteEvent({ chatId, from: { name: who }, kind: 'refused', text, reply: 'Sent them the template. Nothing filed.' })
 }
 
 /**
@@ -1239,6 +1243,10 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
       .maybeSingle()
     if (existing) {
       await sendMessage(chatId, '📁 Already filed — I recognized this exact file, so I didn\'t file it twice (no cost).')
+      await noteEvent({
+        chatId, from: filedBy(msg), kind: 'duplicate',
+        reply: 'Already filed. Not filed twice.', detail: { sha256 },
+      })
       return
     }
   }
@@ -1347,6 +1355,10 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
       `<i>Weight = ONE item or pack, not the total for all of them (8 fish of 500 g each → write 500 g). Price = total for that item. I'll keep this photo with it.</i>`
     await sendMessage(chatId, ask)
     await remember(chatId, '[sent a bill photo that could not be read]', ask)
+    await noteEvent({
+      chatId, from: { id: filer.id, name: filer.name }, kind: 'unreadable',
+      reply: 'Asked them to type it out.', detail: { sha256, mime },
+    })
     // So an unreadable bill can't quietly go missing if nobody types it.
     if (staffFiling && OWNER) {
       const heads = `🤔 ${esc(filer.name)} sent a bill I couldn't read. I've asked them to type it in the template.`
@@ -1511,6 +1523,10 @@ async function decideAndFile(a: {
     await setPending(chatId, staffFiling ? 'chat' : filer.id, {
       type: 'need_fields', gaps, payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
     })
+    await noteEvent({
+      chatId, from: { id: filer.id, name: filer.name }, kind: 'template_sent',
+      reply: `Asked for ${gaps.join(', ')}.`, detail: { gaps, merchant: v.merchant ?? null },
+    })
     const known = [
       !gaps.includes('total') && isExpense ? `<b>${rm(Number(v.amount))}</b>` : null,
       !gaps.includes('shop') && v.merchant ? esc(String(v.merchant)) : null,
@@ -1540,6 +1556,14 @@ async function decideAndFile(a: {
     }
     const what = `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
       `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
+    // Success is recorded too, not only friction. A read that sees nothing but
+    // failures would conclude the team is drowning on a day when forty bills
+    // went in first time (owner, 6 Oct 2026).
+    await noteEvent({
+      chatId, from: { id: filer.id, name: filer.name }, kind: 'filed',
+      reply: what, recordId: (done.result as any)?.record_id ?? null,
+      detail: { amount: done.result.amount, merchant: payload.merchant ?? null, auto: true },
+    })
     const ask = await askAmounts(chatId, staffFiling ? 'chat' : filer.id, payload.items, (done.result as any)?.record_id ?? null)
     if (staffFiling) {
       await sendMessage(chatId, `✅ Got it — <b>${what}</b>. Thanks ${esc(filer.name)}.${detail}${recordTag((done.result as any)?.record_id)}${ask}${FIX_HINT_STAFF}`)
@@ -1740,6 +1764,13 @@ async function answerMissingFields(msg: any, p: any): Promise<void> {
     await sendMessage(chatId,
       `🚫 I won't file this yet — I still need ${bad.join(' and ')}.` + NL + NL +
       `Please reply with exactly these lines:` + NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
+    // THE MOST IMPORTANT LINE IN THIS FILE FOR THE DAILY READ. Somebody tried to
+    // answer and was turned away; it used to write nothing anywhere, so a person
+    // could fail at this four times in a row and leave no trace at all.
+    await noteEvent({
+      chatId, from: { id: filer.id, name: filer.name }, kind: 'template_failed',
+      text, reply: `Still need ${bad.join(' and ')}.`, detail: { missing: bad, gaps },
+    })
     return
   }
 
