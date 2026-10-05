@@ -1,18 +1,40 @@
 import { currentGuest } from '@/lib/guest'
-import { getMwData, getTargets, money, money0, num } from '@/lib/mw-data'
+import { getMwData, getMwMonths, getTargets, money, money0, num } from '@/lib/mw-data'
 import { MwHero, Tiles, Section, Bars, SpendLeadChart } from '../_ui'
 import { getActions } from '@/lib/mw-actions'
 import { ActionList } from '../_actions-ui'
 import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
+import { MonthPicker, MonthOverMonth } from '../_month-picker'
 
 // 👉 Moving Walls → Paid search. Google Ads: what it cost and what it returned.
 
 export const dynamic = 'force-dynamic'
 
-export default async function MwPaid() {
+export default async function MwPaid({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   await currentGuest()
-  const [snap, rows, targets] = await Promise.all([getMwData(), getActions('paid'), getTargets()])
-  if (!snap) return <div className="mw-wrap"><MwHero tab="paid" pulled="—" stale={false} headline="Paid search" /><p className="lede">No snapshot yet.</p></div>
+  const { month } = await searchParams
+  const [snap, rows, targets, months] = await Promise.all([
+    getMwData(month), getActions('paid'), getTargets(), getMwMonths(),
+  ])
+  if (!snap) {
+    return (
+      <div className="mw-wrap">
+        <MwHero tab="paid" pulled="—" stale={false} headline="Paid search" />
+        <MonthPicker months={months} month={month} base="/mw/paid" />
+        <p className="lede">
+          {month
+            ? `No Google Ads snapshot was stored for ${month}. The history starts at the first daily pull, so months before that cannot be shown.`
+            : 'No snapshot yet.'}
+        </p>
+      </div>
+    )
+  }
+
+  // The month before the one being shown, for the comparison below. Fetched
+  // only when there is one, so a first month costs nothing extra.
+  const shownKey = month ?? months.find(m => m.current)?.key ?? months[0]?.key
+  const prevKey = months[months.findIndex(m => m.key === shownKey) + 1]?.key
+  const prevSnap = prevKey ? await getMwData(prevKey) : null
 
   const d = snap.data
   const k = d.sem.kpi
@@ -24,7 +46,7 @@ export default async function MwPaid() {
   return (
     <div className="mw-wrap">
       <MwHero tab="paid" pulled={d.meta.pulled} stale={snap.stale}
-        headline={`${money0(k.spend)} bought ${k.leads} leads this month`}>
+        headline={`${money0(k.spend)} bought ${k.leads} leads in ${d.meta.monthLabel}`}>
         <p>
           That is <b>{money(k.cpl)} a lead</b>, against {String(k.dCpl ?? '')}. These are Google Ads
           conversions, counted for up to <b>60 days after the click</b> and across whatever channel the
@@ -32,6 +54,8 @@ export default async function MwPaid() {
           fewer. Neither number is wrong; they answer different questions.
         </p>
       </MwHero>
+
+      <MonthPicker months={months} month={month} base="/mw/paid" />
 
       <Tiles items={[
         { k: 'Spend', v: money0(k.spend), d: String(k.dSpend ?? '') },
@@ -41,6 +65,21 @@ export default async function MwPaid() {
         { k: 'Avg. CPC', v: money(k.cpc, 3), d: String(k.dCpc ?? ''), tone: 'up' },
         { k: 'Conv. rate', v: `${k.cvr}%`, d: String(k.dCvr ?? ''), tone: 'dn' },
       ]} />
+
+      <Section title={`${d.meta.monthLabel} against ${prevSnap?.data.meta.monthLabel ?? 'the month before'}`}
+        sub="Month over month, measured per delivery day so a part-month is not read as a collapse.">
+        <MonthOverMonth
+          nowLabel={d.meta.monthLabel}
+          prevLabel={prevSnap?.data.meta.monthLabel ?? '—'}
+          now={{ spend: k.spend, leads: k.leads, clicks: k.clicks, days: d.meta.daysDone }}
+          prev={prevSnap ? {
+            spend: prevSnap.data.sem.kpi.spend,
+            leads: prevSnap.data.sem.kpi.leads,
+            clicks: prevSnap.data.sem.kpi.clicks,
+            days: prevSnap.data.meta.daysDone,
+          } : null}
+        />
+      </Section>
 
       <Section title="Targets & pacing"
         sub="Set your numbers once — the gauges here and the pace line below work off them. The daily refresh never overwrites these.">

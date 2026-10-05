@@ -43,21 +43,68 @@ export type MwData = {
 export type Snapshot = { data: MwData; pulledAt: string | null; note: string | null; stale: boolean }
 
 /** Newest snapshot, or null when the table is empty / Supabase isn't configured. */
-export async function getMwData(): Promise<Snapshot | null> {
+/** The year-month a snapshot describes, taken from the day it was pulled. */
+const monthKeyOf = (pulledAt: string) => String(pulledAt).slice(0, 7)
+
+export type MonthOption = { key: string; label: string; pulledAt: string; current: boolean }
+
+/**
+ * Which months can be looked at.
+ *
+ * Each daily pull stores a whole snapshot of the month so far, so the LAST
+ * snapshot of a month is that month's closing picture and every earlier one is
+ * a partial. Listing the months lets the owner compare September with October
+ * without another call to Google: the history was already here, it was simply
+ * never reachable (owner, 5 Oct 2026).
+ */
+export async function getMwMonths(): Promise<MonthOption[]> {
+  if (!supabaseConfigured) return []
+  const { data } = await supabase
+    .from('mw_snapshots').select('pulled_at, data')
+    .order('pulled_at', { ascending: false }).limit(400)
+  const now = monthKeyOf(new Date().toISOString())
+  const seen = new Map<string, MonthOption>()
+  for (const r of data ?? []) {
+    const key = monthKeyOf(String(r.pulled_at))
+    if (seen.has(key)) continue            // newest wins; rows arrive newest first
+    seen.set(key, {
+      key,
+      label: String((r.data as any)?.meta?.monthLabel ?? key),
+      pulledAt: String(r.pulled_at),
+      current: key === now,
+    })
+  }
+  return [...seen.values()].sort((a, b) => b.key.localeCompare(a.key))
+}
+
+/**
+ * A month's snapshot, or the newest one when no month is named.
+ *
+ * `month` is a key like "2026-09". Asking for a month with no snapshot returns
+ * null rather than quietly showing a different one: a page that answers a
+ * question you did not ask is worse than a page that says it cannot.
+ */
+export async function getMwData(month?: string): Promise<Snapshot | null> {
   if (!supabaseConfigured) return null
-  const { data, error } = await supabase
-    .from('mw_snapshots')
-    .select('data, pulled_at, note')
-    .order('pulled_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  let q = supabase.from('mw_snapshots').select('data, pulled_at, note')
+  if (month && /^[0-9]{4}-[0-9]{2}$/.test(month)) {
+    const [y, m] = month.split('-').map(Number)
+    q = q.gte('pulled_at', new Date(Date.UTC(y, m - 1, 1)).toISOString())
+         .lt('pulled_at', new Date(Date.UTC(y, m, 1)).toISOString())
+  }
+  const { data, error } = await q.order('pulled_at', { ascending: false }).limit(1).maybeSingle()
   if (error || !data?.data) return null
   const pulledAt: string | null = data.pulled_at ?? null
-  // More than 48h old means the daily job hasn't landed — say so rather than
-  // showing yesterday's numbers as if they were today's.
-  const stale = pulledAt ? Date.now() - new Date(pulledAt).getTime() > 48 * 3600 * 1000 : true
+  // Staleness only means something for the month in progress. A closed month's
+  // snapshot is weeks old by design, and flagging that as stale would be
+  // telling the owner off for looking at history.
+  const isCurrent = !month || month === monthKeyOf(new Date().toISOString())
+  const stale = isCurrent
+    ? (pulledAt ? Date.now() - new Date(pulledAt).getTime() > 48 * 3600 * 1000 : true)
+    : false
   return { data: data.data as MwData, pulledAt, note: data.note ?? null, stale }
 }
+
 
 // ---------------------------------------------------------------- alerts
 export type Alert = { sev: 'hi' | 'md' | 'lo'; move: string; title: string; detail: string; sort: number }
