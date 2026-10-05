@@ -1,7 +1,7 @@
 'use client'
 
 import { useActionState, useRef } from 'react'
-import { addReceiptPhoto, type PhotoResult } from '../[id]/photo-actions'
+import { addReceiptPhoto, type PhotoResult } from './[id]/photo-actions'
 
 // Attach the proof without opening the receipt.
 //

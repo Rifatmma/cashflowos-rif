@@ -19,10 +19,14 @@ import { getRecords, rm, type Rec } from '@/lib/records'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { supplierKey } from '@/lib/supplier-rules'
 import {
-  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, dayLabel, shortDate, addDays, daysBetween,
+  PERIODS, isPeriodKey, periodWindows, mytDate, inWin, cumulative, shortDate, addDays, daysBetween,
 } from '@/lib/period'
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
+import { Ledger, type LedgerRow } from './Ledger'
+import { recordsBetween, dayOf } from '@/lib/ledger'
+import { recordsWithPhotos } from '@/lib/receipt-photo'
+import { problemOf } from '@/lib/receipt-view'
 import PaceChart from '@/app/_components/PaceChart'
 
 export const dynamic = 'force-dynamic'
@@ -140,8 +144,8 @@ function checkNote(r: any): string | null {
     : null
 }
 
-export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string; saved?: string; msg?: string }> }) {
-  const { p, saved, msg } = await searchParams
+export default async function CashOut({ searchParams }: { searchParams: Promise<{ p?: string; saved?: string; msg?: string; show?: string }> }) {
+  const { p, saved, msg, show } = await searchParams
   const today = mytDate()
   const W = periodWindows(isPeriodKey(p) ? p : 'month', today)
 
@@ -218,24 +222,12 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   const unreadable = cur.filter(r => checkNote(r)).length
   const needs = [
     waiting.length && { href: '/approvals', text: `${waiting.length} waiting for approval` },
-    unreadable && { href: '/cash-out/attention', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
-    unclassified > 0 && { href: '/cash-out/attention', text: `${money2(unclassified)} not yet categorised` },
+    unreadable && { href: '/cash-out?show=any#ledger', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
+    unclassified > 0 && { href: '/cash-out?show=no-category#ledger', text: `${money2(unclassified)} not yet categorised` },
   ].filter(Boolean) as { href: string; text: string }[]
 
-  // ---- latest receipts, grouped by day ------------------------------------------
-  const sorted = [...cur].sort((a, b) =>
-    dateOf(b).localeCompare(dateOf(a)) || b.created_at.localeCompare(a.created_at))
-  const SHOW = 8
-  const groupByDay = (rs: Rec[]) => {
-    const g: { day: string; rows: Rec[] }[] = []
-    for (const r of rs) {
-      const d = dateOf(r)
-      const last = g.at(-1)
-      if (last && last.day === d) last.rows.push(r)
-      else g.push({ day: d, rows: [r] })
-    }
-    return g
-  }
+  // The eight-and-fold day list that used to live here is gone: <Ledger/>
+  // below holds every month, nested, with the problem filters on it.
 
   // ---- per-unit prices: ALL time (price history is the point) -------------------
   type Price = {
@@ -296,106 +288,31 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   })()
   const activeNotes = ruleGroups.reduce((t, g) => t + g.notes.filter(n => n.status !== 'off').length, 0)
 
-  // ---------------------------------------------------------------------------
-  // Receipts behind the "needs you" links: a total that doesn't match its lines,
-  // or money not yet put in a category. Shown OPEN at the top of the list, so the
-  // link lands on the receipt itself rather than on a list of forty.
-  const toCheck = cur.filter(r => checkNote(r) || (spendByType(r).unclassified ?? 0) > 0)
 
-  const Receipt = ({ r, open }: { r: Rec; open?: boolean }) => {
-    const items = itemsOf(r)
-    const split = r.meta?.type_split as Record<string, number> | undefined
-    const bits = [typeOf(r), items.length ? `${items.length} item${items.length === 1 ? '' : 's'}` : null, r.meta?.filed_by]
-      .filter(Boolean).join(' · ')
-    return (
-      <details className="co-rx" open={open}>
-        <summary>
-          <span className="co-rx-main">
-            <span className="co-rx-name">{merchantOf(r)}</span>
-            <span className="co-rx-sub">
-              {bits}
-              {checkNote(r) && <span className="co-flag"> · check</span>}
-            </span>
-          </span>
-          <span className="co-rx-amt num">{plain2(Number(r.amount))}</span>
-        </summary>
-        <div className="co-rx-body">
-          {items.length > 0 ? (
-            <ul className="co-lines">
-              {items.map((it, i) => (
-                <li key={i}>
-                  <span>
-                    <span className="co-dim">Line {i + 1} · </span>
-                    {it.name}
-                    <span className="co-dim">
-                      {' '}· {it.qty} {it.unit !== 'unit' ? it.unit : ''} × {plain2(it.unit_price)}
-                      {typeof it.price_per_base === 'number' && ` = ${money2(it.price_per_base)}/${it.base_unit}`}
-                    </span>
-                    {/* Every line says what it was filed as, so "line 3 should be food"
-                        can be read straight off the list (owner, 27 Sep 2026). */}
-                    {(() => {
-                      const t = it.expense_type ?? (split ? undefined : (r.meta?.expense_type as string | undefined))
-                      return t
-                        ? <span className="co-dim"> · filed as {(TYPE_LABEL[t] ?? t).toLowerCase()}</span>
-                        : <span className="co-flag"> · not categorised</span>
-                    })()}
-                  </span>
-                  <span className="num">{plain2(it.line_total)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="co-dim" style={{ margin: 0 }}>No line items on this one.</p>
-          )}
-          {split && Object.keys(split).length > 1 && (
-            <p className="co-meta">
-              Split: {Object.entries(split).sort((a, b) => b[1] - a[1])
-                .map(([t, v]) => `${TYPE_LABEL[t] ?? t} ${money2(v)}`).join(' · ')}
-            </p>
-          )}
-          {typeof r.meta?.tax === 'number' && r.meta.tax > 0 && <p className="co-meta">Tax {money2(r.meta.tax)}</p>}
-          {checkNote(r) && <p className="co-meta co-flag">{checkNote(r)}</p>}
-          {typeof r.meta?.discount === 'number' && r.meta.discount > 0 && <p className="co-meta">Discount {money2(r.meta.discount)}</p>}
-          {/* One place to fix any receipt: its photo and every line, with the
-              stock it adds shown as you type (owner, 27 Sep 2026). */}
-          <div className="co-meta co-rx-actions">
-            <Link href={`/cash-out/${r.id}`} className={open ? 'btn' : ''} style={open ? { display: 'inline-block', textDecoration: 'none' } : undefined}>
-              ✏️ Correct this receipt
-            </Link>
-            {/* Right as filed: one tap takes it off To check (owner, 27 Sep 2026). */}
-            {open && (
-              <form action={markCorrect} className="co-rx-ok">
-                <input type="hidden" name="id" value={r.id} />
-                {/* No lines and no category (a typed total): pick it here, same tap. */}
-                {items.length === 0 && !r.meta?.expense_type && (
-                  <select name="type" required defaultValue="" aria-label={`Category for receipt ${r.id}`}>
-                    <option value="" disabled>Filed as…</option>
-                    {Object.entries(TYPE_LABEL).filter(([k]) => k !== 'unclassified').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                )}
-                <button className="btn ghost">✓ It&rsquo;s correct</button>
-              </form>
-            )}
-          </div>
-          <p className="co-meta">
-            {shortDate(dateOf(r))}
-            {r.meta?.receipt_no ? ` · #${r.meta.receipt_no}` : ''}
-            {r.meta?.auto_filed ? ' · filed automatically' : ''}
-          </p>
-        </div>
-      </details>
-    )
-  }
-
-  const Day = ({ g }: { g: { day: string; rows: Rec[] } }) => (
-    <div className="co-day">
-      <div className="eyebrow co-day-label">
-        <span>{dayLabel(g.day, today)}</span>
-        <span className="num">{plain2(g.rows.reduce((t, r) => t + Number(r.amount || 0), 0))}</span>
-      </div>
-      {g.rows.map(r => <Receipt key={r.id} r={r} />)}
-    </div>
-  )
+  // Everything, all months, filtered and opened in the browser. 213 receipts of
+  // summary is a small payload and it buys instant filtering with no navigation.
+  const allOut = await recordsBetween('cash_out', '2000-01-01', addDays(today, 1))
+  const photoed = await recordsWithPhotos(allOut.map(r => r.id))
+  const ledgerRows: LedgerRow[] = allOut.map(r => {
+    const p = problemOf(r, photoed.has(r.id))
+    const items: any[] = Array.isArray(r.meta?.items) ? r.meta.items : []
+    return {
+      id: r.id,
+      day: dayOf(r),
+      merchant: merchantOf(r),
+      amount: Number(r.amount) || 0,
+      type: typeOf(r),
+      filedBy: r.meta?.filed_by ? String(r.meta.filed_by) : null,
+      lines: items.slice(0, 40).map(it => ({
+        name: String(it?.name ?? ''),
+        qty: Number(it?.qty) || 0,
+        unit: String(it?.unit ?? ''),
+        total: Number(it?.line_total) || 0,
+        type: String(it?.expense_type ?? ''),
+      })),
+      problem: p ? { kind: p.kind, says: p.says, detail: p.detail } : null,
+    }
+  })
 
   return (
     <div className="co">
@@ -534,24 +451,6 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           </p>
         )}
 
-        {toCheck.length > 0 && (
-          <div className="co-day" id="to-check">
-            <div className="eyebrow co-day-label co-flag"><span>To check</span></div>
-            {toCheck.map(r => <Receipt key={'chk-' + r.id} r={r} open />)}
-            <p className="co-meta">
-              Tap &ldquo;Correct this receipt&rdquo; to fix it against the photo, or &ldquo;It&rsquo;s correct&rdquo;
-              if it&rsquo;s right as filed. From Jarvis, say
-              &ldquo;I&rsquo;ll fix #174 in the app&rdquo; to park one here. Fixed ones leave this list
-              and are kept in <Link href="/cash-out/corrected">Corrected receipts</Link>.
-            </p>
-          </div>
-        )}
-        {toCheck.length === 0 && (
-          <p className="co-meta">
-            Nothing to check. <Link href="/cash-out/corrected">Corrected receipts</Link>
-          </p>
-        )}
-
         {waiting.length > 0 && (
           <div className="co-day">
             <div className="eyebrow co-day-label co-flag"><span>Waiting for you</span></div>
@@ -560,7 +459,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
                 <span className="co-rx-main">
                   <span className="co-rx-name">{displayMerchant(String(a.payload?.merchant || 'Receipt'))}</span>
                   <span className="co-rx-sub co-flag">
-                    {a.payload?.payment_proof ? 'E-wallet payment' : 'Needs your approval'} · tap to decide
+                    {a.payload?.payment_proof ? 'E-wallet payment' : 'Needs your approval'} \u00b7 tap to decide
                   </span>
                 </span>
                 <span className="co-rx-amt num">{plain2(Number(a.payload?.amount || 0))}</span>
@@ -569,22 +468,11 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
           </div>
         )}
 
-        {sorted.length === 0 && waiting.length === 0 ? (
-          <p className="co-sub">
-            No receipts in {W.label} yet. Photograph one into Telegram and Jarvis files it here, line by line.
-          </p>
-        ) : (
-          <>
-            {groupByDay(sorted.slice(0, SHOW)).map(g => <Day key={g.day} g={g} />)}
-            {sorted.length > SHOW && (
-              <details className="co-more">
-                <summary>Show {sorted.length - SHOW} more</summary>
-                {/* Re-group the remainder so a day split across the fold still reads as one day. */}
-                {groupByDay(sorted.slice(SHOW)).map(g => <Day key={'more-' + g.day} g={g} />)}
-              </details>
-            )}
-          </>
-        )}
+        {/* EVERY receipt, every month, nested and filtered without navigating.
+            This replaces three things: the "to check" block that inherited this
+            page's month window, the eight-and-fold list, and the two separate
+            tabs I should never have built (owner, 6 Oct 2026). */}
+        <Ledger rows={ledgerRows} today={today} initialFilter={show} />
       </section>
 
       <p className="co-meta" style={{ marginTop: 10 }}>

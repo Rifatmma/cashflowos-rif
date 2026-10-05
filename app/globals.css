@@ -927,3 +927,101 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .cnt-by { margin-top: 24px; }
 .cnt-foot { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 @media (min-width: 560px) { .cnt-fields { grid-template-columns: 1fr 1fr; } }
+
+/* ============================================================
+   THE CASH OUT ACCORDION  (app/cash-out/Ledger.tsx)
+   month -> day -> receipt, nested on the page the owner already uses.
+   Filters and accordions are local state: nothing navigates, nothing
+   re-renders the route, the scroll never jumps (owner, 6 Oct 2026).
+   ============================================================ */
+
+.lg { margin-top: 18px; }
+
+.lg-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.lg-chip {
+  font: inherit; font-size: 13px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; min-height: 40px;
+  border: .8px solid var(--line-2); border-radius: 999px;
+  background: transparent; color: var(--ink-soft);
+}
+.lg-chip:hover:not(:disabled) { border-color: var(--clay-deep); color: var(--ink); }
+.lg-chip.is-on { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.lg-chip:disabled { opacity: .38; cursor: default; }
+.lg-n { font-family: var(--font-mono); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.lg-chip.is-on .lg-n { color: var(--paper); }
+
+.lg-empty { padding: 32px 4px; color: var(--ink-faint); font-size: 14px; }
+
+/* Headings: a row of text and a figure, divided by a rule. Not a card. */
+.lg-head {
+  display: grid; grid-template-columns: 18px 1fr auto; align-items: baseline;
+  gap: 10px; width: 100%; text-align: left; cursor: pointer;
+  font: inherit; background: none; border: 0; border-top: 1px solid var(--line);
+  padding: 13px 2px; min-height: 52px;
+}
+.lg-head:hover { background: var(--paper-2); }
+.lg-caret { color: var(--ink-faint); font-size: 11px; line-height: 1.6; }
+.lg-title { overflow-wrap: anywhere; }
+.lg-sum {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 13px; color: var(--ink-faint); white-space: nowrap;
+}
+
+.lg-m-head { border-top-width: 1.5px; border-top-color: var(--line-2); }
+.lg-m-head .lg-title { font-family: var(--font-serif), var(--font-sans), serif; font-size: 19px; font-weight: 600; }
+.lg-d-head { padding-left: 14px; }
+.lg-d-head .lg-title { font-size: 14px; font-weight: 500; }
+.lg-flag {
+  font-style: normal; margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  background: var(--bad-tint); color: var(--bad); font-size: 11px;
+}
+
+.lg-rows { list-style: none; margin: 0; padding: 0; }
+.lg-row { border-top: 1px solid var(--line); }
+.lg-row.has-problem { border-left: 3px solid var(--bad); }
+.lg-r-head {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 12px; width: 100%;
+  text-align: left; font: inherit; background: none; border: 0; cursor: pointer;
+  padding: 12px 2px 12px 26px; min-height: 52px;
+}
+.lg-row.has-problem .lg-r-head { padding-left: 23px; }
+.lg-r-head:hover { background: var(--paper-2); }
+.lg-name { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
+.lg-amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; text-align: right; white-space: nowrap; }
+.lg-meta { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-faint); margin-top: 2px; }
+.lg-problem { grid-column: 1 / -1; font-size: 12.5px; color: var(--bad); margin-top: 3px; }
+
+.lg-detail { padding: 4px 2px 18px 26px; }
+.lg-why { margin: 0 0 12px; font-size: 13px; color: var(--bad); }
+.lg-lines { width: 100%; margin-bottom: 14px; }
+.lg-lines td { padding: 6px 8px 6px 0; border-bottom: .8px solid var(--line); font-size: 13.5px; }
+.lg-lines td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.lg-fix { display: inline-block; }
+
+/* The save confirmation, now that saving stays on the page. */
+.cr-saved {
+  margin: 0 0 16px; padding: 16px 18px; border-radius: 12px;
+  background: var(--clay-tint); border-left: 3px solid var(--clay);
+}
+.cr-saved-what { margin: 0; font-size: 14px; line-height: 1.55; }
+.cr-next {
+  display: block; margin-top: 14px; padding: 12px 14px; min-height: 52px;
+  background: var(--card); border: .8px solid var(--line-2); border-radius: 10px;
+  text-decoration: none; color: inherit;
+}
+.cr-next:hover { border-color: var(--clay-deep); }
+.cr-next-lead { display: block; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-faint); }
+.cr-next-who { display: block; font-size: 14.5px; font-weight: 500; margin-top: 3px; }
+.cr-next-why { display: block; font-size: 12.5px; color: var(--bad); margin-top: 2px; }
+
+/* Open-it and attach-proof, side by side under an opened receipt. */
+.lg-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.lg-acts .att-photo { margin: 0; }
+.lg-acts .att-ok { margin: 0; }
+
+/* "September 2026" wrapped to two lines at 375px, costing a row on every month. */
+@media (max-width: 420px) {
+  .lg-m-head .lg-title { font-size: 17px; }
+  .lg-sum { font-size: 12.5px; }
+}

@@ -16,13 +16,17 @@
 // Every save keeps the old lines in meta.prev_items, re-derives the per-type
 // split, and redoes this receipt's stock-in from the saved lines.
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { sanitiseItems, splitByType, EXPENSE_TYPES } from '@/lib/vision'
 import { receiptStockIn } from '@/lib/stock-data'
+import { needsAttention, dayOf } from '@/lib/ledger'
+import { recordsWithPhotos } from '@/lib/receipt-photo'
+import { problemOf, merchantOf } from '@/lib/receipt-view'
 import { ITEM, unitsFor, packUnitsFor, NOT_STOCK_ITEM, WHOLE_BIRD_ITEM, type StockChoice } from '@/lib/stock-items'
 
-export type CorrectResult = { ok: boolean; message: string; stock?: string[] } | null
+export type CorrectNext = { id: number; merchant: string; amount: number; day: string; says: string }
+export type CorrectResult =
+  { ok: boolean; message: string; stock?: string[]; next?: CorrectNext | null } | null
 
 export type LineIn = {
   name: string; qty: number; unit: string; unit_price: number; line_total: number
@@ -61,7 +65,11 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     const { error } = await supabase.from('records').update({ meta }).eq('id', id).eq('category', 'cash_out')
     if (error) return { ok: false, message: error.message }
     revalidatePath('/cash-out'); revalidatePath(`/cash-out/${id}`); revalidatePath('/')
-    redirect(`/cash-out?saved=${id}&msg=${encodeURIComponent('Category set; no lines on this one.')}`)
+    // Stays on the page like every other save does — see the note further down.
+    return {
+      ok: true, message: 'Category set; no lines on this one.', stock: [],
+      next: await nextNeedingALook(id),
+    }
   }
 
   for (const [n, l] of lines.entries()) {
@@ -169,8 +177,45 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
       : mode === 'total' ? `Total corrected to RM ${amount.toFixed(2)}.`
       : discount || s.reconciles ? 'It adds up now.'
       : `The lines (RM ${linesTotal.toFixed(2)}) still don’t match the total (RM ${amount.toFixed(2)}), so it stays on To check.`
-  // Done here: back to the list, which says what happened (owner, 27 Sep 2026:
-  // staying on the page with the old warning showing looked like it failed).
+  // STAY HERE. This used to redirect to /cash-out, which threw the owner back
+  // to the current month: he corrected a September receipt and landed in
+  // October, with seven more September bills to find again by hand. "That is not
+  // feasible for me at all."
+  //
+  // The original reason for leaving was sound -- staying on the page with the
+  // old warning still showing looked like the save had failed (27 Sep 2026). So
+  // the page stays AND says plainly what was saved, and offers the next receipt
+  // that needs a look so a backlog is one flow instead of eight round trips
+  // (owner, 6 Oct 2026).
   const msg = `${lead}${stock.length ? ` Stock: ${stock.join(', ')}.` : ''}`
-  redirect(`/cash-out?saved=${id}&msg=${encodeURIComponent(msg.slice(0, 400))}`)
+  return { ok: true, message: msg, stock, next: await nextNeedingALook(id) }
+}
+
+/**
+ * The next receipt with something wrong with it, oldest first.
+ *
+ * Oldest first on purpose: a bill from three weeks ago is the one whose details
+ * are hardest to remember, so it is the one worth doing while there is still a
+ * chance of knowing the answer.
+ */
+async function nextNeedingALook(after: number): Promise<CorrectNext | null> {
+  try {
+    const rows = await needsAttention()
+    if (!rows.length) return null
+    const photoed = await recordsWithPhotos(rows.map(r => r.id))
+    const open = rows
+      .filter(r => r.id !== after)
+      .map(r => ({ r, p: problemOf(r, photoed.has(r.id)) }))
+      .filter(x => x.p !== null)
+      .sort((a, b) => dayOf(a.r).localeCompare(dayOf(b.r)))
+    const first = open[0]
+    if (!first) return null
+    return {
+      id: first.r.id,
+      merchant: merchantOf(first.r),
+      amount: Number(first.r.amount) || 0,
+      day: dayOf(first.r),
+      says: first.p!.says,
+    }
+  } catch { return null }
 }

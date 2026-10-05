@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+
 // Every line of one receipt, editable, with what it puts on the shelf shown as
 // you type -- so "2 packs of chicken, 4 kg" is checked against the Stock page
 // before it is saved, not at the weekly count.
@@ -40,6 +42,11 @@ const TYPES: [string, string][] = [
 ]
 const f2 = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const clean = (n: number) => String(Math.round(n * 10000) / 10000)
+// "2026-09-30" is a key, not a date. Nobody reads a backlog in ISO.
+const dayWords = (iso: string) =>
+  new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB',
+    { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+
 const num = (s: string) => { const n = Number(String(s).replace(/,/g, '').trim()); return s.trim() === '' || !Number.isFinite(n) ? null : n }
 
 function toDraft(l: Line): Draft {
@@ -88,7 +95,15 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
   // A refused save is shown at the TOP and scrolled to: at the bottom of a long
   // receipt it went unseen and Save looked like it did nothing (27 Sep 2026).
   const errRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (res && !res.ok) errRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, [res])
+  const okRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (res && !res.ok) errRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // A SUCCESS IS SCROLLED TO AS WELL. The save used to navigate away, which
+    // was its own proof that something happened. Now that it stays put, the
+    // confirmation has to find the reader, or saving at the bottom of a long
+    // receipt looks exactly like saving having failed (owner, 6 Oct 2026).
+    if (res?.ok) okRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [res])
   const [receiptType, setReceiptType] = useState(receiptTypeInit)
   const [drafts, setDrafts] = useState<Draft[]>(() => lines.map(toDraft))
 
@@ -137,6 +152,26 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
     <form action={run} className="cr">
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="lines" value={payload} />
+      {res?.ok && (
+        <div ref={okRef} className="cr-saved" role="status">
+          <p className="cr-saved-what"><b>Saved.</b> {res.message}</p>
+          {res.next ? (
+            <Link className="cr-next" href={`/cash-out/${res.next.id}`}>
+              <span className="cr-next-lead">Next one that needs a look</span>
+              <span className="cr-next-who">
+                {res.next.merchant} · <span className="num">RM {res.next.amount.toFixed(2)}</span> · {dayWords(res.next.day)}
+              </span>
+              <span className="cr-next-why">{res.next.says}</span>
+            </Link>
+          ) : (
+            <p className="cr-saved-what">That was the last one needing a look. Nothing else is waiting.</p>
+          )}
+          <p className="co-meta" style={{ marginTop: 10 }}>
+            {/* Back to the list he was working, not to this month. */}
+            <Link href="/cash-out?show=any">Back to everything that needs a look</Link>
+          </p>
+        </div>
+      )}
       {res && !res.ok && <div ref={errRef} className="cr-error" role="alert">⚠️ {res.message}</div>}
       {drafts.length === 0 && (
         <label className="cr-field cr-wide">

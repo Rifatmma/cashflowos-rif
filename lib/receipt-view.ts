@@ -145,8 +145,14 @@ export function problemOf(r: Rec, hasPhoto: boolean): Problem | null {
   if (m.fixed_note) return null
 
   if (m.items_note) {
-    const text = String(m.items_note)
-    return { kind: 'wont-add-up', rank: 3, says: 'needs a look', detail: text }
+    const text = String(m.items_note).replace(/\s+/g, ' ').trim()
+    // The margin phrase has to carry information. "Needs a look" only repeats
+    // the filter it sits under, and splitting on a full stop cuts a note in
+    // half at the decimal point of a ringgit figure — so clip on a word.
+    const says = text.length <= 60
+      ? text
+      : text.slice(0, text.lastIndexOf(' ', 57)) + '…'
+    return { kind: 'wont-add-up', rank: 3, says, detail: text }
   }
 
   const items: any[] = Array.isArray(m.items) ? m.items : []
