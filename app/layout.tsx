@@ -1,12 +1,16 @@
 import './globals.css'
 import type { Metadata, Viewport } from 'next'
-import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
+import { IBM_Plex_Sans, IBM_Plex_Mono, IBM_Plex_Serif } from 'next/font/google'
 
 // Jaosamut brand type (guideline section 06). next/font downloads these at
 // BUILD time and serves them from this site, so no page load calls Google.
-// Two faces only -- the guideline's own limit.
+// THREE faces now, not two. The serif is the single cheapest thing that stops
+// the app reading as generated: a page where every heading and every figure is
+// the same sans has no register. Same vendor, same build-time download, no page
+// load calls Google (owner, 5 Oct 2026).
 const plexSans = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-sans', display: 'swap' })
 const plexMono = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500'], variable: '--font-mono', display: 'swap' })
+const plexSerif = IBM_Plex_Serif({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-serif', display: 'swap' })
 import Nav from './_components/Nav'
 import BottomNav from './_components/BottomNav'
 import ConnStatus from './_components/ConnStatus'
@@ -49,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const guest = await currentGuest()
   if (guest) {
     return (
-      <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+      <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}>
         <body>
           <main className="main">{children}</main>
         </body>
@@ -59,7 +63,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   const pending = await getPendingCount()
   return (
-    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}>
       <body>
         <div className="app">
           {/* Desktop sidebar — hidden on phones (BottomNav takes over ≤768px). */}

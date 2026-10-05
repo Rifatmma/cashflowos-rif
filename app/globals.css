@@ -762,3 +762,72 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
 .cr-error { font-size: 13px; line-height: 1.5; color: var(--bad); background: var(--mid-tint); border: 1px solid var(--bad); border-radius: 10px; padding: 8px 10px; margin: 10px 0 0; }
 .co-rx-ok { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .co-rx-ok select { font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line-2); border-radius: 10px; padding: 6px 8px; min-height: 38px; }
+
+/* ============================================================
+   THE LEDGER  (app/cash-out/day)
+   Rules on paper, not stacked cards. Figures in mono, right-aligned,
+   tabular — a column of amounts that lines up is what makes a page read
+   as accounts rather than as a dashboard (owner, 5 Oct 2026).
+   ============================================================ */
+
+.led-step { display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; gap: 8px; margin: 4px 0 2px; }
+.led-arrow {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 44px; font-size: 26px; line-height: 1; text-decoration: none;
+  color: var(--clay-deep); border-radius: var(--r-8);
+}
+.led-arrow:hover { background: var(--clay-tint); }
+.led-arrow.is-off { color: var(--line-2); }
+
+/* The date reads as a heading and behaves as a picker. */
+.led-date { position: relative; display: block; text-align: center; }
+.led-date button {
+  font: inherit; font-family: var(--font-serif), var(--font-sans), serif;
+  font-size: 20px; font-weight: 600; line-height: 1.25;
+  background: none; border: 0; padding: 8px 4px; color: var(--ink); cursor: pointer;
+  border-bottom: 1px dashed var(--line-2); border-radius: 0;
+}
+.led-date button:hover { border-bottom-color: var(--clay-deep); }
+.led-date input[type="date"] {
+  position: absolute; inset: auto 0 0 0; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none; border: 0; padding: 0;
+}
+
+.led-total { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 0; }
+.led-total b {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 32px; font-weight: 500; letter-spacing: -.01em;
+}
+.led-total span { font-size: 13px; color: var(--ink-faint); }
+.led-note { margin: 6px 0 0; font-size: 13px; color: var(--ink-faint); }
+
+.led { list-style: none; margin: 24px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.led-row { border-bottom: 1px solid var(--line); }
+.led-row > a {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 12px;
+  padding: 12px 4px 12px 12px; min-height: 52px; align-content: center;
+  text-decoration: none; color: inherit; border-left: 3px solid transparent;
+}
+.led-row > a:hover { background: var(--paper-2); }
+.led-row.has-problem > a { border-left-color: var(--bad); }
+
+.led-name { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
+.led-amount {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 15px; text-align: right; white-space: nowrap;
+}
+.led-meta { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-faint); margin-top: 2px; }
+.led-problem { grid-column: 1 / -1; font-size: 12.5px; color: var(--bad); margin-top: 3px; }
+
+.led-empty { padding: 40px 12px; color: var(--ink-faint); font-size: 14px; }
+.led-empty p { margin: 0 0 10px; }
+.led-foot { margin-top: 28px; font-size: 13px; color: var(--ink-faint); }
+
+/* The day heading hangs into the left margin on a wide screen, so the column
+   of figures is never interrupted. Deliberate asymmetry; nothing machine-made
+   is ever asymmetric. */
+@media (min-width: 900px) {
+  .led-step { grid-template-columns: 44px auto 44px; justify-content: start; margin-left: -24px; }
+  .led-date { text-align: left; }
+  .led-date button { font-size: 24px; }
+}

@@ -30,13 +30,33 @@ export async function getRecords(): Promise<Rec[]> {
   // or unreachable URL otherwise hangs ~7s per request before failing. The
   // ConnStatus banner tells the user to add their keys. (Found in the live run.)
   if (!supabaseConfigured) return []
-  const { data, error } = await supabase
-    .from('records')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) console.warn('[CFO] could not read records:', error.message)
+
+  // PAGED, BECAUSE AN UNBOUNDED SELECT IS SILENTLY CAPPED.
+  //
+  // PostgREST stops at 1,000 rows by default and says nothing. Ordered newest
+  // first, that means the OLDEST rows disappear from every tab at once — no
+  // error, no empty state, just history quietly gone. At ~200 records a month
+  // this table reaches that ceiling around February 2027.
+  //
+  // The money screens should use lib/ledger.ts, which filters in the database.
+  // This loop is the safety net for every other tab that still reads the whole
+  // table (owner, 5 Oct 2026).
+  const PAGE = 1000
+  const MAX = 20_000
+  const out: any[] = []
+  for (let at = 0; at < MAX; at += PAGE) {
+    const { data, error } = await supabase
+      .from('records')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(at, at + PAGE - 1)
+    if (error) { console.warn('[CFO] could not read records:', error.message); break }
+    out.push(...(data ?? []))
+    if (!data || data.length < PAGE) break
+    if (at + PAGE >= MAX) console.warn('[CFO] records: hit the 20,000 row ceiling')
+  }
   // Default meta to {} so a row added before the meta column existed never crashes a tab.
-  return (data ?? []).map(r => ({ ...r, meta: r.meta ?? {} })) as Rec[]
+  return out.map(r => ({ ...r, meta: r.meta ?? {} })) as Rec[]
 }
 
 // Read one field out of a record's meta bag, with a dash fallback for display.
