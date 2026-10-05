@@ -218,8 +218,8 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   const unreadable = cur.filter(r => checkNote(r)).length
   const needs = [
     waiting.length && { href: '/approvals', text: `${waiting.length} waiting for approval` },
-    unreadable && { href: '#to-check', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
-    unclassified > 0 && { href: '#to-check', text: `${money2(unclassified)} not yet categorised` },
+    unreadable && { href: '/cash-out/attention', text: `${unreadable} receipt${unreadable === 1 ? '' : 's'} to check` },
+    unclassified > 0 && { href: '/cash-out/attention', text: `${money2(unclassified)} not yet categorised` },
   ].filter(Boolean) as { href: string; text: string }[]
 
   // ---- latest receipts, grouped by day ------------------------------------------
