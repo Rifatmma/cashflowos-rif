@@ -5,6 +5,8 @@ import { getActions } from '@/lib/mw-actions'
 import { ActionList } from '../_actions-ui'
 import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
 import { MonthPicker, MonthOverMonth } from '../_month-picker'
+import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
+import { AuctionBand, AuctionTable, AuctionActions } from '../_auction-ui'
 
 // 👉 Moving Walls → Paid search. Google Ads: what it cost and what it returned.
 
@@ -42,6 +44,19 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
   const maxBpk = Math.max(...conc.map(c => c.bpk), 0.1)
   const maxCvr = Math.max(...conc.map(c => c.cvr), 0.1)
   const perDay = d.meta.daysDone ? k.spend / d.meta.daysDone : 0
+
+  // The auction. Google reports our own impression share and splits every
+  // missed auction into budget and rank, which need opposite responses.
+  const shareRows: ShareRow[] = ((d.sem as any).ishare ?? []).map((r: any) => ({
+    name: String(r.n), status: r.st, impressions: Number(r.impr) || 0, clicks: Number(r.clicks) || 0,
+    is: r.is ?? null, lostBudget: r.lostBudget ?? null, lostRank: r.lostRank ?? null,
+    top: r.top ?? null, absTop: r.absTop ?? null, exact: r.exact ?? null,
+  }))
+  const sharePrev = ((d.sem as any).isharePrev ?? []).map((r: any) => ({
+    name: String(r.n), is: r.is ?? null, lostBudget: r.lostBudget ?? null, lostRank: r.lostRank ?? null,
+  }))
+  const verdicts = auctionReport(shareRows, sharePrev)
+  const auction = summariseAuction(shareRows)
 
   return (
     <div className="mw-wrap">
@@ -83,6 +98,31 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
             }}
           />
         </Section>
+      )}
+
+      {verdicts.length > 0 && (
+        <>
+          <Section title="The auction: where we show and where we don't"
+            sub="Every impression we missed had one of two causes, and they need opposite responses.">
+            <AuctionBand s={auction} />
+            <div style={{ marginTop: 16 }}>
+              <AuctionTable rows={verdicts} />
+            </div>
+          </Section>
+
+          <Section title="What to change"
+            sub="Worst first. Open one for the numbers behind it.">
+            <AuctionActions rows={verdicts} />
+            <p className="lede" style={{ marginTop: 14 }}>
+              <b>On competitors by name.</b> Google's own Auction Insights report — which rivals
+              you overlap with, and how often they outrank you — exists only in the Google Ads
+              interface. It is not in the API: asking for <code>auction_insight_domain</code> returns
+              "unrecognized field". Everything above is our own side of the same auctions, which is
+              where the levers are. If you export Auction Insights to CSV, it can be imported and
+              shown here beside this.
+            </p>
+          </Section>
+        </>
       )}
 
       <Section title="Targets & pacing"

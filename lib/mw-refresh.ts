@@ -44,7 +44,8 @@ const GA4 = (() => {
 type Row = Record<string, any>
 type Pull = {
   err?: string[]
-  ads?: { cur: Row[]; prev: Row[]; daily: Row[]; kw: Row[]; budgets: Row[]; devices: Row[]; schedules: Row[] }
+  ads?: { cur: Row[]; prev: Row[]; daily: Row[]; kw: Row[]; budgets: Row[]; devices: Row[]; schedules: Row[]
+           ishare?: Row[]; isharePrev?: Row[] }
   ga4?: { cur: Row[]; prev: Row[]; daily: Row[] }
   span?: Record<string, any>
 }
@@ -98,6 +99,23 @@ daily = gaql("SELECT segments.date, metrics.cost_micros, metrics.conversions FRO
 kw = gaql("SELECT campaign.name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, "
           "ad_group_criterion.status, metrics.cost_micros, metrics.conversions, metrics.clicks "
           "FROM keyword_view WHERE " + (DATES % (CUR_S, CUR_E)))
+# WHY WE DO NOT SHOW. Impression share splits every missed auction into two
+# causes that need opposite responses: lost to BUDGET means the money ran out
+# before the day did, lost to RANK means we were outbid or outranked on
+# quality. One is a finance decision, the other a campaign one, and the single
+# "impression share" number hides which (owner, 5 Oct 2026).
+#
+# Competitor DOMAINS are deliberately absent: auction_insight_domain is not a
+# field in the Google Ads API (v23 answers UNRECOGNIZED_FIELD). That report
+# exists only in the Google Ads UI, so naming rivals needs a CSV export.
+ISHARE = ("SELECT campaign.name, campaign.status, metrics.impressions, metrics.clicks, "
+          "metrics.search_impression_share, metrics.search_budget_lost_impression_share, "
+          "metrics.search_rank_lost_impression_share, metrics.search_top_impression_share, "
+          "metrics.search_absolute_top_impression_share, metrics.search_exact_match_impression_share "
+          "FROM campaign WHERE metrics.impressions > 0 AND ")
+ishare      = gaql(ISHARE + (DATES % (CUR_S, CUR_E)))
+ishare_prev = gaql(ISHARE + (DATES % (PREV_S, PREV_E)))
+
 budgets   = gaql("SELECT campaign.name, campaign.status, campaign_budget.amount_micros FROM campaign")
 devices   = gaql("SELECT campaign.name, campaign_criterion.device.type, campaign_criterion.bid_modifier "
                  "FROM campaign_criterion WHERE campaign_criterion.type = 'DEVICE'")
@@ -151,6 +169,19 @@ OUT = {'err': ERR,
                        'st': g(r,'adGroupCriterion','status') or g(r,'ad_group_criterion','status'),
                        'cost': micros(r), 'conv': float(g(r,'metrics','conversions') or 0),
                        'clicks': float(g(r,'metrics','clicks') or 0)} for r in kw],
+               'ishare': [{'n': g(r,'campaign','name'), 'st': g(r,'campaign','status'),
+                           'impr': float(g(r,'metrics','impressions') or 0),
+                           'clicks': float(g(r,'metrics','clicks') or 0),
+                           'is': g(r,'metrics','searchImpressionShare'),
+                           'lostBudget': g(r,'metrics','searchBudgetLostImpressionShare'),
+                           'lostRank': g(r,'metrics','searchRankLostImpressionShare'),
+                           'top': g(r,'metrics','searchTopImpressionShare'),
+                           'absTop': g(r,'metrics','searchAbsoluteTopImpressionShare'),
+                           'exact': g(r,'metrics','searchExactMatchImpressionShare')} for r in ishare],
+               'isharePrev': [{'n': g(r,'campaign','name'),
+                               'is': g(r,'metrics','searchImpressionShare'),
+                               'lostBudget': g(r,'metrics','searchBudgetLostImpressionShare'),
+                               'lostRank': g(r,'metrics','searchRankLostImpressionShare')} for r in ishare_prev],
                'budgets': [{'n': g(r,'campaign','name'), 'st': g(r,'campaign','status'),
                             'b': float(g(r,'campaignBudget','amountMicros') or g(r,'campaign_budget','amount_micros') or 0)/1e6}
                            for r in budgets],
@@ -364,6 +395,11 @@ export async function refreshMw(): Promise<{ ok: boolean; message: string }> {
         dClicks: vs(delta(clicks, pClicks)), dCpc: vs(delta(cpc, pCpc)), dCvr: vs(delta(cvr, pCvr)),
       },
       daily,
+      // Impression share: our own side of every auction. Carried from the
+      // previous snapshot when a pull returns nothing, so a bad morning at
+      // Google does not read as "we stopped competing".
+      ishare: (ads?.ishare ?? []).length ? ads!.ishare : (prev.sem as any).ishare,
+      isharePrev: (ads?.isharePrev ?? []).length ? ads!.isharePrev : (prev.sem as any).isharePrev,
       concentration: concentration.length ? concentration : prev.sem.concentration,
       campaigns: campaigns.length ? campaigns : prev.sem.campaigns,
       benchmark: prev.sem.benchmark,              // carried — editorial

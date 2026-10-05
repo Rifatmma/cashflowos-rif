@@ -17,6 +17,13 @@ export type MwData = {
     prevLabel: string
   }
   sem: {
+    /** Impression share per campaign — our own side of the auction. */
+    ishare?: Array<{
+      n: string; st?: string | null; impr: number; clicks: number
+      is: number | null; lostBudget: number | null; lostRank: number | null
+      top: number | null; absTop: number | null; exact: number | null
+    }>
+    isharePrev?: Array<{ n: string; is: number | null; lostBudget: number | null; lostRank: number | null }>
     kpi: { spend: number; leads: number; cpl: number; clicks: number; cpc: number; cvr: number; live: number } & Kpi
     daily: { labels: string[]; cost: number[]; leads: number[]; cum: number[] }
     concentration: { c: string; bpk: number; cvr: number; broad: boolean; live: boolean }[]
