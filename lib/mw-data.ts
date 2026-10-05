@@ -24,6 +24,15 @@ export type MwData = {
       top: number | null; absTop: number | null; exact: number | null
     }>
     isharePrev?: Array<{ n: string; is: number | null; lostBudget: number | null; lostRank: number | null }>
+    /** Keyword rows with Google's quality score and its three parts. */
+    keywords?: Array<{
+      c: string; ag?: string | null; agid?: string | null
+      k: string; mt?: string | null; st?: string | null
+      qs?: number | null; qAd?: string | null; qPage?: string | null; qCtr?: string | null
+      cost: number; conv: number; clicks: number; impr?: number; ctr?: number
+    }>
+    /** Ad group id to the page its ads send clicks to. */
+    adUrls?: Array<{ ag: string | null; u: string | null }>
     kpi: { spend: number; leads: number; cpl: number; clicks: number; cpc: number; cvr: number; live: number } & Kpi
     daily: { labels: string[]; cost: number[]; leads: number[]; cum: number[] }
     concentration: { c: string; bpk: number; cvr: number; broad: boolean; live: boolean }[]

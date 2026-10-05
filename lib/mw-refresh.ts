@@ -45,7 +45,7 @@ type Row = Record<string, any>
 type Pull = {
   err?: string[]
   ads?: { cur: Row[]; prev: Row[]; daily: Row[]; kw: Row[]; budgets: Row[]; devices: Row[]; schedules: Row[]
-           ishare?: Row[]; isharePrev?: Row[] }
+           ishare?: Row[]; isharePrev?: Row[]; adurls?: Row[] }
   ga4?: { cur: Row[]; prev: Row[]; daily: Row[] }
   span?: Record<string, any>
 }
@@ -96,9 +96,26 @@ cur  = gaql(PERF + (DATES % (CUR_S, CUR_E)))
 prev = gaql(PERF + (DATES % (PREV_S, PREV_E)))
 daily = gaql("SELECT segments.date, metrics.cost_micros, metrics.conversions FROM campaign WHERE "
              + (DATES % (CUR_S, CUR_E)))
-kw = gaql("SELECT campaign.name, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, "
-          "ad_group_criterion.status, metrics.cost_micros, metrics.conversions, metrics.clicks "
+# QUALITY SCORE, NOT JUST CONVERSIONS. A keyword with clicks and no
+# conversions is not automatically a bad keyword: Google scores it on ad
+# relevance, expected click-through and landing page experience, and if the
+# page is the weak one then pausing the keyword pauses demand we are failing
+# to serve rather than demand that is not there (owner, 5 Oct 2026).
+kw = gaql("SELECT campaign.name, ad_group.name, ad_group.id, "
+          "ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, "
+          "ad_group_criterion.status, "
+          "ad_group_criterion.quality_info.quality_score, "
+          "ad_group_criterion.quality_info.creative_quality_score, "
+          "ad_group_criterion.quality_info.post_click_quality_score, "
+          "ad_group_criterion.quality_info.search_predicted_ctr, "
+          "metrics.cost_micros, metrics.conversions, metrics.clicks, "
+          "metrics.impressions, metrics.ctr "
           "FROM keyword_view WHERE " + (DATES % (CUR_S, CUR_E)))
+
+# Where each ad group sends its clicks. Final URLs live on the AD, not the
+# keyword, so a keyword's landing page has to be reached through its group.
+adurls = gaql("SELECT ad_group.id, ad_group_ad.ad.final_urls FROM ad_group_ad "
+              "WHERE ad_group_ad.status != 'REMOVED' AND ad_group.status = 'ENABLED'")
 # WHY WE DO NOT SHOW. Impression share splits every missed auction into two
 # causes that need opposite responses: lost to BUDGET means the money ran out
 # before the day did, lost to RANK means we were outbid or outranked on
@@ -163,7 +180,18 @@ OUT = {'err': ERR,
        'ads': {'cur': perf(cur), 'prev': perf(prev),
                'daily': [{'d': g(r,'segments','date'), 'cost': micros(r),
                           'conv': float(g(r,'metrics','conversions') or 0)} for r in daily],
+               'adurls': [{'ag': g(r,'adGroup','id') or g(r,'ad_group','id'),
+                           'u': (g(r,'adGroupAd','ad','finalUrls') or g(r,'ad_group_ad','ad','final_urls') or [None])[0]}
+                          for r in adurls],
                'kw': [{'c': g(r,'campaign','name'),
+                       'ag': g(r,'adGroup','name') or g(r,'ad_group','name'),
+                       'agid': g(r,'adGroup','id') or g(r,'ad_group','id'),
+                       'qs': g(r,'adGroupCriterion','qualityInfo','qualityScore'),
+                       'qAd': g(r,'adGroupCriterion','qualityInfo','creativeQualityScore'),
+                       'qPage': g(r,'adGroupCriterion','qualityInfo','postClickQualityScore'),
+                       'qCtr': g(r,'adGroupCriterion','qualityInfo','searchPredictedCtr'),
+                       'impr': float(g(r,'metrics','impressions') or 0),
+                       'ctr': float(g(r,'metrics','ctr') or 0),
                        'k': g(r,'adGroupCriterion','keyword','text') or g(r,'ad_group_criterion','keyword','text'),
                        'mt': g(r,'adGroupCriterion','keyword','matchType') or g(r,'ad_group_criterion','keyword','match_type'),
                        'st': g(r,'adGroupCriterion','status') or g(r,'ad_group_criterion','status'),
@@ -400,6 +428,10 @@ export async function refreshMw(): Promise<{ ok: boolean; message: string }> {
       // Google does not read as "we stopped competing".
       ishare: (ads?.ishare ?? []).length ? ads!.ishare : (prev.sem as any).ishare,
       isharePrev: (ads?.isharePrev ?? []).length ? ads!.isharePrev : (prev.sem as any).isharePrev,
+      // Raw keyword rows with quality score, for the keyword analysis. Kept
+      // separate from `concentration`, which is a different question.
+      keywords: (ads?.kw ?? []).length ? ads!.kw : (prev.sem as any).keywords,
+      adUrls: (ads?.adurls ?? []).length ? ads!.adurls : (prev.sem as any).adUrls,
       concentration: concentration.length ? concentration : prev.sem.concentration,
       campaigns: campaigns.length ? campaigns : prev.sem.campaigns,
       benchmark: prev.sem.benchmark,              // carried — editorial

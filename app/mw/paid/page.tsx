@@ -7,6 +7,10 @@ import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
 import { MonthPicker, MonthOverMonth } from '../_month-picker'
 import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
 import { AuctionBand, AuctionTable, AuctionActions } from '../_auction-ui'
+import { analyseKeywords, summariseKeywords, pagesToFix, type KeywordRow } from '@/lib/mw-keywords'
+import { buildSection, type GeneratedSection } from '@/lib/mw-page-content'
+import { auditPage } from '@/lib/mw-pagehealth'
+import { KeywordBand, KeywordTable, KeywordActions, PageFixes } from '../_keyword-ui'
 
 // 👉 Moving Walls → Paid search. Google Ads: what it cost and what it returned.
 
@@ -56,6 +60,45 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
     name: String(r.n), is: r.is ?? null, lostBudget: r.lostBudget ?? null, lostRank: r.lostRank ?? null,
   }))
   const verdicts = auctionReport(shareRows, sharePrev)
+
+  // Keywords, judged on quality score as well as conversions.
+  const urlOf = new Map<string, string>()
+  for (const a of ((d.sem as any).adUrls ?? [])) if (a?.ag && a?.u) urlOf.set(String(a.ag), String(a.u))
+
+  const kwRows: KeywordRow[] = ((d.sem as any).keywords ?? [])
+    .filter((r: any) => r?.k)
+    .map((r: any) => ({
+      text: String(r.k), matchType: r.mt ?? null,
+      campaign: String(r.c ?? ''), adGroup: String(r.ag ?? ''),
+      cost: Number(r.cost) || 0, clicks: Number(r.clicks) || 0,
+      conversions: Number(r.conv) || 0, impressions: Number(r.impr) || 0,
+      ctr: Number(r.ctr) || 0,
+      qs: r.qs ?? null, adRelevance: r.qAd ?? null, landingPage: r.qPage ?? null, expectedCtr: r.qCtr ?? null,
+      landingUrl: r.agid ? urlOf.get(String(r.agid)) ?? null : null,
+    }))
+
+  const kwVerdicts = analyseKeywords(kwRows)
+  const kwSummary = summariseKeywords(kwVerdicts)
+  const groups = pagesToFix(kwVerdicts).slice(0, 4)
+
+  // Read the real pages. A failure is reported as "could not read", never as
+  // a page with no faults -- the difference has caught me out all week.
+  const audits: Record<string, any> = {}
+  const sections: Record<string, GeneratedSection> = {}
+  await Promise.all(groups.map(async g => {
+    let a: any = null
+    try {
+      if (/^https?:\/\//.test(g.url)) {
+        const h = await auditPage(g.url)
+        a = h.ok ? { score: h.score, title: h.title, words: h.words, faults: h.faults.slice(0, 6) } : null
+      }
+    } catch { a = null }
+    audits[g.url] = a
+    sections[g.url] = buildSection({
+      url: g.url, keywords: g.mustAnswer, cost: g.cost, clicks: g.clicks,
+      faults: a?.faults, title: a?.title, words: a?.words,
+    })
+  }))
   const auction = summariseAuction(shareRows)
 
   return (
@@ -135,6 +178,26 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
           are. If you export Auction Insights to CSV, it can be imported and shown here beside this.
         </p>
       </Section>
+
+      <Section title="Keywords: what to fix before what to cut"
+        sub="Conversions decide first. Where there are none, the quality score decides whether the fault is the keyword's or ours.">
+        <KeywordBand s={kwSummary} />
+        <div style={{ marginTop: 18 }}>
+          <KeywordTable rows={kwVerdicts.filter(v => v.verdict !== 'watch').slice(0, 25)} />
+        </div>
+      </Section>
+
+      <Section title="The keyword worklist"
+        sub="Most money at stake first. Open one to see why it is judged that way.">
+        <KeywordActions rows={kwVerdicts} />
+      </Section>
+
+      {groups.length > 0 && (
+        <Section title="The pages losing the clicks"
+          sub="Grouped by page, because the fix is a page rather than a keyword \u2014 and the section that fixes it is written out for you.">
+          <PageFixes groups={groups} sections={sections} audits={audits} />
+        </Section>
+      )}
 
       <Section title="Targets & pacing"
         sub="Set your numbers once — the gauges here and the pace line below work off them. The daily refresh never overwrites these.">
