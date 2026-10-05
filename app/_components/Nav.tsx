@@ -17,6 +17,7 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
     { href: '/cash-out/day', label: 'The day' },
     { href: '/cash-out/attention', label: 'Needs a look' },
     { href: '/stock', label: 'Stock' },
+    { href: '/stock/count', label: 'Count stock' },
   ] },
   { label: 'Pipeline', tabs: [
     { href: '/leads', label: 'Leads' },
