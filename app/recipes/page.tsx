@@ -18,7 +18,7 @@ import { Worklist, type Row } from './Worklist'
 export const dynamic = 'force-dynamic'
 
 export default async function Recipes() {
-  const [{ rows, groups, cover, days }, ingredients, items, moves] = await Promise.all([
+  const [{ rows, groups, cover, days, setAside }, ingredients, items, moves] = await Promise.all([
     buildWorklist(90), getIngredients(), getItems(), getMoves(120),
   ])
 
@@ -26,7 +26,7 @@ export default async function Recipes() {
     Object.entries(unitCosts(moves, items)).map(([k, v]) => [k, (v as any).cost ?? 0]))
 
   const list: Row[] = rows.map(r => ({
-    kind: r.kind, dish: r.dish, dish_label: r.dish_label,
+    kind: r.kind, category: r.category, dish: r.dish, dish_label: r.dish_label,
     variation_key: r.variation_key, variation_label: r.variation_label,
     sold: r.sold, revenue: r.revenue, days: r.days,
     lines: r.recipe ? r.recipe.lines : null,
@@ -46,7 +46,7 @@ export default async function Recipes() {
           say which ones change what&rsquo;s used, a dish ordered at four sugar levels counts as four
           separate recipes. It takes about fifteen minutes and it shrinks this list.
           <p style={{ marginTop: 10 }}>
-            <Link className="btn" href="/recipes/variations">Decide the choices</Link>
+            <Link className="btn" href="/recipes/variations">Decide what needs a recipe</Link>
           </p>
         </div>
       )}
@@ -58,7 +58,8 @@ export default async function Recipes() {
         <p className="rx-progress-say">
           <b>{cover.doneRows}</b> of {cover.rows} done — covering <b>{cover.pct}%</b> of the{' '}
           <span className="num">{cover.sold.toLocaleString('en-MY')}</span> dishes sold in the last{' '}
-          {days} days.
+          {days} days
+          {setAside.rows > 0 && <>, with <span className="num">{setAside.rows}</span> rows set aside as nothing to count</>}.
         </p>
       </div>
 

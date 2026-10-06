@@ -11,6 +11,7 @@
 import { revalidatePath } from 'next/cache'
 import {
   saveRecipe, deleteRecipe, setGroupAffects, addIngredient, getIngredients,
+  setCategoryCounted,
   type Ingredient,
 } from '@/lib/dish-recipes-data'
 import type { RecipeLine } from '@/lib/dish-recipes'
@@ -114,4 +115,52 @@ export async function createIngredient(_prev: NewIngredientResult, form: FormDat
   } catch (e: any) {
     return { ok: false, message: String(e?.message ?? e) }
   }
+}
+
+export type CategoryResult = { ok: boolean; message: string } | null
+
+/**
+ * Set a whole POS category aside, or bring it back.
+ *
+ * Beverages alone is 194 of the 382 worklist rows and not one of them touches
+ * a shelf the kitchen counts: "This item is drink which shouldn't be counted on
+ * a stock so updating the recipe of this sounds a bit too much work"
+ * (owner, 6 Oct 2026). Nothing is deleted — turning it back on returns every
+ * row exactly as it was, which is what makes this safe to do now and revisit
+ * when syrup and condensed milk become countable.
+ */
+export async function setCategory(_prev: CategoryResult, form: FormData): Promise<CategoryResult> {
+  const key = String(form.get('key') || '')
+  const label = String(form.get('label') || '')
+  const counted = String(form.get('counted') || '') === 'yes'
+  if (!key) return { ok: false, message: 'Which category?' }
+  try {
+    await setCategoryCounted(key, label, counted)
+  } catch (e: any) {
+    return { ok: false, message: String(e?.message ?? e) }
+  }
+  revalidatePath('/recipes'); revalidatePath('/recipes/variations')
+  return {
+    ok: true,
+    message: counted ? `${label} is back on the list.` : `${label} set aside — nothing in it needs a recipe.`,
+  }
+}
+
+/**
+ * "There is nothing to count in this one", from the list, without opening it.
+ *
+ * Saved as a complete recipe with no ingredients and marked sure, which is a
+ * different thing from never having looked: the book can tell the two apart and
+ * so can the morning brief.
+ */
+export async function markNothing(form: FormData): Promise<void> {
+  await saveRecipe({
+    kind: String(form.get('kind') || 'dish') as 'dish' | 'set_part',
+    dish: String(form.get('dish') || ''),
+    dish_label: String(form.get('dish_label') || ''),
+    variation_key: String(form.get('variation_key') || ''),
+    variation_label: String(form.get('variation_label') || ''),
+    lines: [], sure: true, note: null,
+  }, String(form.get('by') || 'Rif'))
+  revalidatePath('/recipes')
 }

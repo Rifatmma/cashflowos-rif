@@ -31,8 +31,8 @@ const GROUPS: VariantGroup[] = [
   G('Brand new group', null, ['Something', 'Else']),
 ]
 
-const line = (name: string, variation: string, qty = 1, total = 0) =>
-  ({ category: '', sub: '', name, variation, qty, price: 0, total })
+const line = (name: string, variation: string, qty = 1, total = 0, category = 'Food') =>
+  ({ category, sub: '', name, variation, qty, price: 0, total })
 
 // ── names ───────────────────────────────────────────────────────────────────
 {
@@ -144,6 +144,34 @@ const BOOK: DishRecipe[] = [
 
   const c = coverage(rows)
   is(c.pct > 0 && c.pct < 100, 'coverage is measured in dishes sold, not rows filled in')
+}
+
+// a whole section set aside
+{
+  const sold = [
+    { line: line('Air Suam', '(Glass)(No ice)', 281, 272.5, 'Beverages'), day: '2026-10-05' },
+    { line: line('Teh O', '(Iced Sejuk)(Glass)', 101, 252.5, 'Beverages'), day: '2026-10-05' },
+    { line: line('Green Curry', '(Beef)', 9, 180, 'Thai Traditional Curry'), day: '2026-10-05' },
+  ]
+  const all = worklist(sold, BOOK, GROUPS)
+  eq(all.length, 3, 'with nothing set aside, every drink is its own row')
+
+  const kept = worklist(sold, BOOK, GROUPS, new Set(['beverages']))
+  eq(kept.map(r => r.dish_label), ['Green Curry'],
+    'setting Beverages aside removes its rows (194 of 382 on the real menu)')
+  eq(coverage(kept).sold, 9, 'and takes them out of the coverage denominator, so the % stays honest')
+  eq(all.find(r => r.dish_label === 'Air Suam')!.category, 'Beverages',
+    'a row carries the POS category it came from')
+}
+{
+  // A set's category is the set's own ("Promotion"), never its choices'.
+  const sold = [{
+    line: { ...line('Set 2 Pax', '(Chicken Cashew Nuts)(3 plate rice)', 4, 172, 'Promotion'), sub: 'Set Menu' },
+    day: '2026-10-05',
+  }]
+  const kept = worklist(sold, BOOK, GROUPS, new Set(['promotion']))
+  eq(kept.map(r => r.dish_label).sort(), ['3 plate rice', 'Chicken Cashew Nuts'],
+    'setting the set category aside must NOT hide the real dishes inside a set')
 }
 
 console.log(bad ? `\n${bad} failed` : '\nall passed')

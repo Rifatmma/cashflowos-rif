@@ -17,6 +17,63 @@ import {
   type DishRecipe, type VariantGroup, type WorkRow,
 } from './dish-recipes'
 
+// ── categories with nothing to count ────────────────────────────────────────
+
+export type RecipeCategory = {
+  key: string; label: string; counted: boolean
+  rows: number; items: number; sold: number; revenue: number
+}
+
+export async function getSkippedCategories(): Promise<Set<string>> {
+  if (!supabaseConfigured) return new Set()
+  const { data, error } = await supabase.from('recipe_categories').select('key').eq('counted', false)
+  if (error) { console.warn('[CFO] recipe_categories:', error.message); return new Set() }
+  return new Set((data ?? []).map((r: any) => r.key))
+}
+
+export async function setCategoryCounted(key: string, label: string, counted: boolean) {
+  const { error } = await supabase.from('recipe_categories')
+    .upsert({ key, label, counted, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Every category the POS has sold from, with what setting it aside would cost.
+ *
+ * The counts are of the FULL list, skip or no skip, so the screen can say
+ * "Beverages: 194 rows" whether or not it is currently set aside.
+ */
+export async function getCategories(days = 90): Promise<RecipeCategory[]> {
+  const [lines, book, groups, skipped] = await Promise.all([
+    soldLines(days), getBook(), getGroups(), getSkippedCategories(),
+  ])
+  const all = worklist(lines, book, groups)
+  const by = new Map<string, RecipeCategory>()
+  for (const r of all) {
+    const key = norm(r.category) || '(none)'
+    let c = by.get(key)
+    if (!c) {
+      c = {
+        key, label: r.category.trim() || 'No category',
+        counted: !skipped.has(key),
+        rows: 0, items: 0, sold: 0, revenue: 0,
+      }
+      by.set(key, c)
+    }
+    c.rows++
+    c.sold += r.sold
+    c.revenue += r.revenue
+  }
+  const names = new Map<string, Set<string>>()
+  for (const r of all) {
+    const key = norm(r.category) || '(none)'
+    if (!names.has(key)) names.set(key, new Set())
+    names.get(key)!.add(r.dish)
+  }
+  for (const [k, set] of names) { const c = by.get(k); if (c) c.items = set.size }
+  return [...by.values()].sort((a, b) => b.rows - a.rows)
+}
+
 export type { DishRecipe, VariantGroup, WorkRow }
 
 // ── variant groups ──────────────────────────────────────────────────────────
@@ -136,9 +193,18 @@ export async function soldLines(days = 90): Promise<SoldLine[]> {
 
 /** The worklist and how much of the day's selling it covers. */
 export async function buildWorklist(days = 90) {
-  const [lines, book, groups] = await Promise.all([soldLines(days), getBook(), getGroups()])
-  const rows = worklist(lines, book, groups)
-  return { rows, groups, book, cover: coverage(rows), days }
+  const [lines, book, groups, skip] = await Promise.all([
+    soldLines(days), getBook(), getGroups(), getSkippedCategories(),
+  ])
+  const rows = worklist(lines, book, groups, skip)
+  // What a set-aside category took with it, so the screen can say so rather
+  // than quietly reporting a smaller job than the owner remembers agreeing to.
+  const full = skip.size ? worklist(lines, book, groups) : rows
+  const setAside = {
+    rows: full.length - rows.length,
+    sold: full.reduce((t, r) => t + r.sold, 0) - rows.reduce((t, r) => t + r.sold, 0),
+  }
+  return { rows, groups, book, cover: coverage(rows), days, setAside }
 }
 
 // ── ingredients ─────────────────────────────────────────────────────────────

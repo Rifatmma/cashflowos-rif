@@ -1107,3 +1107,28 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
   color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px;
 }
 .vg-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-faint); }
+
+/* Sections set aside, and the one-tap "nothing to count" on a row. */
+.rx-h2 { font-family: var(--font-serif), var(--font-sans), serif; font-size: 20px; font-weight: 600; margin: 30px 0 4px; }
+.cg { margin: 4px 0 10px; }
+.cg-saved { margin: 0 0 12px; font-size: 13.5px; color: var(--ink-soft); }
+.cg-table td, .cg-table th { padding: 9px 10px 9px 0; }
+.cg-table tr.is-off td { color: var(--ink-faint); text-decoration: line-through; }
+.cg-table tr.is-off td:last-child { text-decoration: none; }
+.cg-items { color: var(--ink-faint); font-size: 12px; }
+.cg-btn {
+  font: inherit; font-size: 12.5px; min-height: 40px; padding: 0 13px; cursor: pointer;
+  white-space: nowrap; background: var(--card); border: .9px solid var(--line-2);
+  border-radius: 999px; color: inherit;
+}
+.cg-btn:hover { border-color: var(--ink-faint); }
+.cg-btn.is-off { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
+.rx-quick { margin: -4px 0 10px 26px; }
+.rx-quick-btn {
+  font: inherit; font-size: 12.5px; min-height: 38px; padding: 0 13px; cursor: pointer;
+  background: none; border: .9px dashed var(--line-2); border-radius: 999px; color: var(--ink-faint);
+}
+.rx-quick-btn:hover { color: var(--ink); border-color: var(--ink-faint); border-style: solid; }
+.rx-none { grid-column: 1 / -1; font-size: 12.5px; color: var(--ink-faint); margin-top: 3px; }
+@media (max-width: 620px) { .rx-quick { margin-left: 12px; } }

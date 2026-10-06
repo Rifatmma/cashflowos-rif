@@ -1,9 +1,10 @@
 import Link from 'next/link'
-import { getGroups, soldLines } from '@/lib/dish-recipes-data'
+import { getGroups, soldLines, getCategories } from '@/lib/dish-recipes-data'
 import { VARIANT_GROUPS, ADDON_GROUP } from '@/lib/easyeat-menu'
 import { variationParts } from '@/lib/easyeat'
 import { norm } from '@/lib/dish-recipes'
 import { VariationRows } from './VariationRows'
+import { CategoryRows } from './CategoryRows'
 
 // 👉 Which choices on a bill actually change what leaves the freezer.
 //
@@ -13,7 +14,7 @@ import { VariationRows } from './VariationRows'
 export const dynamic = 'force-dynamic'
 
 export default async function Variations() {
-  const [groups, lines] = await Promise.all([getGroups(), soldLines(90)])
+  const [groups, lines, categories] = await Promise.all([getGroups(), soldLines(90), getCategories(90)])
 
   // How often each group has actually turned up on a bill, so the ones that
   // matter are not buried under fifty rows of equal weight.
@@ -36,8 +37,17 @@ export default async function Variations() {
 
   return (
     <div className="co">
-      <h1 className="ph">Which choices change the recipe</h1>
+      <h1 className="ph">What needs a recipe</h1>
 
+      <h2 className="rx-h2">Whole sections with nothing to count</h2>
+      <p className="led-note">
+        Start here — it is the biggest saving on the list. A drink takes nothing off a shelf
+        anybody counts, and Beverages alone is half the worklist. Setting a section aside
+        doesn&rsquo;t delete anything: put it back and every row returns as it was.
+      </p>
+      <CategoryRows categories={categories} />
+
+      <h2 className="rx-h2">Which choices change the recipe</h2>
       <p className="led-note">
         Every one of these appears on your bills. Say once whether it changes what comes out of the
         freezer — a Medium uses more chicken, but less sugar uses the same of everything. The ones

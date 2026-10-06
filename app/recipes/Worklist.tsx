@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { RecipeEditor, type Ing, type EditorTarget } from './RecipeEditor'
+import { markNothing } from './actions'
 import type { RecipeLine } from '@/lib/dish-recipes'
 
 // 📖 The recipe book as a worklist, not a blank form.
@@ -17,6 +18,7 @@ import type { RecipeLine } from '@/lib/dish-recipes'
 
 export type Row = {
   kind: 'dish' | 'set_part'
+  category: string
   dish: string; dish_label: string
   variation_key: string; variation_label: string
   sold: number; revenue: number; days: number
@@ -105,8 +107,23 @@ export function Worklist({
                     {r.kind === 'set_part' && ' · inside sets'}
                   </span>
                   {!done && <span className="lg-problem">no recipe yet</span>}
-                  {done && !r.sure && <span className="rx-unsure">saved, but you weren&rsquo;t sure</span>}
+                  {done && !r.lines?.length && <span className="rx-none">nothing to count</span>}
+                  {done && !!r.lines?.length && !r.sure && <span className="rx-unsure">saved, but you weren&rsquo;t sure</span>}
                 </button>
+
+                {/* One tap for the odd row inside a counted section that has
+                    nothing in it -- "ICE (only ice without water)" and its
+                    kind. A whole section goes in one tap on the other screen. */}
+                {!done && open !== k && (
+                  <form action={markNothing} className="rx-quick">
+                    <input type="hidden" name="kind" value={r.kind} />
+                    <input type="hidden" name="dish" value={r.dish} />
+                    <input type="hidden" name="dish_label" value={r.dish_label} />
+                    <input type="hidden" name="variation_key" value={r.variation_key} />
+                    <input type="hidden" name="variation_label" value={r.variation_label} />
+                    <button className="rx-quick-btn">Nothing to count</button>
+                  </form>
+                )}
 
                 {open === k && (
                   <RecipeEditor

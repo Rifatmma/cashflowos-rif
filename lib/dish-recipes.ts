@@ -176,6 +176,7 @@ export function useForDay(lines: DishLine[], book: DishRecipe[], groups: Variant
 
 export type WorkRow = {
   kind: 'dish' | 'set_part'
+  category: string        // the POS category, so a whole one can be set aside
   dish: string
   dish_label: string
   variation_key: string
@@ -196,12 +197,14 @@ export function worklist(
   lines: { line: DishLine; day: string }[],
   book: DishRecipe[],
   groups: VariantGroup[],
+  /** POS categories with nothing to count -- their rows never appear. */
+  skip: Set<string> = new Set(),
 ): WorkRow[] {
   const idx = bookIndex(book)
   const seen = new Map<string, WorkRow & { dayset: Set<string> }>()
 
   const bump = (
-    kind: 'dish' | 'set_part', dish: string, dish_label: string,
+    kind: 'dish' | 'set_part', category: string, dish: string, dish_label: string,
     variation_key: string, variation_label: string,
     qty: number, revenue: number, day: string,
   ) => {
@@ -209,7 +212,7 @@ export function worklist(
     let row = seen.get(id)
     if (!row) {
       row = {
-        kind, dish, dish_label, variation_key, variation_label,
+        kind, category, dish, dish_label, variation_key, variation_label,
         sold: 0, revenue: 0, days: 0, dayset: new Set<string>(),
         recipe: idx.get(id) ?? null,
       }
@@ -221,18 +224,21 @@ export function worklist(
   }
 
   for (const { line, day } of lines) {
+    // A set is never skipped by its category: its CHOICES are real dishes and
+    // the category on the line is the set's own ("Promotion"), not theirs.
+    if (!isSet(line) && skip.has(norm(line.category))) continue
     if (isSet(line)) {
       // A set does not become a row of its own -- its CHOICES do, because that
       // is what gets typed in once and then resolves every future combination.
       for (const part of variationParts(line.variation)) {
         const p = part.trim()
         if (!p || SAYS_NO.test(p)) continue
-        bump('set_part', norm(p), p, '', '', line.qty, 0, day)
+        bump('set_part', line.category, norm(p), p, '', '', line.qty, 0, day)
       }
       continue
     }
     const parts = stockParts(line.variation, groups)
-    bump('dish', norm(line.name), line.name.trim(),
+    bump('dish', line.category, norm(line.name), line.name.trim(),
       variationKey(parts), parts.join(' · '), line.qty, line.total, day)
   }
 
