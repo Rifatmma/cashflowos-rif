@@ -1025,3 +1025,85 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
   .lg-m-head .lg-title { font-size: 17px; }
   .lg-sum { font-size: 12.5px; }
 }
+
+/* ── Recipes ─────────────────────────────────────────────────────────────── */
+/* The worklist: the same hairline ledger as Cash Out, because it is the same
+   kind of reading — a column of things, worst first, opening downwards. */
+
+.rx-progress { margin: 18px 0 6px; }
+.rx-bar { height: 7px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.rx-bar span { display: block; height: 100%; background: var(--green); border-radius: 999px; }
+.rx-progress-say { margin: 9px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+
+.rx-rows .lg-row { border-left-width: 3px; }
+.rx-row.is-done { border-left: 3px solid var(--green); }
+.rx-row.is-done .lg-amount { color: var(--green); font-size: 17px; }
+.rx-var { color: var(--ink-faint); font-weight: 400; }
+.rx-unsure { grid-column: 1 / -1; font-size: 12.5px; color: var(--warn, #9A6B00); margin-top: 3px; }
+.rx-anchor { display: block; height: 0; }
+
+/* The editor */
+.rx-edit { padding: 6px 2px 20px 26px; }
+.rx-line {
+  display: grid; grid-template-columns: 1fr 86px 92px auto;
+  gap: 10px; align-items: end; margin-bottom: 12px;
+}
+.rx-line .cr-field { margin: 0; }
+.rx-rm {
+  background: none; border: 0; font-size: 21px; line-height: 1; color: var(--ink-faint);
+  cursor: pointer; padding: 0 4px; min-height: 44px; min-width: 32px;
+}
+.rx-rm:hover { color: var(--bad); }
+.rx-adds { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 4px 0 14px; }
+.rx-newlink {
+  background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.rx-newlink:hover { color: var(--ink); }
+
+.rx-new { margin: 0 0 16px; padding: 14px; background: var(--paper-2); border-radius: 10px; }
+.rx-new-row { display: grid; grid-template-columns: 1fr 120px auto; gap: 10px; align-items: end; margin-top: 10px; }
+
+/* The check: the part that catches a wrong number before it is saved. */
+.rx-check {
+  margin: 4px 0 16px; padding: 13px 15px; border-radius: 10px;
+  background: var(--paper-2); border-left: 3px solid var(--line-2);
+}
+.rx-over { margin: 0; font-size: 13.5px; line-height: 1.6; }
+.rx-cost { margin: 6px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+.rx-cost.is-high { color: var(--bad); }
+.rx-uncounted { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-faint); }
+
+.rx-sure { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 14.5px; min-height: 44px; }
+.rx-sure input { width: 19px; height: 19px; }
+.rx-foot, .rx-after { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+
+@media (max-width: 620px) {
+  .rx-edit { padding-left: 12px; }
+  .rx-line { grid-template-columns: 1fr 1fr; }
+  .rx-line .rx-what { grid-column: 1 / -1; }
+  .rx-new-row { grid-template-columns: 1fr; }
+}
+
+/* ── Which choices change the recipe ─────────────────────────────────────── */
+.vg-top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 16px 0 6px; }
+.vg-count { margin: 0; font-size: 14px; }
+.vg-row { border-top: 1px solid var(--line); padding: 15px 2px; }
+.vg-row.is-open { border-left: 3px solid var(--clay, var(--line-2)); padding-left: 12px; }
+.vg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.vg-label { font-size: 15.5px; font-weight: 500; }
+.vg-n { font-family: var(--font-mono); font-size: 12px; color: var(--ink-faint); }
+.vg-opts { margin: 4px 0 11px; font-size: 12.5px; color: var(--ink-faint); line-height: 1.55; overflow-wrap: anywhere; }
+.vg-pick { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.vg-btn {
+  font: inherit; font-size: 13.5px; min-height: 44px; padding: 0 16px; cursor: pointer;
+  background: var(--card); border: .9px solid var(--line-2); border-radius: 999px; color: inherit;
+}
+.vg-btn:hover { border-color: var(--ink-faint); }
+.vg-btn.is-on { background: var(--green); border-color: var(--green); color: #fff; }
+.vg-btn.is-off { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.vg-undo {
+  background: none; border: 0; padding: 0 6px; cursor: pointer; font: inherit; font-size: 12.5px;
+  color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px;
+}
+.vg-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-faint); }
