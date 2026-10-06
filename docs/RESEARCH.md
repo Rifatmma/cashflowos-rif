@@ -318,11 +318,13 @@ stock note still shows the working ("2 kg at 35 per kg"), and the receipt's own
 line keeps the weight exactly as printed, which is also what the RM-per-kg price
 history is built from. kg stays in the picker, one tap away.
 
-**The rate is per item, not a constant** -- shrimp 35 a kilo, crab 6, mussels
-20, chicken leg quarters 3.3. The shrimp figure was 33, the middle of the
-"30-35 pieces" he gave on 24 Sep 2026; he settled it at the top of that range on
-6 Oct. Stock moves already written keep the counts they were saved with, so the
-change does not rewrite history.
+**The rate is per item, not a constant** -- fresh shrimp 35 a kilo, frozen
+shrimp 33, crab 6, mussels 20, chicken leg quarters 3.3. Fresh was 33, the middle
+of the "30-35 pieces" he gave on 24 Sep 2026; he settled it at the top of that
+range on 6 Oct, **for fresh only** -- "I meant fresh only, frozen shrimp remain
+with the same logic". The two rates are meant to differ. Stock moves already
+written keep the counts they were saved with, so the change does not rewrite
+history.
 
 ---
 

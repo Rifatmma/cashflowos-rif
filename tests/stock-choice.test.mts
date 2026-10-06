@@ -55,9 +55,10 @@ const one = (r: ReturnType<typeof stockFromChoice>) => (Array.isArray(r) && r.le
 }
 
 {
-  // Packets: 3 pkt of frozen shrimp, each 1 kg -> 3 kg -> 105 pieces.
+  // Packets: 3 pkt of frozen shrimp, each 1 kg -> 3 kg -> 99 pieces.
+  // Frozen stays at 33 a kilo; only FRESH moved to 35 (owner, 6 Oct 2026).
   const r = one(stockFromChoice({ item: 'shrimp_frozen', qty: 3, unit: 'pkt', per: 1, perUnit: 'kg' }, 41.97, 'FRZ UDANG 1KG'))
-  check('3 pkt x 1 kg frozen shrimp -> 105 pieces', r?.item === 'shrimp_frozen' && Math.round(r.qty) === 105 && /3 pkt x 1 kg = 3 kg/.test(r.note ?? ''), r)
+  check('3 pkt x 1 kg frozen shrimp -> 99 pieces', r?.item === 'shrimp_frozen' && Math.round(r.qty) === 99 && /3 pkt x 1 kg = 3 kg/.test(r.note ?? ''), r)
   const b = one(stockFromChoice({ item: 'breast', qty: 2, unit: 'pkt', per: 2, perUnit: 'kg' }, 40.38, 'CHICKEN 2KG'))
   check('2 pkt x 2 kg chicken breast -> 3,840 g', b?.item === 'breast' && Math.round(b.qty) === 3840, b)
   const e = one(stockFromChoice({ item: 'egg', qty: 2, unit: 'pkt', per: 10, perUnit: 'pcs' }, 9, 'TELUR 10S'))
