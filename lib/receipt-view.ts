@@ -81,7 +81,7 @@ export const lineCount = (r: Rec) => (Array.isArray(r.meta?.items) ? r.meta.item
 
 // ---------------------------------------------------------------- problems
 
-export type ProblemKind = 'no-photo' | 'bad-proof' | 'wont-add-up' | 'no-category' | 'parked'
+export type ProblemKind = 'no-photo' | 'bad-proof' | 'unsure' | 'wont-add-up' | 'no-category' | 'parked'
 
 export type Problem = {
   kind: ProblemKind
@@ -141,8 +141,27 @@ export function problemOf(r: Rec, hasPhoto: boolean): Problem | null {
     }
   }
 
-  // An explicit "checked, it's right" clears everything derived below here.
-  if (m.fixed_note) return null
+  // An explicit "checked, it's right" clears everything derived below here --
+  // including Jarvis's own doubt, which the Telegram "Looks right" button sets.
+  if (m.fixed_note || m.checked_ok) return null
+
+  // JARVIS FILED IT ANYWAY AND SAID SO.
+  //
+  // Receipts no longer wait for an answer in chat: "Everything should be filed
+  // without asking then correct it in the app later" (owner, 8 Oct 2026). What
+  // used to be a question is now a flag on the row, so a doubtful read is in
+  // the books AND in front of him, instead of sitting in a chat he has to argue
+  // with.
+  if (m.needs_check) {
+    const why = String(m.needs_check_why ?? '').replace(/\s+/g, ' ').trim()
+    return {
+      kind: 'unsure', rank: 2.5,
+      says: why ? (why.length <= 60 ? why : why.slice(0, why.lastIndexOf(' ', 57)) + '…') : 'check this one',
+      detail: (why ? why + ' ' : '')
+        + 'Jarvis filed its best guess rather than holding the receipt. Put the numbers right, '
+        + 'or mark it correct.',
+    }
+  }
 
   if (m.items_note) {
     const text = String(m.items_note).replace(/\s+/g, ' ').trim()

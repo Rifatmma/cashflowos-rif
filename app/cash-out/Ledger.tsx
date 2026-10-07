@@ -51,6 +51,7 @@ const dayLabel = (iso: string, today: string) => {
 const FILTERS: { key: string; label: string; match: (r: LedgerRow) => boolean }[] = [
   { key: 'all', label: 'Everything', match: () => true },
   { key: 'any', label: 'Needs a look', match: r => !!r.problem },
+  { key: 'unsure', label: 'Jarvis unsure', match: r => r.problem?.kind === 'unsure' },
   { key: 'no-photo', label: 'No proof', match: r => r.problem?.kind === 'no-photo' },
   { key: 'bad-proof', label: 'Proof not valid', match: r => r.problem?.kind === 'bad-proof' },
   { key: 'wont-add-up', label: "Lines don't match", match: r => r.problem?.kind === 'wont-add-up' },

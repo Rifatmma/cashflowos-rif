@@ -48,6 +48,17 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   const meta: any = { ...(rec.meta ?? {}) }
   const old: any[] = Array.isArray(meta.items) ? meta.items : []
 
+  // THE OWNER'S OWN TOTAL WINS OVER EVERYTHING.
+  //
+  // Before this, the total could only be derived from the lines, so a receipt
+  // whose lines Jarvis could not read had no way back to the truth: "in the app
+  // when I want to correct a receipt there is no place for me to tell how much
+  // is the total bill. Which should overrides what Jarvis read" (8 Oct 2026).
+  // Typed here it is simply the amount, and the row records that he set it.
+  const typedTotal = form.get('amount') === null ? null : Number(String(form.get('amount')).replace(/[^0-9.]/g, ''))
+  const ownTotal = typedTotal !== null && Number.isFinite(typedTotal) && typedTotal >= 0 ? r2(typedTotal) : null
+
+
   // No lines (a total typed into Jarvis, like Yuu's RM 58.10 #167): the whole
   // receipt's category is all there is to set. It used to refuse with "needs at
   // least one line", shown where it wasn't seen.
@@ -58,16 +69,25 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     }
     meta.expense_type = type
     delete meta.type_split; delete meta.items_note
+    delete meta.needs_check; delete meta.needs_check_why
+    const was = Number(rec.amount)
+    const amt = ownTotal !== null ? ownTotal : was
+    if (ownTotal !== null && Math.abs(ownTotal - was) > 0.005) {
+      meta.amount_set_by_owner = true
+      meta.amount_was = was
+    }
     meta.corrected_by = 'owner'
     meta.corrected_at = new Date().toISOString().slice(0, 10)
     meta.corrected_via = 'web'
     delete meta.fix_later; delete meta.fix_later_note; delete meta.checked_ok; delete meta.fixed_note
-    const { error } = await supabase.from('records').update({ meta }).eq('id', id).eq('category', 'cash_out')
+    const { error } = await supabase.from('records').update({ amount: amt, meta }).eq('id', id).eq('category', 'cash_out')
     if (error) return { ok: false, message: error.message }
     revalidatePath('/cash-out'); revalidatePath(`/cash-out/${id}`); revalidatePath('/')
     // Stays on the page like every other save does — see the note further down.
     return {
-      ok: true, message: 'Category set; no lines on this one.', stock: [],
+      ok: true, stock: [],
+      message: (Math.abs(amt - was) > 0.005 ? `Total set to RM ${amt.toFixed(2)} (Jarvis had RM ${was.toFixed(2)}). ` : '')
+        + 'Category set; no lines on this one.',
       next: await nextNeedingALook(id),
     }
   }
@@ -106,7 +126,10 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     }
   })
   const linesTotal = r2(raw.reduce((t, it) => t + it.line_total, 0))
+
   let amount = Number(rec.amount)
+  if (ownTotal !== null) amount = ownTotal
+  // "Make the total match the lines" still exists, and still wins when pressed.
   if (mode === 'total') amount = linesTotal
   // A plain Save keeps a discount recorded earlier while it still accounts for
   // the gap -- otherwise fixing one line would quietly undo it.
@@ -155,6 +178,14 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   meta.corrected_by = 'owner'
   meta.corrected_at = new Date().toISOString().slice(0, 10)
   meta.corrected_via = 'web'
+  // A total he typed himself is a fact about the bill, not a reading, so it is
+  // recorded as his and never quietly re-derived from the lines later.
+  if (ownTotal !== null && Math.abs(ownTotal - Number(rec.amount)) > 0.005 && mode !== 'total') {
+    meta.amount_set_by_owner = true
+    meta.amount_was = Number(rec.amount)
+  }
+  // He has looked at it, so Jarvis's doubt is answered either way.
+  delete meta.needs_check; delete meta.needs_check_why
   // Parked from Jarvis with "I'll fix it in the app": this save is that fix.
   delete meta.fix_later; delete meta.fix_later_note
   // The lines changed, so an earlier "it's correct" no longer vouches for them.
@@ -172,11 +203,14 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     const q = def?.unit === 'g' ? `${Math.round(a.qty).toLocaleString('en-MY')} g` : `${Math.round(a.qty * 10) / 10}`
     return `+${q} ${(def?.name ?? a.item).toLowerCase()}`
   })
-  const lead =
-    mode === 'discount' ? `RM ${discount.toFixed(2)} recorded as a discount; total stays RM ${amount.toFixed(2)}.`
+  const setTotal = ownTotal !== null && Math.abs(ownTotal - Number(rec.amount)) > 0.005 && mode !== 'total'
+    ? `Total set to RM ${amount.toFixed(2)} (Jarvis had RM ${Number(rec.amount).toFixed(2)}). `
+    : ''
+  const lead = setTotal +
+    (mode === 'discount' ? `RM ${discount.toFixed(2)} recorded as a discount; total stays RM ${amount.toFixed(2)}.`
       : mode === 'total' ? `Total corrected to RM ${amount.toFixed(2)}.`
       : discount || s.reconciles ? 'It adds up now.'
-      : `The lines (RM ${linesTotal.toFixed(2)}) still don’t match the total (RM ${amount.toFixed(2)}), so it stays on To check.`
+      : `The lines (RM ${linesTotal.toFixed(2)}) still don’t match the total (RM ${amount.toFixed(2)}), so it stays on To check.`)
   // STAY HERE. This used to redirect to /cash-out, which threw the owner back
   // to the current month: he corrected a September receipt and landed in
   // October, with seven more September bills to find again by hand. "That is not

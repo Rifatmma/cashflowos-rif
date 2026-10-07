@@ -104,6 +104,15 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
     // receipt looks exactly like saving having failed (owner, 6 Oct 2026).
     if (res?.ok) okRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [res])
+  // THE TOTAL THE OWNER SAYS IT IS.
+  //
+  // Until now the only way to change a total was to make the lines add to it:
+  // the buttons were "lines are right, the rest was a discount" and "total is
+  // wrong, make it the sum of the lines". Both derive the number from the
+  // lines, so a receipt Jarvis misread with 14 unreadable lines could not be
+  // put right at all. "sometimes jarvis did not read it correctly... I need a
+  // system to replace Jarvis thought" (owner, 8 Oct 2026). This is that.
+  const [ownTotal, setOwnTotal] = useState(f2(total))
   const [receiptType, setReceiptType] = useState(receiptTypeInit)
   const [drafts, setDrafts] = useState<Draft[]>(() => lines.map(toDraft))
 
@@ -320,6 +329,17 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
           {Math.abs(gap) > 0.05 ? ` · off by RM ${f2(Math.abs(gap))}` : ' · matches ✓'}
         </p>
         )}
+        <label className="cr-field cr-total">
+          <span>What the bill actually came to (RM)</span>
+          <input inputMode="decimal" name="amount" value={ownTotal}
+            onChange={e => setOwnTotal(e.target.value)} />
+          <small>
+            {num(ownTotal) !== null && Math.abs((num(ownTotal) ?? 0) - total) > 0.005
+              ? `Jarvis read RM ${f2(total)}. Yours wins.`
+              : 'Change this if Jarvis read the total wrong — what you type here is what gets filed.'}
+          </small>
+        </label>
+
         <div className="rf-btns">
           <button className="btn" name="mode" value="save" disabled={pending}>{pending ? 'Saving…' : 'Save'}</button>
           {gap > 0.05 && <button className="btn ghost" name="mode" value="discount" disabled={pending}>Lines are right: RM {f2(sum - total)} was a discount</button>}

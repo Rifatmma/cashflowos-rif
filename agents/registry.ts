@@ -181,6 +181,14 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         filed_by: payload?.filed_by || undefined,
         filed_by_id: payload?.filed_by_id || undefined,
         filed_in_group: payload?.filed_in_group || undefined,
+        // Jarvis files its best guess now rather than asking (owner, 8 Oct
+        // 2026), so its doubt has to travel with the row. Cash Out shows these
+        // under "Jarvis unsure"; the chat card's "Looks right" button clears it.
+        needs_check: payload?.needs_check ? true : undefined,
+        needs_check_why: payload?.needs_check_why || undefined,
+        // An e-wallet or bank-transfer screen. Kept because it explains why a
+        // receipt has a payee and no line items.
+        payment_proof: payload?.payment_proof ? true : undefined,
       },
     })
     .select()

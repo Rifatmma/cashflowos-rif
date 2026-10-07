@@ -61,7 +61,12 @@ export async function downloadFileBytes(filePath: string): Promise<Buffer | null
 
 // A single inline-keyboard button. `callback_data` is what the webhook receives
 // when the user taps it — e.g. "apr:42" (approve action 42) / "rej:42".
-export type InlineButton = { text: string; callback_data: string }
+// A button is either a callback (Telegram sends the tap back to us) or a plain
+// link out. The receipt card uses one of each: "Looks right" answers in chat,
+// "Correct it" opens the record in the app (owner, 8 Oct 2026).
+export type InlineButton =
+  | { text: string; callback_data: string; url?: never }
+  | { text: string; url: string; callback_data?: never }
 export type InlineKeyboard = InlineButton[][]
 
 // Telegram rejects a message over 4096 characters. A long receipt used to be

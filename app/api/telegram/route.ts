@@ -1,10 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { after } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createHash } from 'crypto'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import {
   sendMessage,
   sendWithButtons,
+  type InlineKeyboard,
+  type InlineButton,
   answerCallbackQuery,
   editMessageReplyMarkup,
   sendFileTo,
@@ -178,6 +181,38 @@ export async function POST(req: Request) {
   return handleMessage(msg)
 }
 
+/**
+ * Mark a filed receipt as read correctly.
+ *
+ * This is NOT an approval. Receipts file the moment they arrive; this only
+ * writes meta.checked_ok, which clears the "Jarvis unsure" flag in Cash Out and
+ * stops the row being chased. It is deliberately one-way: "looks wrong" has no
+ * button because the answer to wrong is the correction page, not a second tap.
+ */
+async function markReceiptChecked(
+  recordId: number,
+  chatId: any,
+  messageId: any,
+  toast: (t: string) => Promise<unknown>,
+): Promise<void> {
+  if (!Number.isFinite(recordId) || recordId <= 0) { await toast('Unknown receipt.'); return }
+  if (!supabaseConfigured) { await toast('Not connected.'); return }
+  const { data: rec } = await supabase.from('records')
+    .select('id, amount, meta').eq('id', recordId).eq('category', 'cash_out').maybeSingle()
+  if (!rec) { await toast('That receipt is gone — it may have been undone.'); return }
+  const meta: any = { ...(rec.meta ?? {}) }
+  meta.checked_ok = new Date().toISOString().slice(0, 10)
+  delete meta.needs_check
+  delete meta.needs_check_why
+  const { error } = await supabase.from('records').update({ meta }).eq('id', recordId)
+  if (error) { await toast('Could not save that — try the app.'); return }
+  revalidatePath('/cash-out'); revalidatePath(`/cash-out/${recordId}`)
+  await toast('Marked as read correctly.')
+  // Take the buttons off so the card reads as settled rather than still asking.
+  if (chatId && messageId) await editMessageReplyMarkup(chatId, Number(messageId))
+  await noteEvent({ chatId, kind: 'corrected', reply: 'Owner confirmed the read was right.', recordId })
+}
+
 // ============================================================
 // CALLBACK QUERY — the ✅/❌ button taps. This is the guarded path.
 // ============================================================
@@ -200,6 +235,14 @@ async function handleCallback(cb: any): Promise<Response> {
   // An answer to "how many slices?" on a photographed meal.
   if (verb === 'meal') {
     await answerMealQuestion(actionId, Number(extra), chatId, messageId, t => answerCallbackQuery(cbId, t))
+    return Response.json({ ok: true })
+  }
+
+  // "Looks right" on a filed receipt. Nothing is approved here -- the receipt
+  // was filed the moment it arrived. This only clears Jarvis's own doubt, so it
+  // stops showing under "Jarvis unsure" in Cash Out (owner, 8 Oct 2026).
+  if (verb === 'rok') {
+    await markReceiptChecked(actionId, chatId, messageId, t => answerCallbackQuery(cbId, t))
     return Response.json({ ok: true })
   }
 
@@ -1506,49 +1549,81 @@ async function decideAndFile(a: {
   // so an unnamed list could be any of them.
   const noMerchant = !v.merchant || /^unknown$/i.test(String(v.merchant)) || (v.missing ?? []).includes('merchant')
 
-  // ---- anything unreadable: ask, with a template, in the chat it arrived in ----
-  // The owner's rule (23 Sep 2026): never guess a field. Ask in the group, give
-  // the exact lines to fill, and file nothing until they come back filled.
+  // ---- what Jarvis is unsure about: a FLAG, not a question --------------------
+  //
+  // This used to hold the receipt and send a fill-in template: "I won't file it
+  // until you do." The owner's instruction on 8 Oct 2026 ends that:
+  //
+  //   "Yes receipt should stop asking just file Jarvis's best guess then tell
+  //    in the chat what was filed what is the number to look for. Then if you
+  //    have any doubts mark it as receipt to check... Everything should be
+  //    filed without asking then correct it in the app later."
+  //
+  // So doubt becomes meta.needs_check on the row, which surfaces in Cash Out
+  // under "Jarvis unsure" and on the card as two buttons. The one thing still
+  // never invented is the SHOP NAME (owner, 23 Sep 2026: several suppliers give
+  // no receipt, so an unnamed list could be any of them) -- it files blank and
+  // flagged, which records the gap rather than guessing past it.
   const gaps: string[] = []
   if (noMerchant) gaps.push('shop')
   if (!v.date || (v.missing ?? []).includes('date')) gaps.push('date')
   if (!isExpense || (v.missing ?? []).includes('amount')) gaps.push('total')
-  // A DOUBTFUL read counts as unclear too, not just a missing field: a blurry
-  // photo, or lines that don't add up to the printed total (99 Speed Mart, 23 Sep:
-  // lines RM 15.99 vs total RM 10.50). Ask the people who were at the shop to
-  // confirm the total, rather than sending the owner a card he can't check.
-  const doubtful = v.confidence === 'low' || /lines add to/i.test(String(v.items_note ?? ''))
-  if (doubtful && !gaps.includes('total')) gaps.push('total')
-  if (gaps.length && v.kind !== 'doc') {
+  const mismatch = /lines add to/i.test(String(v.items_note ?? ''))
+  const doubtful = v.confidence === 'low' || mismatch
+
+  // The ONE thing that still cannot be filed: no amount at all. There is no
+  // receipt without a number, and a zero in the books is worse than a question.
+  if (!isExpense && v.kind !== 'doc') {
     await setPending(chatId, staffFiling ? 'chat' : filer.id, {
       type: 'need_fields', gaps, payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
     })
     await noteEvent({
       chatId, from: { id: filer.id, name: filer.name }, kind: 'template_sent',
-      reply: `Asked for ${gaps.join(', ')}.`, detail: { gaps, merchant: v.merchant ?? null },
+      reply: 'No amount could be read.', detail: { gaps, merchant: v.merchant ?? null },
     })
-    const known = [
-      !gaps.includes('total') && isExpense ? `<b>${rm(Number(v.amount))}</b>` : null,
-      !gaps.includes('shop') && v.merchant ? esc(String(v.merchant)) : null,
-      !gaps.includes('date') && v.date ? v.date : null,
-    ].filter(Boolean).join(' · ')
-    const mismatch = /lines add to/i.test(String(v.items_note ?? ''))
-    const why = doubtful && !(v.missing ?? []).includes('amount') && isExpense
-      ? `, but I'm not sure I read it right`
-      : `, but I can't see the <b>${gaps.join('</b>, the <b>')}</b>`
     await sendMessage(chatId,
-      `🧾 I read this one${known ? `: ${known}` : ''}${why}.${mismatch ? showWorking(v) : detail}` +
-      NL + NL + `Please reply with exactly these lines filled in — I won't file it until you do:` +
+      `\u{1F9FE} I can't find a total on this one, and a bill with no number isn't a bill.` +
+      NL + NL + `Tell me what it came to and I'll file it:` +
       NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
-    await remember(chatId, staffFiling ? `[${filer.name} sent a receipt missing ${gaps.join(', ')}]` : `[sent a receipt missing ${gaps.join(', ')}]`,
-      `Asked for ${gaps.join(', ')} using the template. Nothing is filed until that comes back.`)
+    await remember(chatId,
+      staffFiling ? `[${filer.name} sent a receipt with no readable total]` : '[sent a receipt with no readable total]',
+      'Asked for the total. Everything else files on a best guess; a missing amount cannot.')
     return
   }
 
-  // ---- green: file it ---------------------------------------------------------
-  const autopilot =
-    isExpense && !v.payment_proof && v.confidence === 'high' && (v.amount as number) <= threshold()
+  // Everything else files. What was unclear rides along as a flag on the row.
+  const unsureWhy = [
+    gaps.includes('shop') ? 'no shop name on it' : null,
+    gaps.includes('date') ? 'no date on it' : null,
+    mismatch ? 'the lines do not match the total' : null,
+    v.confidence === 'low' && !mismatch ? 'I could not read it clearly' : null,
+  ].filter(Boolean).join('; ')
+  if (unsureWhy) {
+    payload.needs_check = true
+    payload.needs_check_why = unsureWhy
+    await noteEvent({
+      chatId, from: { id: filer.id, name: filer.name }, kind: 'unreadable',
+      reply: `Filed a best guess, flagged: ${unsureWhy}.`,
+      detail: { gaps, merchant: v.merchant ?? null, amount: v.amount ?? null },
+    })
+  }
+
+  // ---- file it. ALWAYS. ------------------------------------------------------
+  //
+  // What used to stand here: payment_proof excluded every e-wallet screen, a
+  // low confidence excluded a blurry photo, and anything over RM 200 asked
+  // first. Measured over the 14 days to 8 Oct 2026 that asked the owner 6 times
+  // out of 191 receipts -- and FOUR of the six were UNDER the limit, stopped
+  // only by being a Touch 'n Go or JomPAY screen, which is most of how he pays.
+  //
+  //   "why did Jarvis have to send to me to approve first if it's going to the
+  //    app already... It's not necessary at all."   (owner, 8 Oct 2026)
+  //
+  // The check moved to where he can act on it: the card carries Looks right /
+  // Correct it, and a doubtful receipt is flagged in Cash Out.
+  const autopilot = isExpense
   if (autopilot) {
+    if (v.payment_proof) payload.payment_proof = true
     const done = await runAutopilot('expense', { ...payload, auto: true })
     if (!done) {
       await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.')
@@ -1577,10 +1652,33 @@ async function decideAndFile(a: {
           `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
       }
     } else {
-      await sendMessage(chatId, `✅ Filed <b>${what}</b>.${detail}${recordTag((done.result as any)?.record_id)}${ask}
+      // The owner's own card. It states what was read and the number to quote,
+      // flags anything Jarvis was unsure of, and offers the two answers he
+      // asked for -- "give a button to the user to mark it as correct or mark
+      // it as looks wrong correct it in the app" (8 Oct 2026). Neither button
+      // holds the receipt: it is already filed either way.
+      const rid = Number((done.result as any)?.record_id) || 0
+      const flag = unsureWhy
+        ? `
 
-Reply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`)
-      await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${(done.result as any)?.record_id ?? "?"} (undo code /undo-${done.row.id}).${detail}`)
+⚠️ <b>Worth a look</b> — ${esc(unsureWhy)}. I filed my best guess anyway.`
+        : ''
+      const url = fixUrl(rid)
+      const buttons: InlineKeyboard = []
+      if (rid) {
+        const row: InlineButton[] = [{ text: '✅ Looks right', callback_data: `rok:${rid}` }]
+        if (url) row.push({ text: '✏️ Correct it', url })
+        buttons.push(row)
+      }
+      const body =
+        `✅ Filed <b>${what}</b>.${detail}${flag}${recordTag(rid)}${ask}` +
+        `
+
+Reply <code>/undo-${done.row.id}</code> within 24h to reverse.` +
+        (buttons.length ? '' : fixHint(rid))
+      if (buttons.length) await sendWithButtons(chatId, body, buttons)
+      else await sendMessage(chatId, body)
+      await remember(chatId, '[sent a receipt]', `Filed ${what} as record #${rid || "?"} (undo code /undo-${done.row.id}).${detail}${unsureWhy ? ` Flagged to check: ${unsureWhy}.` : ''}`)
     }
     return
   }
