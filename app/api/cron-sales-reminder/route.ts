@@ -3,7 +3,7 @@ import { getRecords } from '@/lib/records'
 import { appendTurn } from '@/lib/bot-memory'
 import { mytDate, dayLabel, addDays } from '@/lib/period'
 import { salesImportInUse, salesFiledFor } from '@/lib/sales'
-import { scanEmailPayments, buildQuestion } from '@/lib/email-payments'
+import { scanEmailPayments, fileFoundPayments } from '@/lib/email-payments'
 import { getMeals, getBudget, kcalOn } from '@/lib/meals'
 
 // The nightly "send me tonight's sales" nudge.
@@ -42,16 +42,20 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, email: await scanEmailPayments({ days, dry: true }) })
   }
   const scan = await scanEmailPayments()
+  // FILED, NOT ASKED. The numbered question this replaces put eleven payments
+  // into owner's drawings in one go when the answer was meant to be "some of
+  // these, not those" (owner, 8 Oct 2026). They now file uncategorised and the
+  // category is set per row in Cash Out.
   let asked = false
   try {
-    const q = await buildQuestion()
-    if (q) {
-      await sendMessage(owner, q)
-      await appendTurn(Number(owner), '[nightly email payments check]', q.replace(/<[^>]+>/g, ''))
-      asked = true
+    const got = await fileFoundPayments()
+    if (got.message) {
+      await sendMessage(owner, got.message)
+      await appendTurn(Number(owner), '[nightly email payments check]', got.message.replace(/<[^>]+>/g, ''))
+      asked = got.filed > 0
     }
   } catch (e) {
-    console.error('[CFO] email payments question failed:', e)
+    console.error('[CFO] email payments filing failed:', e)
   }
 
   // ?only=email -- a manual test of the email check without the sales nudge.

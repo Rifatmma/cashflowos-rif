@@ -77,7 +77,10 @@ export default async function CorrectReceipt({ params, searchParams }: {
             </p>
             {lines.length === 0 && <p className="co-meta">No lines were read on this one &mdash; add them below.</p>}
             <CorrectForm id={row.id} total={Number(row.amount)} discount={Number(row.meta?.discount) || 0} lines={lines} aliases={aliases}
-              receiptTypeInit={lines.length ? '' : String(row.meta?.expense_type ?? '')} />
+              receiptTypeInit={lines.length ? '' : String(row.meta?.expense_type ?? '')}
+              merchantInit={String(row.meta?.merchant ?? '')}
+              dateInit={String(row.due_date || mytDate(row.created_at) || '')}
+              refInit={String(row.meta?.receipt_no ?? '')} />
           </section>
         </div>
       )}

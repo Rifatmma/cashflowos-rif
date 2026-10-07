@@ -21,7 +21,7 @@ import { claim, executeClaimed, summarizeResult, undoAction, runAutopilot, propo
 import { readImage, sanitiseItems, splitByType, sanitiseReceiptDate, TYPE_WORD, type VisionResult } from '@/lib/vision'
 import { parseLineEdits, keepLineMoney } from '@/lib/receipt-lines'
 import { fixUrl } from '@/lib/app-url'
-import { parseTypedReceipt, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
+import { parseTypedReceipt, parseTotalOnly, looksTyped, typedDate, parseLabelled, TEMPLATE } from '@/lib/typed-receipt'
 import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
@@ -737,7 +737,10 @@ async function handleMessage(msg: any): Promise<Response> {
   // A bill TYPED in the owner's template (lib/typed-receipt.ts) is a receipt too:
   // same letterbox as a photo, so staff need no @mention and no allowlist for it.
   const typedText: string = !msg.photo && !msg.document ? String(msg.text || '') : ''
-  const isTyped = !!typedText && looksTyped(typedText)
+  // A bill with no lines -- "Touch n Go RM 45" -- is a bill too (owner, 8 Oct
+  // 2026). It goes through the same letterbox as a photo or a full template.
+  const isTotalOnly = !!typedText && !looksTyped(typedText) && !!parseTotalOnly(typedText, mytDate())
+  const isTyped = !!typedText && (looksTyped(typedText) || isTotalOnly)
   const staffTyped = isGroupChat(msg.chat) && isReceiptChat(chatId) && isTyped
   // "no photo" answering Jarvis's photo question, also through the letterbox.
   const staffSkip = isGroupChat(msg.chat) && isReceiptChat(chatId) && !!typedText && SKIP_PHOTO.test(typedText)
@@ -1658,10 +1661,17 @@ async function decideAndFile(a: {
       // it as looks wrong correct it in the app" (8 Oct 2026). Neither button
       // holds the receipt: it is already filed either way.
       const rid = Number((done.result as any)?.record_id) || 0
+      // The doubt has to be checkable WITHOUT opening the app. "Jarvis doubt
+      // this -- is it true or not, easy to check. That is how an AI agent in
+      // the chat become useful so don't lose that" (owner, 8 Oct 2026). So a
+      // lines-vs-total mismatch shows its arithmetic here, line by line.
       const flag = unsureWhy
         ? `
 
-⚠️ <b>Worth a look</b> — ${esc(unsureWhy)}. I filed my best guess anyway.`
+⚠️ <b>Worth a look</b> — ${esc(unsureWhy)}. Filed anyway at ${rm(Number(v.amount))}.`
+          + (mismatch ? showWorking(v) : '')
+          + (gaps.includes('shop') ? `
+<i>I won't invent a shop name — tell me whose bill it is, or set it in the app.</i>` : '')
         : ''
       const url = fixUrl(rid)
       const buttons: InlineKeyboard = []
@@ -1967,7 +1977,8 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   const chatId = msg.chat?.id
   const filer = filedBy(msg)
   const today = mytDate()
-  const t = parseTypedReceipt(String(msg.text || ''), today)
+  const typed = String(msg.text || '')
+  const t = parseTypedReceipt(typed, today) ?? parseTotalOnly(typed, today)
   if (!t) return
   if (!t.ok) {
     const reply =
@@ -1980,6 +1991,10 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
 
   const summed = Math.round(t.lines.reduce((s, l) => s + l.line_total, 0) * 100) / 100
   const amount = t.total ?? summed
+  // No lines at all: the total IS the bill. Nothing to reconcile, nothing to
+  // split by type -- it files uncategorised and he sets what it was for in the
+  // app, which is where he asked for that decision to live.
+  const totalOnly = t.lines.length === 0
   // The SAME sanitiser the photo path uses: per-kg prices, clamps, and the
   // lines-vs-total check (a typed TOTAL that disagrees goes to the owner).
   const s = sanitiseItems(t.lines, amount)
@@ -1987,7 +2002,9 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   const type_split = splitByType(s.items, amount, s.reconciles)
   const byType = new Map<string, number>()
   for (const i of s.items ?? []) byType.set(i.expense_type ?? 'cogs_food', (byType.get(i.expense_type ?? 'cogs_food') ?? 0) + i.line_total)
-  const expense_type = ([...byType.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'cogs_food') as VisionResult['expense_type']
+  const expense_type = (totalOnly
+    ? undefined
+    : [...byType.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'cogs_food') as VisionResult['expense_type']
 
   // A photo they sent earlier that couldn't be read belongs with this.
   const held = await getPending(chatId, filer.id)
@@ -2000,6 +2017,12 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     confidence: s.reconciles ? 'high' : 'low', missing: [], items: s.items, expense_type,
     items_note: note, type_split,
   }
+  // A total with no lines is not a doubtful read -- it is exactly what he said
+  // the bill came to. What IS unknown is what it was for, so it is flagged for
+  // a category rather than for a second look at the number.
+  const totalOnlyFlag = totalOnly
+    ? { needs_check: true, needs_check_why: 'no lines on it — say what it was for' }
+    : {}
   const payload = {
     kind: 'receipt', amount, merchant: t.merchant, date: dateFix.date, category: 'Typed bill',
     items: s.items, expense_type, items_note: note, type_split,
@@ -2009,6 +2032,7 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     filed_by: staffTyped ? filer.name : undefined,
     filed_by_id: staffTyped ? filer.id : undefined,
     filed_in_group: staffTyped || undefined,
+    ...totalOnlyFlag,
     idempotencyKey: `typed:${chatId}:${msg.message_id}`,
   }
   const approvalChatId = staffTyped ? (OWNER ? Number(OWNER) : chatId) : chatId
@@ -2018,15 +2042,36 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
   const what = `${rm(amount)}${t.merchant ? ` · ${esc(t.merchant)}` : ''}`
   const detail = receiptSummary(v)
 
-  // Same dial as photos: typed numbers are exact, so it's the amount that decides.
-  if (s.reconciles && amount <= threshold()) {
+  // Same dial as photos, which is now simply: file it. Typed numbers are the
+  // staff's own, so there was never much to approve; what made this ask was the
+  // RM 200 limit and a lines-vs-total mismatch, and both are better shown in
+  // Cash Out than argued about in chat (owner, 8 Oct 2026).
+  if (true) {
     const done = await runAutopilot('expense', { ...payload, auto: true })
     if (!done) { await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.'); return }
     const recordId = (done.result as any)?.record_id ?? null
     if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: recordId, what: `the ${rm(amount)} bill`, amount })
-    const hint = staffTyped ? FIX_HINT_STAFF : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.${fixHint((done.result as any)?.record_id)}`
-    const reply = `✅ Filed <b>${what}</b>${staffTyped ? ` — thanks ${esc(filer.name)}` : ''}.${detail}${recordTag(recordId)}${askPhoto}${hint}`
-    await sendMessage(chatId, reply)
+    // Lines that do not add up are no longer a reason to ask -- they are said
+    // out loud and flagged on the row instead.
+    const off = !totalOnly && !s.reconciles
+      ? `\n\n\u26A0\uFE0F <b>Worth a look</b> \u2014 the lines come to ${rm(summed)} but you typed ${rm(amount)}. Filed at ${rm(amount)}.`
+      : totalOnly
+        ? `\n\n\u{1F9FE} No lines on this one \u2014 filed as ${rm(amount)}. Set what it was for in the app.`
+        : ''
+    const rid = Number(recordId) || 0
+    const fixAt = fixUrl(rid)
+    const buttons: InlineKeyboard = []
+    if (rid && !staffTyped) {
+      const btns: InlineButton[] = [{ text: '\u2705 Looks right', callback_data: `rok:${rid}` }]
+      if (fixAt) btns.push({ text: '\u270F\uFE0F Correct it', url: fixAt })
+      buttons.push(btns)
+    }
+    const hint = staffTyped
+      ? FIX_HINT_STAFF
+      : `\n\nReply <code>/undo-${done.row.id}</code> within 24h to reverse.` + (buttons.length ? '' : fixHint(rid))
+    const reply = `\u2705 Filed <b>${what}</b>${staffTyped ? ` \u2014 thanks ${esc(filer.name)}` : ''}.${detail}${off}${recordTag(recordId)}${askPhoto}${hint}`
+    if (buttons.length) await sendWithButtons(chatId, reply, buttons)
+    else await sendMessage(chatId, reply)
     await remember(chatId, `[${staffTyped ? filer.name + ' ' : ''}typed a bill]`, `Filed ${what} as record #${recordId}.${detail}`)
     if (staffTyped && OWNER) {
       await sendMessage(Number(OWNER),
@@ -2036,22 +2081,10 @@ async function fileTypedReceipt(msg: any, staffTyped: boolean): Promise<void> {
     return
   }
 
-  const head = s.reconciles
-    ? buildProposalText(v, threshold())
-    : `⚠️ <b>Typed bill doesn't add up</b>: the items come to ${rm(summed)} but the TOTAL typed is ${rm(amount)}. Check before approving.`
-  // The owner decides without going to the group to look: the exact words the
-  // staff typed ride along on the card (owner, 23 Sep 2026).
-  const text = head + detail +
-    (staffTyped ? `\n\n<i>${esc(filer.name)} typed:</i>\n<code>${esc(String(msg.text).slice(0, 900))}</code>` : '')
-  const row = await proposeAndNotify({ agentKey: 'expense', idempotencyKey: payload.idempotencyKey, payload, chatId: approvalChatId, text })
-  if (row) {
-    await remember(approvalChatId, '[a bill was typed]',
-      `${text}\n\n(Waiting for the owner's approval — approval #${row.id}. Nothing is filed until they approve.)`)
-    // The photo can arrive before the approval; fileReceipt links it on filing.
-    if (!photo) await setPending(chatId, filer.id, { type: 'need_photo', key: payload.idempotencyKey, record_id: null, what: `the ${rm(amount)} bill`, amount })
-  }
-  if (staffTyped) await sendMessage(chatId, `📝 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.${askPhoto}`)
-  else if (!row) await sendMessage(chatId, '📁 I\'m already waiting on your YES for this one — check the buttons above.')
+  // NOTHING FALLS PAST HERE ANY MORE. A typed bill used to drop through to an
+  // approval card when it was over the limit or the lines did not match the
+  // total. Both are now flags on the row instead: "Everything should be filed
+  // without asking then correct it in the app later" (owner, 8 Oct 2026).
 }
 
 // ============================================================

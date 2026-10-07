@@ -88,8 +88,12 @@ function stockText(d: Draft, aliases: Record<string, string[]>): { text: string;
   return { text: r.map(s => `+${fmtStock(s.item, s.qty)} ${itemLabel(s.item)}${s.note ? ` (${s.note})` : ''}`).join(' · ') }
 }
 
-export default function CorrectForm({ id, total, discount = 0, lines, aliases, receiptTypeInit = '' }: {
+export default function CorrectForm({
+  id, total, discount = 0, lines, aliases, receiptTypeInit = '',
+  merchantInit = '', dateInit = '', refInit = '',
+}: {
   id: number; total: number; discount?: number; lines: Line[]; aliases: Record<string, string[]>; receiptTypeInit?: string
+  merchantInit?: string; dateInit?: string; refInit?: string
 }) {
   const [res, run, pending] = useActionState<CorrectResult, FormData>(correctReceipt, null)
   // A refused save is shown at the TOP and scrolled to: at the bottom of a long
@@ -113,6 +117,16 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
   // put right at all. "sometimes jarvis did not read it correctly... I need a
   // system to replace Jarvis thought" (owner, 8 Oct 2026). This is that.
   const [ownTotal, setOwnTotal] = useState(f2(total))
+  // EVERYTHING JARVIS GUESSED IS EDITABLE.
+  //
+  // "I was not able to edit the shop name as well... Can you make every field
+  // editable? ... I don't wanna go back to you and tell you to make this field
+  // editable that field editable we've been back and forth on this so many
+  // times." (owner, 8 Oct 2026). So the header of the receipt -- shop, date and
+  // the shop's own reference -- is typed here, not just displayed.
+  const [merchant, setMerchant] = useState(merchantInit)
+  const [day, setDay] = useState(dateInit)
+  const [ref, setRef] = useState(refInit)
   const [receiptType, setReceiptType] = useState(receiptTypeInit)
   const [drafts, setDrafts] = useState<Draft[]>(() => lines.map(toDraft))
 
@@ -329,6 +343,27 @@ export default function CorrectForm({ id, total, discount = 0, lines, aliases, r
           {Math.abs(gap) > 0.05 ? ` · off by RM ${f2(Math.abs(gap))}` : ' · matches ✓'}
         </p>
         )}
+        <div className="cr-head-edit">
+          <div className="eyebrow">The bill itself</div>
+          <label className="cr-field cr-wide">
+            <span>Shop</span>
+            <input name="merchant" value={merchant} maxLength={80}
+              placeholder="who you paid" onChange={e => setMerchant(e.target.value)} />
+            {!merchantInit && <small>Jarvis never invents a shop name. Type it and it&rsquo;s yours.</small>}
+          </label>
+          <div className="cr-head-row">
+            <label className="cr-field">
+              <span>Date on the bill</span>
+              <input name="due_date" type="date" value={day} onChange={e => setDay(e.target.value)} />
+            </label>
+            <label className="cr-field">
+              <span>Shop&rsquo;s own reference</span>
+              <input name="receipt_no" value={ref} maxLength={40}
+                placeholder="optional" onChange={e => setRef(e.target.value)} />
+            </label>
+          </div>
+        </div>
+
         <label className="cr-field cr-total">
           <span>What the bill actually came to (RM)</span>
           <input inputMode="decimal" name="amount" value={ownTotal}

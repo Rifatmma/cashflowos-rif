@@ -35,6 +35,38 @@ export type LineIn = {
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
+/**
+ * The header fields, as the owner typed them.
+ *
+ * Shop, date and the shop's own reference were display-only: Jarvis's reading
+ * stood whatever it said. "Make everything editable if I wanna edit then it can
+ * be edit and overrides what Jarvis guess" (owner, 8 Oct 2026).
+ *
+ * A field left BLANK clears it rather than keeping the old value -- that is how
+ * a wrong shop name gets removed, and blank-plus-flagged is what this app does
+ * instead of inventing one.
+ */
+function headerEdits(form: FormData, meta: any): { due_date?: string | null } {
+  const out: { due_date?: string | null } = {}
+  if (form.has('merchant')) {
+    const v = String(form.get('merchant') ?? '').trim().slice(0, 80)
+    if (v) meta.merchant = v
+    else delete meta.merchant
+  }
+  if (form.has('receipt_no')) {
+    const v = String(form.get('receipt_no') ?? '').trim().slice(0, 40)
+    if (v) meta.receipt_no = v
+    else delete meta.receipt_no
+  }
+  if (form.has('due_date')) {
+    const v = String(form.get('due_date') ?? '').trim()
+    // An <input type="date"> always gives YYYY-MM-DD or nothing.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) out.due_date = v
+    else if (!v) out.due_date = null
+  }
+  return out
+}
+
 export async function correctReceipt(_prev: CorrectResult, form: FormData): Promise<CorrectResult> {
   if (!supabaseConfigured) return { ok: false, message: 'Supabase is not configured yet.' }
   const id = Number(form.get('id'))
@@ -80,7 +112,10 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     meta.corrected_at = new Date().toISOString().slice(0, 10)
     meta.corrected_via = 'web'
     delete meta.fix_later; delete meta.fix_later_note; delete meta.checked_ok; delete meta.fixed_note
-    const { error } = await supabase.from('records').update({ amount: amt, meta }).eq('id', id).eq('category', 'cash_out')
+    const head = headerEdits(form, meta)
+    const { error } = await supabase.from('records')
+      .update({ amount: amt, meta, ...(head.due_date !== undefined ? { due_date: head.due_date } : {}) })
+      .eq('id', id).eq('category', 'cash_out')
     if (error) return { ok: false, message: error.message }
     revalidatePath('/cash-out'); revalidatePath(`/cash-out/${id}`); revalidatePath('/')
     // Stays on the page like every other save does — see the note further down.
@@ -191,7 +226,10 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   // The lines changed, so an earlier "it's correct" no longer vouches for them.
   delete meta.checked_ok; delete meta.fixed_note
 
-  const { error } = await supabase.from('records').update({ amount, meta }).eq('id', id).eq('category', 'cash_out')
+  const head = headerEdits(form, meta)
+  const { error } = await supabase.from('records')
+    .update({ amount, meta, ...(head.due_date !== undefined ? { due_date: head.due_date } : {}) })
+    .eq('id', id).eq('category', 'cash_out')
   if (error) return { ok: false, message: error.message }
 
   await supabase.from('stock_moves').delete().eq('record_id', id).eq('kind', 'purchase')

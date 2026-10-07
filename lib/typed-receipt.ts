@@ -155,6 +155,71 @@ export function parseTypedReceipt(text: string, today: string): Typed | null {
   }
 }
 
+/**
+ * A bill with NO lines: just who was paid and how much.
+ *
+ *   Touch n Go RM 45
+ *   TNG 45.60
+ *   Supplier: Shell / Total: RM 80
+ *
+ * The owner's case (8 Oct 2026): "let's say touch and go receipt if I don't
+ * want to add a line I just want to tell how much is the total bill I should be
+ * able to do that." An e-wallet payment has no itemisation to type, and
+ * demanding item blocks for one meant it could not be filed by typing at all.
+ *
+ * DELIBERATELY NARROW, because this runs against ordinary group chatter. It
+ * takes a labelled Total with no item blocks, or a SHORT single line that is
+ * essentially a name and a ringgit figure. "the rice was 2 at 45.90" is a
+ * correction, not a bill, and must not be swallowed here -- so the bare form
+ * requires the money to sit at one end of the line with nothing else after it.
+ */
+const PAID_WORD = /^(paid|bayar|pay|beli|bought|topup|top ?up|transfer|tng|touch ?'?\s?n ?go)\b/i
+
+export function parseTotalOnly(text: string, today: string): Typed | null {
+  const raw = String(text ?? '').trim()
+  if (!raw || raw.startsWith('/')) return null
+
+  // Form 1: labelled, with a Total and no Item Name.
+  const labelled = parseLabelled(raw)
+  const hasItem = raw.split(/\r?\n/).some(l => labelOf(l)?.[0] === 'item')
+  if (labelled.total && !hasItem) {
+    const total = money(labelled.total)
+    if (total === null || total <= 0) return null
+    return {
+      ok: true,
+      merchant: labelled.supplier?.slice(0, 60) || undefined,
+      date: labelled.date ? typedDate(labelled.date, today) : undefined,
+      total, lines: [],
+    }
+  }
+
+  // Form 2: one short line, a name and a figure. At most 60 characters, so a
+  // sentence can never qualify.
+  if (/\r?\n/.test(raw) || raw.length > 60) return null
+  const m = raw.match(/^(.*?)\s*(?:rm\s*)?([\d]+(?:[.,]\d{1,2})?)\s*$/i)
+  if (!m) return null
+  const name = m[1].replace(/[-–:=]+\s*$/, '').trim()
+  const total = money(m[2])
+  if (total === null || total <= 0) return null
+  // Either the money is written as RM, or the line opens with a paying word.
+  // A bare "Kakak 40" is too close to ordinary chat to file on its own.
+  if (!/rm\s*[\d]/i.test(raw) && !PAID_WORD.test(name)) return null
+  // A SHOP NAME IS A NAME, NOT A SENTENCE. "can you check how much we spent on
+  // udang last week RM 300" fits in 60 characters and would otherwise file as a
+  // RM 300 bill to a payee called "can you check how much...". A payee is short
+  // and contains no question or request words.
+  if (!name || name.length < 2 || name.length > 40) return null
+  // Whole words only: without the boundaries "Domino's" contains "do" and
+  // "Isetan" contains "is", and a real payee would be refused.
+  if (/(can|could|would|will|what|which|how|why|when|where|who|is|are|was|were|do|does|did|should|please|thanks|tolong|boleh|berapa|kenapa)/i.test(name)) return null
+  // A payee is a name, not a clause. Five words is Technology Park Malaysia
+  // Flexi Parking; anything longer is somebody talking.
+  if (name.split(/\s+/).filter(Boolean).length > 5) return null
+  // A name that is only digits or punctuation is not a payee.
+  if (!/[a-z\u0E00-\u0E7F]/i.test(name)) return null
+  return { ok: true, merchant: name.slice(0, 60), date: undefined, total, lines: [] }
+}
+
 /** The template, ready to paste. Shown whenever a bill can't be read. */
 export const TEMPLATE =
   'Supplier: \n' +
