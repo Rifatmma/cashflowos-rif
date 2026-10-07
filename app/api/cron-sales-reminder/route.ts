@@ -3,7 +3,7 @@ import { getRecords } from '@/lib/records'
 import { appendTurn } from '@/lib/bot-memory'
 import { mytDate, dayLabel, addDays } from '@/lib/period'
 import { salesImportInUse, salesFiledFor } from '@/lib/sales'
-import { scanEmailPayments, fileFoundPayments } from '@/lib/email-payments'
+import { scanEmailPayments, buildQuestion } from '@/lib/email-payments'
 import { getMeals, getBudget, kcalOn } from '@/lib/meals'
 
 // The nightly "send me tonight's sales" nudge.
@@ -42,20 +42,23 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, email: await scanEmailPayments({ days, dry: true }) })
   }
   const scan = await scanEmailPayments()
-  // FILED, NOT ASKED. The numbered question this replaces put eleven payments
-  // into owner's drawings in one go when the answer was meant to be "some of
-  // these, not those" (owner, 8 Oct 2026). They now file uncategorised and the
-  // category is set per row in Cash Out.
+  // ASK, don't file. I replaced this with silent filing after eleven payments
+  // went in as owner's drawings in one go -- but that was never the problem:
+  // "No actually from the Email you need to ask I was just frustrated that when
+  // I said line 1-11 file it the rest skip it didn't recognize my instruction"
+  // (owner, 8 Oct 2026). The instruction HAD worked; Jarvis just replied that
+  // it had not understood "owner's". The fix is in the parser and the wording,
+  // not in taking the question away.
   let asked = false
   try {
-    const got = await fileFoundPayments()
-    if (got.message) {
-      await sendMessage(owner, got.message)
-      await appendTurn(Number(owner), '[nightly email payments check]', got.message.replace(/<[^>]+>/g, ''))
-      asked = got.filed > 0
+    const q = await buildQuestion()
+    if (q) {
+      await sendMessage(owner, q)
+      await appendTurn(Number(owner), '[nightly email payments check]', q.replace(/<[^>]+>/g, ''))
+      asked = true
     }
   } catch (e) {
-    console.error('[CFO] email payments filing failed:', e)
+    console.error('[CFO] email payments question failed:', e)
   }
 
   // ?only=email -- a manual test of the email check without the sales nudge.

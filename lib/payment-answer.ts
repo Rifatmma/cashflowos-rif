@@ -3,8 +3,9 @@
 // Jarvis lists them numbered; the owner answers in one line, any of:
 //   "1 services, 2 drawings, 3 skip"
 //   "1 3 drawings 2 food"          (numbers take the NEXT category named)
-//   "1-3 drawings"                 (ranges)
+//   "1-3 drawings" / "1 to 3 ..."  (ranges, written either way)
 //   "all drawings"  /  "rest skip" (everything / everything not yet named)
+//   "1-11 file as owner's drawing the rest skip"   <- how he actually writes it
 //   "4 drawings RM 25.50"          (an RM amount for one whose price wasn't in RM)
 //
 // Pure: no imports. Deterministic on purpose -- money is filed from this, so a
@@ -30,7 +31,13 @@ const WORDS: [RegExp, string][] = [
   [/^(other|others|lain)$/, 'other'],
 ]
 // Glue words that carry no meaning here.
-const FILLER = /^(and|&|as|is|are|to|for|the|a|an|cost|costs|restaurant|business|file|it|them|dan|kos|pls|please)$/
+const FILLER = new RegExp('^(' + [
+  'and', '&', 'as', 'is', 'are', 'to', 'for', 'the', 'a', 'an',
+  'cost', 'costs', 'restaurant', 'business', 'it', 'them', 'that', 'this',
+  // Verbs he reaches for: "1-11 FILE as drawings", "MARK 3 skip", "PUT 4 food".
+  'file', 'filed', 'put', 'mark', 'set', 'make', 'log', 'record', 'book', 'masuk', 'letak',
+  'dan', 'kos', 'pls', 'please', 'ok', 'okay', 'thanks', 'tq',
+].join('|') + ')$')
 
 export function parseAnswer(text: string, max: number): Answer {
   const choices: Record<number, Choice> = {}
@@ -43,8 +50,15 @@ export function parseAnswer(text: string, max: number): Answer {
   const tokens = String(text).toLowerCase()
     .replace(/rm\s*(\d+(?:\.\d+)?)/g, ' rm:$1 ')
     .replace(/(\d)\s*[-–]\s*(\d)/g, '$1-$2')
+    // "1 to 11" and "1 hingga 11" are ranges too. Without this, "1 to 11
+    // drawings" filed ONLY number 1 and quietly left the other ten.
+    .replace(/(\d+)\s+(?:to|till|until|thru|through|hingga|sampai|ถึง)\s+(\d+)/g, '$1-$2')
     .split(/[\s,;/\n]+|(?<=\d)\.(?!\d)/)
-    .map(t => t.replace(/[.!?)(]+$/g, '').replace(/^[(]+/, ''))
+    // "owner's" is the same word as "owners". Reporting it as not understood
+    // while ALSO filing it correctly is what made a working answer look broken
+    // (owner, 8 Oct 2026): 1-11 went to drawings and 12-15 were skipped exactly
+    // as asked, and Jarvis still replied "I didn't understand: owner's".
+    .map(t => t.replace(/[.!?)(]+$/g, '').replace(/^[(]+/, '').replace(/['’]s?$/, '').replace(/['’]/g, ''))
     .filter(Boolean)
 
   const push = (n: number) => {
@@ -65,7 +79,7 @@ export function parseAnswer(text: string, max: number): Answer {
     if (range) { for (let n = Number(range[1]); n <= Number(range[2]); n++) push(n); continue }
     if (/^\d+$/.test(t)) { push(Number(t)); continue }
     if (t === 'all' || t === 'semua' || t === 'everything') { pending = Array.from({ length: max }, (_, i) => i + 1); continue }
-    if (t === 'rest' || t === 'lain-lain') { restMode = true; continue }
+    if (/^(rest|others?|remaining|remainder|balance|else|lain-lain|selebihnya|sisanya|baki)$/.test(t)) { restMode = true; continue }
     const type = WORDS.find(([re]) => re.test(t))?.[1]
     if (type) {
       const targets = restMode
@@ -78,7 +92,12 @@ export function parseAnswer(text: string, max: number): Answer {
       continue
     }
     if (FILLER.test(t)) continue
+    // A WORD IT DOES NOT KNOW BREAKS THE RUN. Numbers waiting for a category
+    // must not jump over it and pick up the next one: "1 bananas, 2 drawings"
+    // says nothing about 1, and filing it as drawings would be exactly the
+    // guess this file exists to avoid. They stay undecided and are listed back.
     unknownWords.push(t)
+    pending = []
   }
   // An amount given before its category ("4 rm25 drawings") was stored with an
   // empty type; any number still without a type is simply unanswered.

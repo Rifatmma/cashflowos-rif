@@ -231,72 +231,6 @@ export async function buildQuestion(): Promise<string | null> {
   )
 }
 
-/**
- * File every payment found in the email. No question, no numbered list.
- *
- * WHAT THIS REPLACES. buildQuestion() sent the owner a numbered list and filed
- * nothing until he answered it. On 8 Oct 2026 eleven payments went in as
- * owner's drawings in one go -- six Meta ad charges and an Instarem transfer of
- * RM 2,217.84 among them -- because one category word with no numbers applies
- * to the whole list:
- *
- *   "Today Jarvis told me there were some payments coming from the Email so I
- *    said file it as owner's drawing for some of it then some of it just skip
- *    but it seems he didn't understand that also. That's why I don't wanna keep
- *    argueing in the chat I want to file it I can correct it in the APP!!!"
- *
- * So the category is no longer decided in chat at all. Every payment files
- * UNCATEGORISED, which puts it under "Not categorised" in Cash Out, where one
- * tap per row sets what it was for and the money is visible either way. A
- * payment that was never real is deleted there too -- "skip" was always a
- * decision better made looking at the books than at a chat message.
- */
-export async function fileFoundPayments(): Promise<{ filed: number; message: string | null }> {
-  if (!supabaseConfigured) return { filed: 0, message: null }
-  await reconcileFiled()
-  const { data } = await supabase.from('email_payments').select('*')
-    .in('status', ['new', 'asked']).order('paid_on').order('id')
-  const list = (data ?? []) as Pay[]
-  if (!list.length) return { filed: 0, message: null }
-
-  const done: string[] = []
-  const stuck: string[] = []
-  for (const p of list) {
-    const myr = p.amount_myr
-    if (!(myr && myr > 0)) { stuck.push(`${esc(p.merchant)}${p.currency ? ` (${p.currency} ${p.amount})` : ''}`); continue }
-    const payload = {
-      kind: 'receipt', amount: myr, merchant: p.merchant, date: p.paid_on ?? mytDate(),
-      category: 'From your email',
-      // No expense_type ON PURPOSE: uncategorised is honest, and it is what puts
-      // the row in front of him in the app instead of in a question in chat.
-      items: [{ name: p.what || p.merchant, qty: 1, unit: 'unit', unit_price: myr, line_total: myr }],
-      receipt_no: p.reference ?? undefined,
-      source: 'email',
-      note: `From email${p.currency && p.currency !== 'MYR' && p.amount ? ` (${p.currency} ${p.amount})` : ''}.`,
-      needs_check: true,
-      needs_check_why: 'from your email \u2014 say what it was for',
-      filed_by: 'Email',
-      idempotencyKey: `email:${p.id}`,
-    }
-    const res = await runAutopilot('expense', { ...payload, auto: true })
-    if (!res) { stuck.push(`${esc(p.merchant)} (already filed?)`); continue }
-    const recordId = (res.result as any)?.record_id ?? null
-    await supabase.from('email_payments').update({
-      status: 'filed', record_id: recordId, decided_at: new Date().toISOString(),
-    }).eq('id', p.id)
-    done.push(`\u2022 ${esc(p.merchant)} <b>RM ${money(myr)}</b>${recordId ? ` \u00b7 #${recordId}` : ''}`)
-  }
-
-  if (!done.length && !stuck.length) return { filed: 0, message: null }
-  const msg =
-    `\u{1F4E7} <b>${done.length}</b> payment${done.length === 1 ? '' : 's'} from your email \u2014 filed, not asked.\n\n` +
-    done.join('\n') +
-    (stuck.length ? `\n\nI could not file: ${stuck.join(', ')}.` : '') +
-    `\n\nAll of them are <b>uncategorised</b>. Open Cash Out, filter <i>Not categorised</i>, ` +
-    `and say what each one was for \u2014 or delete the ones that were not real payments.`
-  return { filed: done.length, message: msg }
-}
-
 export async function hasOpenQuestion(): Promise<boolean> {
   if (!supabaseConfigured) return false
   const { count } = await supabase.from('email_payments').select('id', { count: 'exact', head: true }).eq('status', 'asked')
@@ -351,7 +285,13 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
   const still = list.filter(p => !a.choices[p.list_no!] || needRm.includes(p.list_no!))
   let reply = done.length ? `✅ Done:\n${done.join('\n')}` : ''
   if (needRm.length) reply += `\n\nI need the RM amount for ${needRm.join(', ')}, e.g. <code>${needRm[0]} drawings RM 25.50</code>.`
-  if (a.unknownWords.length) reply += `\n\nI didn't understand: <i>${esc(a.unknownWords.join(' '))}</i>. Use food, drinks, packaging, cleaning, equipment, software, marketing, utilities, rent, salary, other, drawings or skip.`
+  // ONLY complain about a word when something was actually left undecided.
+  // "1-11 file as owner's drawing the rest skip" did exactly what it said --
+  // 1 to 11 as drawings, 12 to 15 skipped -- and Jarvis still answered "I didn't
+  // understand: owner's", which is what made a working instruction look like a
+  // failure (owner, 8 Oct 2026). A stray word beside an instruction that landed
+  // is not worth a sentence.
+  if (a.unknownWords.length && still.length) reply += `\n\nI didn't understand: <i>${esc(a.unknownWords.join(' '))}</i>. Use food, drinks, packaging, cleaning, equipment, software, marketing, utilities, rent, salary, other, drawings or skip.`
   if (a.badNumbers.length) reply += `\n\nThere's no number ${a.badNumbers.join(', ')} on the list.`
   if (still.length && !needRm.length) reply += `\n\nStill to answer:\n${still.map(payLine).join('\n')}`
   return reply.trim() || 'I couldn\'t match that to the list. Reply like <code>1 software, 2 drawings</code>.'
