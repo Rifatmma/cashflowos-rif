@@ -223,11 +223,19 @@ export async function buildQuestion(): Promise<string | null> {
   return (
     `📧 Hi! I found <b>${list.length}</b> payment${list.length === 1 ? '' : 's'} in your email (${esc(head)}):\n\n` +
     list.map(payLine).join('\n') +
-    `\n\nFor each: is it a <b>restaurant cost</b> (which kind?) or <b>owner's drawings</b>?\n` +
-    `Restaurant cost kinds: <i>food, drinks, packaging</i> (these are COGS) · <i>cleaning, equipment, software, ` +
-    `marketing, utilities, rent, salary, other</i> (not COGS).\n` +
-    `Reply like: <code>1 software, 2 drawings, 3 skip</code> — or <code>all drawings</code>. ` +
-    `<i>skip</i> = not a real payment / already filed.`
+    // HOW HE WRITES, NOT HOW A FORM WOULD ASK. This used to say "Reply like:
+    // 1 software, 2 drawings, 3 skip" — one entry per payment: "It is saying
+    // please type 1: food, 2: packaging and so on so on. It is too much typing"
+    // (owner, 8 Oct 2026). Slashes, ranges and "rest" all worked already;
+    // nothing on the card ever told him so.
+    `\n\nTell me in one line. Pick numbers with <b>/</b>, a run with <b>-</b>, ` +
+    `and say <b>rest</b> for everything left over:\n` +
+    `<code>1-11 drawings, rest skip</code>\n` +
+    `<code>1/3/6/8 drawings, 2/5 food, rest skip</code>\n` +
+    `<code>1 to 4 food, 5 marketing, rest skip</code>\n` +
+    `<code>all drawings</code>\n\n` +
+    `<i>Kinds: food, drinks, packaging (COGS) · cleaning, equipment, software, marketing, ` +
+    `utilities, rent, salary, other · drawings · skip (not a real payment).</i>`
   )
 }
 
