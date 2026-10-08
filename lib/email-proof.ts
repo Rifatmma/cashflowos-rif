@@ -370,7 +370,13 @@ export async function attachEmailProof(recordId: number, messageIds: string[]): 
   await supabase.from('vault_files').delete().eq('record_id', recordId).eq('meta->>from', 'email')
   const { error: rowErr } = await supabase.from('vault_files').upsert({
     sha256, storage_path: path, mime, size_bytes: bytes.length, record_id: recordId,
-    meta: { from: 'email', kind, subject: best.subject.slice(0, 200), message_id: best.messageId },
+    meta: {
+      from: 'email', kind, subject: best.subject.slice(0, 200), message_id: best.messageId,
+      // The readable text, so the receipt page can print it inline instead of
+      // sending him to another page he cannot get back from.
+      sender: best.from.slice(0, 200), at: best.at.slice(0, 60),
+      text: kind === 'email' ? readable(best.bodyHtml ?? '').slice(0, 20000) : null,
+    },
   }, { onConflict: 'sha256' })
   if (rowErr) return { ok: false, kind: 'none', note: rowErr.message }
 

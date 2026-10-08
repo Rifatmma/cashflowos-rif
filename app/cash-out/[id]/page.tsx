@@ -29,6 +29,7 @@ export default async function CorrectReceipt({ params, searchParams }: {
   const url = photo?.url ?? null
   const mime = photo?.mime ?? ''
   const rotate = photo?.rotate ?? 0
+  const mailText = photo?.text ?? null
   const aliases = row ? await taughtAliases() : {}
 
   const items: any[] = Array.isArray(row?.meta?.items) ? row!.meta.items : []
@@ -65,10 +66,15 @@ export default async function CorrectReceipt({ params, searchParams }: {
               {row.meta?.filed_by && <p className="co-sub">Sent by {String(row.meta.filed_by)}</p>}
             </section>
             <section className="co-card">
-              <ReceiptPhoto id={row.id} url={url} mime={mime} rotate={rotate} />
-              {/* Paid online, nothing proving it: the evidence is in the
-                  mailbox and nowhere else, so offer to go and get it. */}
-              {!url && row.meta?.source === 'email' && <EmailProof id={row.id} />}
+              <ReceiptPhoto id={row.id} url={url} mime={mime} rotate={rotate} mailText={mailText} />
+              {/* Paid online: the evidence is in the mailbox and nowhere else.
+                  Offered when there is no proof at all, and also when the
+                  saved email is an older one with no readable text kept on it
+                  — otherwise the only way to refresh it would be uploading a
+                  file by hand, which defeats the point. */}
+              {row.meta?.source === 'email' && (!url || (mime === 'text/html' && !mailText)) && (
+                <EmailProof id={row.id} again={!!url} />
+              )}
             </section>
           </div>
 

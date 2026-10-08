@@ -42,7 +42,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return new NextResponse(await blob.text(), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+      // sandbox: a unique origin with scripts, forms and navigation all off.
+      // frame-ancestors 'self': the receipt page frames this inline so he never
+      // leaves the page he is correcting, and nobody else can frame it at all.
+      'content-security-policy':
+        "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'self'",
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
       'cache-control': 'private, no-store',

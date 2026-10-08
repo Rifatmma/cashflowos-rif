@@ -7,7 +7,7 @@ import { fetchProofFromEmail, type EmailProofResult } from './email-proof-action
 // it. A card charge has no paper to photograph, so the only evidence that
 // exists is the email — and it is one tap away rather than a terminal command.
 
-export function EmailProof({ id }: { id: number }) {
+export function EmailProof({ id, again = false }: { id: number; again?: boolean }) {
   const [res, run, busy] = useActionState<EmailProofResult, FormData>(fetchProofFromEmail, null)
 
   return (
@@ -16,11 +16,12 @@ export function EmailProof({ id }: { id: number }) {
       {!res?.ok && (
         <>
           <button className="btn ghost" disabled={busy}>
-            {busy ? 'Looking in your email…' : 'Get the proof from your email'}
+            {busy ? 'Looking in your email…' : again ? 'Fetch it from your email again' : 'Get the proof from your email'}
           </button>
           <p className="co-meta ep-why">
-            This one was paid online, so there is no bill to photograph. I&rsquo;ll fetch the
-            invoice the seller attached &mdash; or, if there wasn&rsquo;t one, save the email itself.
+            {again
+              ? 'This one was saved before the email text was kept on the record. Fetching it again puts it here where you can read it without leaving the page.'
+              : 'This one was paid online, so there is no bill to photograph. I’ll fetch the invoice the seller attached — or, if there wasn’t one, save the email itself.'}
           </p>
         </>
       )}

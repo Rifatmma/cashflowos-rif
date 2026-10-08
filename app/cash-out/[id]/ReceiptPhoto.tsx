@@ -28,10 +28,12 @@ import { addReceiptPhoto, rotateReceiptPhoto, type PhotoResult } from './photo-a
 // line used to be "tap to open full size", which left the page and lost every
 // unsaved edit in the form (owner, 5 Oct 2026).
 
-export function ReceiptPhoto({ id, url, mime, rotate }: {
+export function ReceiptPhoto({ id, url, mime, rotate, mailText = null }: {
   id: number
   url: string | null
   mime: string
+  /** An email saved as proof, already made readable (lib/email-proof.ts). */
+  mailText?: string | null
   rotate: number
 }) {
   const [open, setOpen] = useState(false)
@@ -52,6 +54,7 @@ export function ReceiptPhoto({ id, url, mime, rotate }: {
     return () => window.removeEventListener('keydown', k)
   }, [open])
 
+  const [mail, setMail] = useState(false)
   const isImage = mime.startsWith('image/')
   const msg = added ?? turned
   const spin = rotate ? { transform: `rotate(${rotate}deg)` } : undefined
@@ -70,19 +73,39 @@ export function ReceiptPhoto({ id, url, mime, rotate }: {
 
       {/* Proof is not always a photograph. A payment that only existed as an
           email is proved by the seller's attached invoice, or failing that by
-          the email itself, saved as a page (lib/email-proof.ts). Both open in
-          a tab rather than pretending to be a picture. */}
-      {url && !isImage && (
+          the email itself, saved as a page (lib/email-proof.ts).
+
+          IT OPENS HERE, NOT IN A NEW TAB. Installed to the home screen there is
+          no browser chrome, so a new view has no back button: "I couldn't go
+          back to editing the receipt and save it" (owner, 8 Oct 2026). Reading
+          the proof is something you do WHILE correcting the lines, exactly like
+          the photo band above, so it belongs on the same page. */}
+      {url && !isImage && mime === 'text/html' && (
+        <div className="rp-mail">
+          <button type="button" className="btn ghost" onClick={() => setMail(m => !m)} aria-expanded={mail}>
+            {mail ? 'Hide the email' : 'Show the email this came from'}
+          </button>
+          {mail && (
+            <div className="rp-mail-box">
+              {mailText
+                ? <pre className="rp-mail-text">{mailText}</pre>
+                : <p className="co-meta">
+                    This one was saved before the text was kept on the record. Tap{' '}
+                    <b>Fetch it from your email again</b> below to bring it here, or{' '}
+                    <a href={`/api/proof/${id}`} target="_blank" rel="noopener">open it full screen</a>.
+                  </p>}
+              <p className="co-meta rp-mail-foot">
+                Saved from your mailbox &mdash; not a photo.{' '}
+                <a href={`/api/proof/${id}`} target="_blank" rel="noopener">Open it full screen</a>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {url && !isImage && mime !== 'text/html' && (
         <p className="co-sub rp-file">
-          {/* An email snapshot goes through /api/proof, not its signed URL:
-              Supabase storage serves text/html as plain text on purpose, so
-              the page arrived as source code on screen (owner, 8 Oct 2026). */}
-          <a href={mime === 'text/html' ? `/api/proof/${id}` : url} target="_blank" rel="noopener">
-            {mime === 'text/html' ? 'Open the email this came from' : 'Open the file'}
-          </a>{' '}
-          &mdash; {mime === 'text/html'
-            ? 'saved from your mailbox, not a photo.'
-            : 'it is a PDF, not a photo.'}
+          <a href={url} target="_blank" rel="noopener">Open the file</a> &mdash; it is a PDF, not a photo.
         </p>
       )}
 

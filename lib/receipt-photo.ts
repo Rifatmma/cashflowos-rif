@@ -26,6 +26,16 @@ export type ReceiptPhoto = {
   mime: string
   /** 0 | 90 | 180 | 270 — the owner's rotation, applied as CSS, never re-encoded. */
   rotate: number
+  /**
+   * An email saved as proof, as plain readable text.
+   *
+   * Kept on the row so the receipt page can simply PRINT it. The first attempt
+   * linked out to the stored page, which has no back button once the app is on
+   * his home screen — "I couldn't go back to editing the receipt and save it"
+   * (owner, 8 Oct 2026) — and the second framed it, which React's mount cycle
+   * kept aborting. Text needs neither.
+   */
+  text: string | null
   createdAt: string
 }
 
@@ -34,6 +44,7 @@ const rowToPhoto = (f: any): ReceiptPhoto => ({
   storagePath: String(f.storage_path),
   mime: String(f.mime ?? ''),
   rotate: Number(f.meta?.rotate ?? 0) || 0,
+  text: f.meta?.text ? String(f.meta.text) : null,
   createdAt: String(f.created_at),
 })
 
@@ -80,10 +91,10 @@ export async function signPhoto(path: string, ttl = SIGNED_URL_TTL): Promise<str
 
 /** The newest photo on a record, already signed. The common case, in one call. */
 export async function signedPhotoFor(recordId: number): Promise<
-  { url: string; mime: string; rotate: number } | null
+  { url: string; mime: string; rotate: number; text: string | null } | null
 > {
   const p = await latestPhoto(recordId)
   if (!p) return null
   const url = await signPhoto(p.storagePath)
-  return url ? { url, mime: p.mime, rotate: p.rotate } : null
+  return url ? { url, mime: p.mime, rotate: p.rotate, text: p.text } : null
 }
