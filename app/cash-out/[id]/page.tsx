@@ -9,6 +9,7 @@ import { getRecords, rm } from '@/lib/records'
 import { shortDate, mytDate } from '@/lib/period'
 import { taughtAliases } from '@/lib/stock-data'
 import CorrectForm, { type Line } from './CorrectForm'
+import { RemoveReceipt } from './RemoveReceipt'
 import { ReceiptPhoto } from './ReceiptPhoto'
 import { signedPhotoFor } from '@/lib/receipt-photo'
 
@@ -81,6 +82,13 @@ export default async function CorrectReceipt({ params, searchParams }: {
               merchantInit={String(row.meta?.merchant ?? '')}
               dateInit={String(row.due_date || mytDate(row.created_at) || '')}
               refInit={String(row.meta?.receipt_no ?? '')} />
+          </section>
+
+          {/* Last on the page on purpose: it is the one thing here that makes a
+              receipt stop existing, so it should not sit next to Save. */}
+          <section className="co-card rm-card">
+            <RemoveReceipt id={row.id} amount={Number(row.amount) || 0}
+              merchant={String(row.meta?.merchant || row.title || `Record #${row.id}`)} />
           </section>
         </div>
       )}

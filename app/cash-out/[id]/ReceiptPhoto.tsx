@@ -86,11 +86,11 @@ export function ReceiptPhoto({ id, url, mime, rotate }: {
           <input type="hidden" name="id" value={id} />
           <input
             ref={fileRef} type="file" name="photo" accept="image/*,application/pdf"
-            capture="environment" onChange={onPicked} hidden
+            onChange={onPicked} hidden
           />
           <button type="button" className="btn ghost" disabled={adding}
             onClick={() => fileRef.current?.click()}>
-            {adding ? 'Saving…' : url ? 'Replace the photo' : 'Add the photo'}
+            {adding ? 'Saving…' : url ? 'Replace it' : 'Add a photo or screenshot'}
           </button>
         </form>
 

@@ -476,6 +476,7 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
       </section>
 
       <p className="co-meta" style={{ marginTop: 10 }}>
+        <Link href="/cash-out/removed">Removed receipts</Link> ·{' '}
         Handwritten bill Jarvis can&rsquo;t read? Type it to him instead, one block per item:{' '}
         <span className="mono">Item Name / Weight / Quantity / Price</span>. A photo of the bill is kept as proof.
       </p>

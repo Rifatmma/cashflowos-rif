@@ -16,6 +16,8 @@
 // Every save keeps the old lines in meta.prev_items, re-derives the per-type
 // split, and redoes this receipt's stock-in from the saved lines.
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import { removeRecord } from '@/lib/remove-record'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { sanitiseItems, splitByType, EXPENSE_TYPES } from '@/lib/vision'
 import { receiptStockIn } from '@/lib/stock-data'
@@ -290,4 +292,24 @@ async function nextNeedingALook(after: number): Promise<CorrectNext | null> {
       says: first.p!.says,
     }
   } catch { return null }
+}
+
+export type RemoveResult = { ok: boolean; message: string } | null
+
+/**
+ * Take a receipt back out of the books.
+ *
+ * "I can see some receipt was filed that I don't want it to file... I need you
+ * to put a remove button there" (owner, 8 Oct 2026).
+ *
+ * Deliberately NOT a soft flag — see lib/remove-record.ts. The row, its stock
+ * movements and its photo rows are copied to `removed_records` first, so
+ * /cash-out/removed can put any of it back exactly as it was.
+ */
+export async function removeReceipt(_prev: RemoveResult, form: FormData): Promise<RemoveResult> {
+  const id = Number(form.get('id'))
+  const res = await removeRecord(id, String(form.get('by') || 'Rif'), String(form.get('reason') || ''))
+  if (!res.ok) return res
+  revalidatePath('/cash-out'); revalidatePath('/cash-out/removed'); revalidatePath('/stock'); revalidatePath('/')
+  redirect(`/cash-out?removed=${encodeURIComponent(res.message)}`)
 }

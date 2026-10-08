@@ -10,8 +10,13 @@ import { addReceiptPhoto, type PhotoResult } from './[id]/photo-actions'
 // thirty-second job into a five-minute one, which is how a list stops being
 // worked (owner, 5 Oct 2026).
 //
-// `capture="environment"` opens the camera straight onto the bill, because the
-// usual case is the paper being in the person's other hand.
+// NO `capture` ATTRIBUTE. It opened the camera straight onto the bill, on the
+// reasoning that the paper is usually in the person's other hand -- but it also
+// HIDES the photo library, and proof is not always a photograph: "I took a
+// screenshot on my screen to show as a proof but it only allows me to take a
+// photo not upload a photo from my device" (owner, 8 Oct 2026). A bank app's
+// transfer screen and a Touch 'n Go receipt are both screenshots. Without the
+// attribute the phone offers Camera AND Photo Library, which is both cases.
 
 export function QuickPhoto({ id }: { id: number }) {
   const [res, action, busy] = useActionState(addReceiptPhoto, null as PhotoResult)
@@ -25,12 +30,12 @@ export function QuickPhoto({ id }: { id: number }) {
       <input type="hidden" name="id" value={id} />
       <input
         ref={file} type="file" name="photo" accept="image/*,application/pdf"
-        capture="environment" hidden
+        hidden
         onChange={() => { if (file.current?.files?.length) form.current?.requestSubmit() }}
       />
       <button type="button" className="btn ghost" disabled={busy}
         onClick={() => file.current?.click()}>
-        {busy ? 'Saving…' : 'Photo now'}
+        {busy ? 'Saving…' : 'Add proof'}
       </button>
       {res && !res.ok && <span className="att-bad">{res.message}</span>}
     </form>
