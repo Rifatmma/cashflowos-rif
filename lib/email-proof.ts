@@ -192,18 +192,118 @@ const esc = (s: string) =>
  * browser, and an email is the last thing that should be trusted to run.
  */
 export function emailSnapshot(p: MailProof): string {
-  const text = String(p.bodyHtml ?? '')
-    .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+  return page(p.subject, p.from, p.at, readable(p.bodyHtml ?? ''))
+}
+
+/**
+ * Turn the delivered email into something a person reads.
+ *
+ * Three things were wrong with the first version, all visible on the Meta
+ * receipt: the markup showed through, "You&#039;ll" appeared instead of
+ * "You'll", and every dash came out as "â€”".
+ */
+export function readable(raw: string): string {
+  let t = String(raw ?? '')
+    .replace(/<(style|script|head)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6]|table)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/[ \t ]+/g, ' ')
+  // TWICE: these emails arrive double-encoded, so one pass leaves "&#039;".
+  t = unent(unent(t))
+  t = demojibake(t)
+  return t
+    // Every flavour of space becomes a space. Once the mis-decoding is undone,
+    // Meta's narrow no-break space is a real character \u2014 and it reads as "12:00
+    // AM" that no search for "12:00 AM" will ever match.
+    .replace(/[ \t\u00a0\u2007\u2008\u2009\u200a\u202f]+/g, ' ')
+    .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
+}
+
+// The HTML 4 Latin-1 names, in codepoint order 160-255, plus the handful of
+// punctuation names that actually turn up in receipts.
+//
+// All 96 of them matter here and not for completeness' sake: the mojibake in
+// these emails arrives AS entities — "12:00&acirc;&#8364;&macr;AM" — so
+// without acirc and Acirc the mangling cannot even be seen, let alone undone.
+const LATIN1 =
+  'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr ' +
+  'deg plusmn sup2 sup3 acute micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest ' +
+  'Agrave Aacute Acirc Atilde Auml Aring AElig Ccedil Egrave Eacute Ecirc Euml ' +
+  'Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times ' +
+  'Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig ' +
+  'agrave aacute acirc atilde auml aring aelig ccedil egrave eacute ecirc euml ' +
+  'igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide ' +
+  'oslash ugrave uacute ucirc uuml yacute thorn yuml'
+
+const ENT: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+  mdash: '—', ndash: '–', hellip: '…', rsquo: '’', lsquo: '‘',
+  ldquo: '“', rdquo: '”', bull: '•', trade: '™', euro: '€',
+  // CASE-SENSITIVE, and it has to be: &Acirc; is Â and &acirc; is â.
+  // Folding the name lowercased them into one and turned "MasterCard Â·Â·Â·"
+  // into "â·â·â·" instead of "···".
+  ...Object.fromEntries(LATIN1.split(' ').map((n, i) => [n, String.fromCharCode(160 + i)])),
+}
+
+const unent = (s: string) =>
+  s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, g: string) => {
+    const k = g.toLowerCase()
+    if (k.startsWith('#x')) { const n = parseInt(k.slice(2), 16); return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m }
+    if (k.startsWith('#')) { const n = parseInt(k.slice(1), 10); return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : m }
+    // Exact name first; the lowercase fallback catches &AMP; and friends.
+    return ENT[g] ?? ENT[k] ?? m
+  })
+
+/**
+ * Undo UTF-8 that was decoded as Windows-1252 somewhere upstream.
+ *
+ * That is where "12:00â€¯AM" and "MasterCard Â·Â·Â·" come from. The first
+ * attempt matched the few sequences I could see in one screenshot, which fixed
+ * the em dash and missed the en dash — a list of examples is not a rule.
+ *
+ * This reverses the mistake instead: map each character back to the byte it
+ * came from and read those bytes as UTF-8 again. A line that cannot be mapped,
+ * or that does not decode cleanly, is left exactly as it was — so genuine Thai
+ * or Malay text is never mangled in the name of fixing it.
+ *
+ * Done per line, because one bad line should not stop the rest being repaired.
+ */
+const CP1252: Record<string, number> = {
+  '\u20AC': 0x80, '\u201A': 0x82, '\u0192': 0x83, '\u201E': 0x84, '\u2026': 0x85,
+  '\u2020': 0x86, '\u2021': 0x87, '\u02C6': 0x88, '\u2030': 0x89, '\u0160': 0x8A,
+  '\u2039': 0x8B, '\u0152': 0x8C, '\u017D': 0x8E, '\u2018': 0x91, '\u2019': 0x92,
+  '\u201C': 0x93, '\u201D': 0x94, '\u2022': 0x95, '\u2013': 0x96, '\u2014': 0x97,
+  '\u02DC': 0x98, '\u2122': 0x99, '\u0161': 0x9A, '\u203A': 0x9B, '\u0153': 0x9C,
+  '\u017E': 0x9E, '\u0178': 0x9F,
+}
+/** The tell-tale lead byte of a mis-decoded UTF-8 sequence. */
+const LOOKS_MANGLED = /[\u00c2-\u00c3\u00e2]/
+
+function fixLine(line: string): string {
+  if (!LOOKS_MANGLED.test(line)) return line
+  const bytes: number[] = []
+  for (const ch of line) {
+    const c = ch.codePointAt(0)!
+    if (c < 0x100) bytes.push(c)
+    else if (CP1252[ch] !== undefined) bytes.push(CP1252[ch])
+    else return line                       // not representable: not our mangling
+  }
+  const out = Buffer.from(bytes).toString('utf8')
+  // A replacement character means the guess was wrong; keep what we had.
+  return out.includes('\ufffd') ? line : out
+}
+
+const demojibake = (s: string) => s.split('\n').map(fixLine).join('\n')
+
+const esc2 = (s: string) =>
+  String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+function page(subject: string, from: string, at: string, text: string): string {
   return `<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(p.subject) || 'Email'}</title>
+<title>${esc2(subject) || 'Email'}</title>
 <style>
   body{margin:0;padding:22px;background:#F1F4EC;color:#0C2B18;
        font:15px/1.6 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -212,15 +312,16 @@ export function emailSnapshot(p: MailProof): string {
   .v{font-size:15px;margin:2px 0 12px;overflow-wrap:anywhere}
   .v:last-child{margin-bottom:0}
   pre{background:#fff;border:1px solid #DDE3D6;border-radius:12px;padding:16px 18px;max-width:720px;
-      margin:0 auto;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+      margin:0 auto;white-space:pre-wrap;overflow-wrap:anywhere;
+      font:14px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace}
   .n{max-width:720px;margin:14px auto 0;color:#6B7A6E;font-size:12.5px}
 </style>
 <div class="h">
-  <div class="k">From</div><div class="v">${esc(p.from)}</div>
-  <div class="k">Subject</div><div class="v">${esc(p.subject)}</div>
-  <div class="k">Received</div><div class="v">${esc(p.at)}</div>
+  <div class="k">From</div><div class="v">${esc2(from)}</div>
+  <div class="k">Subject</div><div class="v">${esc2(subject)}</div>
+  <div class="k">Received</div><div class="v">${esc2(at)}</div>
 </div>
-<pre>${esc(text)}</pre>
+<pre>${esc2(text)}</pre>
 <p class="n">Saved from the mailbox as proof of this payment. Nothing here was written by CashflowOS.</p>
 `
 }
@@ -263,6 +364,10 @@ export async function attachEmailProof(recordId: number, messageIds: string[]): 
   if (upErr && !/exist/i.test(upErr.message)) {
     return { ok: false, kind: 'none', note: `upload: ${upErr.message}` }
   }
+  // A re-fetch replaces what was there: the readers take the newest file for a
+  // record, and leaving an earlier snapshot behind would make "which one is the
+  // proof" a question nobody can answer.
+  await supabase.from('vault_files').delete().eq('record_id', recordId).eq('meta->>from', 'email')
   const { error: rowErr } = await supabase.from('vault_files').upsert({
     sha256, storage_path: path, mime, size_bytes: bytes.length, record_id: recordId,
     meta: { from: 'email', kind, subject: best.subject.slice(0, 200), message_id: best.messageId },

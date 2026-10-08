@@ -74,7 +74,10 @@ export function ReceiptPhoto({ id, url, mime, rotate }: {
           a tab rather than pretending to be a picture. */}
       {url && !isImage && (
         <p className="co-sub rp-file">
-          <a href={url} target="_blank" rel="noopener">
+          {/* An email snapshot goes through /api/proof, not its signed URL:
+              Supabase storage serves text/html as plain text on purpose, so
+              the page arrived as source code on screen (owner, 8 Oct 2026). */}
+          <a href={mime === 'text/html' ? `/api/proof/${id}` : url} target="_blank" rel="noopener">
             {mime === 'text/html' ? 'Open the email this came from' : 'Open the file'}
           </a>{' '}
           &mdash; {mime === 'text/html'
