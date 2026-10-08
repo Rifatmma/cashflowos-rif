@@ -10,6 +10,7 @@ import { shortDate, mytDate } from '@/lib/period'
 import { taughtAliases } from '@/lib/stock-data'
 import CorrectForm, { type Line } from './CorrectForm'
 import { RemoveReceipt } from './RemoveReceipt'
+import { EmailProof } from './EmailProof'
 import { ReceiptPhoto } from './ReceiptPhoto'
 import { signedPhotoFor } from '@/lib/receipt-photo'
 
@@ -65,6 +66,9 @@ export default async function CorrectReceipt({ params, searchParams }: {
             </section>
             <section className="co-card">
               <ReceiptPhoto id={row.id} url={url} mime={mime} rotate={rotate} />
+              {/* Paid online, nothing proving it: the evidence is in the
+                  mailbox and nowhere else, so offer to go and get it. */}
+              {!url && row.meta?.source === 'email' && <EmailProof id={row.id} />}
             </section>
           </div>
 
