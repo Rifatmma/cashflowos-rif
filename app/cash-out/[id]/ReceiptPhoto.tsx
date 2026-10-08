@@ -68,9 +68,18 @@ export function ReceiptPhoto({ id, url, mime, rotate }: {
         </button>
       )}
 
+      {/* Proof is not always a photograph. A payment that only existed as an
+          email is proved by the seller's attached invoice, or failing that by
+          the email itself, saved as a page (lib/email-proof.ts). Both open in
+          a tab rather than pretending to be a picture. */}
       {url && !isImage && (
-        <p className="co-sub">
-          <a href={url} target="_blank" rel="noopener">Open the file</a> — it is a PDF, not a photo.
+        <p className="co-sub rp-file">
+          <a href={url} target="_blank" rel="noopener">
+            {mime === 'text/html' ? 'Open the email this came from' : 'Open the file'}
+          </a>{' '}
+          &mdash; {mime === 'text/html'
+            ? 'saved from your mailbox, not a photo.'
+            : 'it is a PDF, not a photo.'}
         </p>
       )}
 

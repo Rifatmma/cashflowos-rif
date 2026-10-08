@@ -24,6 +24,7 @@ import { mytDate } from './period'
 import { parseAnswer } from './payment-answer'
 import { runAutopilot } from './actions'
 import { runWorkbench } from './composio-mcp'
+import { attachEmailProof } from './email-proof'
 
 const INBOX = () => (process.env.PAYMENTS_EMAIL || 'rifatmma@gmail.com').trim().toLowerCase()
 
@@ -262,6 +263,7 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
   const a = parseAnswer(text, max)
 
   const done: string[] = []
+  const proofed: string[] = []
   const needRm: number[] = []
   for (const [noStr, c] of Object.entries(a.choices)) {
     const p = byNo.get(Number(noStr))
@@ -283,15 +285,30 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
     }
     const res = await runAutopilot('expense', { ...payload, auto: true })
     if (!res) { done.push(`${p.list_no}. ${esc(p.merchant)} — couldn't file (maybe already filed)`); continue }
+    const recordId = (res.result as any)?.record_id ?? null
     await supabase.from('email_payments').update({
-      status: 'filed', expense_type: c.type, record_id: (res.result as any)?.record_id ?? null, amount_myr: rm,
+      status: 'filed', expense_type: c.type, record_id: recordId, amount_myr: rm,
       decided_at: new Date().toISOString(),
     }).eq('id', p.id)
+    // A card charge has no paper, so without this the receipt sits under "No
+    // proof" forever with nothing he can do about it: "can't you just take a
+    // snapshot from the email? or if they attach anything in the email then
+    // you attach it in the app also?" (owner, 8 Oct 2026). Never throws — the
+    // payment is already filed, and proof arriving late beats a failed filing.
+    if (recordId) {
+      try {
+        const got = await attachEmailProof(recordId, (p as any).message_ids ?? [])
+        if (got.ok) proofed.push(String(p.list_no))
+      } catch (e: any) {
+        console.warn('[CFO] email proof for', recordId, String(e?.message ?? e).slice(0, 150))
+      }
+    }
     done.push(`${p.list_no}. ${esc(p.merchant)} RM ${money(rm)} — ${TYPE_WORD[c.type]}`)
   }
 
   const still = list.filter(p => !a.choices[p.list_no!] || needRm.includes(p.list_no!))
   let reply = done.length ? `✅ Done:\n${done.join('\n')}` : ''
+  if (proofed.length) reply += `\n\n📎 Proof saved from the email for ${proofed.length} of them.`
   if (needRm.length) reply += `\n\nI need the RM amount for ${needRm.join(', ')}, e.g. <code>${needRm[0]} drawings RM 25.50</code>.`
   // ONLY complain about a word when something was actually left undecided.
   // "1-11 file as owner's drawing the rest skip" did exactly what it said --
