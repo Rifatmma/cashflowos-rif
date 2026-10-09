@@ -23,9 +23,7 @@ import 'server-only'
 import { createHash } from 'crypto'
 import { supabase, supabaseConfigured } from './supabase'
 import { runWorkbench } from './composio-mcp'
-
-const INBOX = () => (process.env.PAYMENTS_EMAIL || 'rifatmma@gmail.com').trim().toLowerCase()
-const account = () => process.env.COMPOSIO_GMAIL_ACCOUNT?.trim() || INBOX()
+import { accountFor } from './email-inboxes'
 
 /** What Gmail gave back for one message. `note` says which path was taken. */
 export type MailProof = {
@@ -156,9 +154,9 @@ out = {'error': err, 'messageId': ${JSON.stringify(messageId)}, 'subject': subje
 print('<<<CFO' + json.dumps(out, ensure_ascii=True) + '\nCFO>>>')
 `
 
-export async function fetchMailProof(messageId: string): Promise<MailProof | null> {
+export async function fetchMailProof(messageId: string, inbox?: string | null): Promise<MailProof | null> {
   try {
-    const out = await runWorkbench(SCRIPT(messageId, account(), MAX_BYTES))
+    const out = await runWorkbench(SCRIPT(messageId, accountFor(inbox), MAX_BYTES))
     if (!out || out.error) {
       console.warn('[CFO] email proof:', String(out?.error ?? 'no output').slice(0, 200))
       return null
@@ -334,14 +332,14 @@ export type AttachResult = { ok: boolean; kind: 'attachment' | 'email' | 'none';
  * Content-addressed like every other receipt file, so the same invoice fetched
  * twice is stored once.
  */
-export async function attachEmailProof(recordId: number, messageIds: string[]): Promise<AttachResult> {
+export async function attachEmailProof(recordId: number, messageIds: string[], inbox?: string | null): Promise<AttachResult> {
   if (!supabaseConfigured) return { ok: false, kind: 'none', note: 'no database' }
   if (!(recordId > 0) || !messageIds.length) return { ok: false, kind: 'none', note: 'nothing to look up' }
 
   const notes: string[] = []
   let best: MailProof | null = null
   for (const id of messageIds.slice(0, 4)) {
-    const p = await fetchMailProof(id)
+    const p = await fetchMailProof(id, inbox)
     if (!p) { notes.push(`${id}: nothing came back`); continue }
     notes.push(`${id}: ${p.note}`)
     // An attachment wins outright; otherwise keep the first readable body.
@@ -372,6 +370,7 @@ export async function attachEmailProof(recordId: number, messageIds: string[]): 
     sha256, storage_path: path, mime, size_bytes: bytes.length, record_id: recordId,
     meta: {
       from: 'email', kind, subject: best.subject.slice(0, 200), message_id: best.messageId,
+      inbox: (inbox ?? '').trim().toLowerCase() || null,
       // The readable text, so the receipt page can print it inline instead of
       // sending him to another page he cannot get back from.
       sender: best.from.slice(0, 200), at: best.at.slice(0, 60),
@@ -394,7 +393,7 @@ export async function attachEmailProof(recordId: number, messageIds: string[]): 
 }
 
 /** A receipt that came from the mailbox and still has nothing readable on it. */
-export type NeedsProof = { recordId: number; merchant: string; amount: number; messageIds: string[] }
+export type NeedsProof = { recordId: number; merchant: string; amount: number; messageIds: string[]; inbox: string | null }
 
 /**
  * Email-filed receipts with no proof, or with a snapshot saved before the
@@ -418,9 +417,13 @@ export async function emailReceiptsNeedingProof(): Promise<NeedsProof[]> {
   for (const f of files ?? []) if (!newest.has(f.record_id)) newest.set(f.record_id, f)
 
   const { data: pays } = await supabase.from('email_payments')
-    .select('record_id, message_ids').in('record_id', ids)
+    .select('record_id, message_ids, inbox').in('record_id', ids)
   const msgs = new Map<number, string[]>()
-  for (const p of pays ?? []) msgs.set(Number(p.record_id), (p.message_ids ?? []) as string[])
+  const box = new Map<number, string | null>()
+  for (const p of pays ?? []) {
+    msgs.set(Number(p.record_id), (p.message_ids ?? []) as string[])
+    box.set(Number(p.record_id), (p.inbox ?? null) as string | null)
+  }
 
   const out: NeedsProof[] = []
   for (const r of rows as any[]) {
@@ -434,6 +437,7 @@ export async function emailReceiptsNeedingProof(): Promise<NeedsProof[]> {
       merchant: String(r.meta?.merchant ?? `Record #${r.id}`),
       amount: Number(r.amount) || 0,
       messageIds: m,
+      inbox: box.get(r.id) ?? (r.meta?.email_inbox ?? null),
     })
   }
   return out

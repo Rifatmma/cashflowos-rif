@@ -35,7 +35,7 @@ export async function fetchAllEmailProof(_prev: AllProofResult, _form: FormData)
   const failed: { merchant: string; note: string }[] = []
   for (const r of batch) {
     try {
-      const got = await attachEmailProof(r.recordId, r.messageIds)
+      const got = await attachEmailProof(r.recordId, r.messageIds, r.inbox)
       if (got.ok) done.push({ merchant: r.merchant, kind: got.kind })
       else failed.push({ merchant: r.merchant, note: got.note })
     } catch (e: any) {

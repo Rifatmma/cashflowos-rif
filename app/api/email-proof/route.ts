@@ -37,11 +37,11 @@ export async function GET(req: Request) {
   let rows: any[] = []
   if (one) {
     const { data } = await supabase.from('email_payments')
-      .select('id, merchant, record_id, message_ids').eq('record_id', one)
+      .select('id, merchant, record_id, message_ids, inbox').eq('record_id', one)
     rows = data ?? []
   } else {
     const { data } = await supabase.from('email_payments')
-      .select('id, merchant, record_id, message_ids')
+      .select('id, merchant, record_id, message_ids, inbox')
       .eq('status', 'filed').not('record_id', 'is', null)
       .order('id').limit(40)
     rows = data ?? []
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
 
   const out: any[] = []
   for (const r of rows) {
-    const res = await attachEmailProof(Number(r.record_id), (r.message_ids ?? []) as string[])
+    const res = await attachEmailProof(Number(r.record_id), (r.message_ids ?? []) as string[], (r as any).inbox ?? null)
     out.push({ record: r.record_id, merchant: r.merchant, ...res })
   }
   return NextResponse.json({

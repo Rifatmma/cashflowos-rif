@@ -17,7 +17,8 @@ import 'server-only'
 // SETUP: COMPOSIO_API_KEY = the owner's Composio CONSUMER key (ck_…), used over
 // Composio's MCP endpoint (lib/composio-mcp.ts). Optional:
 //   COMPOSIO_GMAIL_ACCOUNT -- the Gmail connection's alias or id (default: the inbox address)
-//   PAYMENTS_EMAIL         -- which inbox (default rifatmma@gmail.com)
+//   PAYMENTS_EMAILS        -- which inboxes, comma separated (see lib/email-inboxes.ts)
+//   PAYMENTS_EMAIL         -- the old single-inbox name, still honoured
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase, supabaseConfigured } from './supabase'
 import { mytDate } from './period'
@@ -25,10 +26,9 @@ import { parseAnswer } from './payment-answer'
 import { runAutopilot } from './actions'
 import { runWorkbench } from './composio-mcp'
 import { attachEmailProof } from './email-proof'
+import { inboxes, labelFor, type Inbox } from './email-inboxes'
 
-const INBOX = () => (process.env.PAYMENTS_EMAIL || 'rifatmma@gmail.com').trim().toLowerCase()
-
-type Mail = { id: string; from: string; subject: string; at: string; text: string }
+type Mail = { id: string; from: string; subject: string; at: string; text: string; inbox: string }
 
 const query = (days: number) =>
   `newer_than:${days}d ` + '(receipt OR invoice OR payment OR paid OR transfer OR donation OR subscription OR ' +
@@ -52,18 +52,43 @@ _out = {'error': _err, 'mails': [{'id': m.get('messageId'), 'from': m.get('sende
 print('<<<CFO' + json.dumps(_out, ensure_ascii=True) + '\nCFO>>>')
 `
 
-async function fetchMail(days = 2): Promise<Mail[]> {
-  const account = process.env.COMPOSIO_GMAIL_ACCOUNT?.trim() || INBOX()
-  const out = await runWorkbench(FETCH_SCRIPT(query(days), account, days > 2 ? 100 : 40))
-  if (out?.error) throw new Error(`Gmail: ${String(out.error).slice(0, 200)}`)
+async function fetchOne(box: Inbox, days: number): Promise<Mail[]> {
+  const out = await runWorkbench(FETCH_SCRIPT(query(days), box.account, days > 2 ? 100 : 40))
+  if (out?.error) throw new Error(`Gmail ${box.address}: ${String(out.error).slice(0, 200)}`)
   return (out?.mails ?? []).map((m: any) => ({
-    id: String(m.id), from: String(m.from ?? ''), subject: String(m.subject ?? ''), at: String(m.at ?? ''), text: String(m.text ?? ''),
+    id: String(m.id), from: String(m.from ?? ''), subject: String(m.subject ?? ''), at: String(m.at ?? ''),
+    text: String(m.text ?? ''), inbox: box.address,
   }))
+}
+
+/**
+ * Every configured mailbox, read one after another.
+ *
+ * ONE MAILBOX FAILING MUST NOT COST THE OTHERS. A revoked token or a Composio
+ * hiccup on Tina's inbox used to be the whole scan throwing, which would mean
+ * the owner's own payments silently stop being found too -- the same shape of
+ * bug as the holds that lost receipts. So each inbox is caught on its own and
+ * its failure is reported alongside the mail that did arrive.
+ */
+async function fetchMail(days = 2): Promise<{ mails: Mail[]; failures: string[] }> {
+  const mails: Mail[] = []
+  const failures: string[] = []
+  for (const box of inboxes()) {
+    try {
+      mails.push(...await fetchOne(box, days))
+    } catch (e: any) {
+      failures.push(`${box.label}: ${String(e?.message ?? e).slice(0, 160)}`)
+    }
+  }
+  if (!mails.length && failures.length) throw new Error(failures.join(' || '))
+  return { mails, failures }
 }
 
 export type Found = {
   message_ids: string[]; merchant: string; what: string | null
   amount: number | null; currency: string | null; paid_on: string | null; reference: string | null
+  /** Which mailbox it was found in. Read off the message, never asked of the model. */
+  inbox: string
 }
 
 /** One Claude call over all new emails -> distinct outgoing payments. */
@@ -99,6 +124,10 @@ export async function extractPayments(mails: Mail[]): Promise<Found[]> {
   const m = raw.match(/\{[\s\S]*\}/)
   const parsed = m ? JSON.parse(m[0]) : { payments: [] }
   const ids = new Set(mails.map(x => x.id))
+  // The inbox comes from OUR record of which mailbox the message arrived in, not
+  // from the model's answer. The proof fetch has to go back to the right Gmail
+  // account, and a hallucinated mailbox there would fail silently later.
+  const boxOf = new Map(mails.map(x => [x.id, x.inbox]))
   const out: Found[] = []
   for (const p of parsed?.payments ?? []) {
     const message_ids = (Array.isArray(p?.message_ids) ? p.message_ids : []).map(String).filter((x: string) => ids.has(x))
@@ -106,7 +135,7 @@ export async function extractPayments(mails: Mail[]): Promise<Found[]> {
     if (!message_ids.length || !merchant) continue
     const amount = Number(p?.amount)
     out.push({
-      message_ids, merchant,
+      message_ids, merchant, inbox: boxOf.get(message_ids[0]) ?? inboxes()[0].address,
       what: p?.what ? String(p.what).slice(0, 120) : null,
       amount: Number.isFinite(amount) && amount > 0 && amount < 1_000_000 ? amount : null,
       currency: p?.currency ? String(p.currency).toUpperCase().slice(0, 3) : null,
@@ -133,19 +162,22 @@ export async function toMyr(amount: number | null, currency: string | null): Pro
 export async function scanEmailPayments(opts: { days?: number; dry?: boolean } = {}): Promise<{ ok: boolean; message: string; found: number; preview?: any[] }> {
   try {
     if (!supabaseConfigured) return { ok: false, message: 'Supabase not configured', found: 0 }
-    const mails = await fetchMail(opts.days ?? 2)
-    if (!mails.length) return { ok: true, message: 'no payment-looking emails', found: 0 }
+    const { mails, failures } = await fetchMail(opts.days ?? 2)
+    const boxes = inboxes().length
+    const note = failures.length ? ` · could not read ${failures.join('; ')}` : ''
+    if (!mails.length) return { ok: !failures.length, message: `no payment-looking emails in ${boxes} inbox${boxes === 1 ? '' : 'es'}${note}`, found: 0 }
     // Preview: read everything in the window, save nothing, ask nothing.
     if (opts.dry) {
       const found = await extractPayments(mails)
       const preview = []
       for (const f of found) preview.push({ ...f, amount_myr: await toMyr(f.amount, f.currency) })
-      return { ok: true, message: `${mails.length} emails read, ${found.length} payments (preview, nothing saved)`, found: found.length, preview }
+      return { ok: true, message: `${mails.length} emails read from ${boxes} inbox${boxes === 1 ? '' : 'es'}, ${found.length} payments (preview, nothing saved)${note}`, found: found.length, preview }
     }
-    const { data: seen } = await supabase.from('email_seen').select('message_id').in('message_id', mails.map(m => m.id))
-    const seenIds = new Set((seen ?? []).map((s: any) => s.message_id))
-    const fresh = mails.filter(m => !seenIds.has(m.id))
-    if (!fresh.length) return { ok: true, message: 'nothing new', found: 0 }
+    // Keyed on the mailbox too, because "seen" is a fact about one mailbox.
+    const { data: seen } = await supabase.from('email_seen').select('message_id, inbox').in('message_id', mails.map(m => m.id))
+    const seenIds = new Set((seen ?? []).map((x: any) => `${x.inbox} ${x.message_id}`))
+    const fresh = mails.filter(m => !seenIds.has(`${m.inbox} ${m.id}`))
+    if (!fresh.length) return { ok: !failures.length, message: `nothing new${note}`, found: 0 }
 
     const found = await extractPayments(fresh)
     const rows = []
@@ -155,8 +187,9 @@ export async function scanEmailPayments(opts: { days?: number; dry?: boolean } =
       if (error) throw new Error(error.message)
     }
     // Mark every email read, payment or not, so none is paid for twice by Claude.
-    await supabase.from('email_seen').upsert(fresh.map(m => ({ message_id: m.id })), { onConflict: 'message_id', ignoreDuplicates: true })
-    return { ok: true, message: `${fresh.length} new emails, ${rows.length} payments`, found: rows.length }
+    await supabase.from('email_seen').upsert(fresh.map(m => ({ message_id: m.id, inbox: m.inbox })), { onConflict: 'message_id,inbox', ignoreDuplicates: true })
+    const per = inboxes().map(b => `${b.label} ${fresh.filter(m => m.inbox === b.address).length}`).join(', ')
+    return { ok: !failures.length, message: `${fresh.length} new emails (${per}), ${rows.length} payments${note}`, found: rows.length }
   } catch (e: any) {
     console.error('[CFO] email payments scan failed:', e?.message)
     return { ok: false, message: String(e?.message ?? e), found: 0 }
@@ -169,18 +202,28 @@ export async function scanEmailPayments(opts: { days?: number; dry?: boolean } =
 export type Pay = {
   id: number; merchant: string; what: string | null; amount: number | null; currency: string | null
   amount_myr: number | null; paid_on: string | null; reference: string | null; list_no: number | null; status: string
+  inbox: string | null
 }
 
 const money = (n: number) => n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-export function payLine(p: Pay): string {
+/**
+ * One line on the question card.
+ *
+ * `showInbox` only when more than one mailbox is being read. With two inboxes
+ * the owner is looking at his own payments mixed with Tina's, and "software or
+ * drawings or skip" is not answerable without knowing whose card was charged.
+ * With one inbox the same words would be noise on every line.
+ */
+export function payLine(p: Pay, showInbox = false): string {
   const foreign = p.currency && p.currency !== 'MYR' && p.amount !== null
   const amt = p.amount_myr !== null
     ? `RM ${money(p.amount_myr)}${foreign ? ` (${p.currency} ${money(p.amount!)})` : ''}`
     : p.amount !== null ? `${p.currency ?? ''} ${money(p.amount)} — RM amount unknown` : 'amount not in the email'
   const day = p.paid_on ? ` · ${Number(p.paid_on.slice(8))}/${Number(p.paid_on.slice(5, 7))}` : ''
-  return `${p.list_no}. <b>${esc(p.merchant)}</b> ${amt}${day}${p.what ? ` · ${esc(p.what)}` : ''}`
+  const who = showInbox ? ` · <i>${esc(labelFor(p.inbox))}</i>` : ''
+  return `${p.list_no}. <b>${esc(p.merchant)}</b> ${amt}${day}${p.what ? ` · ${esc(p.what)}` : ''}${who}`
 }
 
 /**
@@ -221,9 +264,12 @@ export async function buildQuestion(): Promise<string | null> {
   }
   const names = [...new Set(list.map(p => p.merchant))]
   const head = names.length <= 4 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+  const multi = inboxes().length > 1
+  const whose = [...new Set(list.map(p => labelFor(p.inbox)))]
+  const where = multi ? `in ${whose.length <= 2 ? whose.join(' and ') : whose.join(', ')}'s email` : 'in your email'
   return (
-    `📧 Hi! I found <b>${list.length}</b> payment${list.length === 1 ? '' : 's'} in your email (${esc(head)}):\n\n` +
-    list.map(payLine).join('\n') +
+    `📧 Hi! I found <b>${list.length}</b> payment${list.length === 1 ? '' : 's'} ${where} (${esc(head)}):\n\n` +
+    list.map(p => payLine(p, multi)).join('\n') +
     // HOW HE WRITES, NOT HOW A FORM WOULD ASK. This used to say "Reply like:
     // 1 software, 2 drawings, 3 skip" — one entry per payment: "It is saying
     // please type 1: food, 2: packaging and so on so on. It is too much typing"
@@ -280,7 +326,10 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
       category: TYPE_WORD[c.type], expense_type: c.type,
       items: [{ name: p.what || p.merchant, qty: 1, unit: 'unit', unit_price: rm, line_total: rm, expense_type: c.type }],
       receipt_no: p.reference ?? undefined, source: 'email',
-      note: `From email${p.currency && p.currency !== 'MYR' && p.amount ? ` (${p.currency} ${p.amount})` : ''}. Classified by ${by}.`,
+      note: `From ${labelFor(p.inbox)}'s email${p.currency && p.currency !== 'MYR' && p.amount ? ` (${p.currency} ${p.amount})` : ''}. Classified by ${by}.`,
+      // On the record, so the receipt page's "fetch the proof again" button
+      // knows which mailbox to go back to months from now.
+      email_inbox: p.inbox ?? undefined,
       filed_by: by, idempotencyKey: `email:${p.id}`,
     }
     const res = await runAutopilot('expense', { ...payload, auto: true })
@@ -297,7 +346,7 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
     // payment is already filed, and proof arriving late beats a failed filing.
     if (recordId) {
       try {
-        const got = await attachEmailProof(recordId, (p as any).message_ids ?? [])
+        const got = await attachEmailProof(recordId, (p as any).message_ids ?? [], p.inbox)
         if (got.ok) proofed.push(String(p.list_no))
       } catch (e: any) {
         console.warn('[CFO] email proof for', recordId, String(e?.message ?? e).slice(0, 150))
@@ -318,6 +367,6 @@ export async function applyAnswer(text: string, by: string): Promise<string> {
   // is not worth a sentence.
   if (a.unknownWords.length && still.length) reply += `\n\nI didn't understand: <i>${esc(a.unknownWords.join(' '))}</i>. Use food, drinks, packaging, cleaning, equipment, software, marketing, utilities, rent, salary, other, drawings or skip.`
   if (a.badNumbers.length) reply += `\n\nThere's no number ${a.badNumbers.join(', ')} on the list.`
-  if (still.length && !needRm.length) reply += `\n\nStill to answer:\n${still.map(payLine).join('\n')}`
+  if (still.length && !needRm.length) reply += `\n\nStill to answer:\n${still.map(p => payLine(p, inboxes().length > 1)).join('\n')}`
   return reply.trim() || 'I couldn\'t match that to the list. Reply like <code>1 software, 2 drawings</code>.'
 }

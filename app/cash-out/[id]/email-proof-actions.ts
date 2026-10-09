@@ -19,7 +19,7 @@ export async function fetchProofFromEmail(_prev: EmailProofResult, form: FormDat
   if (!supabaseConfigured) return { ok: false, message: 'Not connected to the database.' }
 
   const { data: pay } = await supabase.from('email_payments')
-    .select('message_ids, merchant').eq('record_id', id).maybeSingle()
+    .select('message_ids, merchant, inbox').eq('record_id', id).maybeSingle()
   const ids = (pay?.message_ids ?? []) as string[]
   if (!ids.length) {
     return { ok: false, message: 'I have no email on file for this one, so there is nothing to go and get.' }
@@ -27,7 +27,7 @@ export async function fetchProofFromEmail(_prev: EmailProofResult, form: FormDat
 
   let res
   try {
-    res = await attachEmailProof(id, ids)
+    res = await attachEmailProof(id, ids, (pay as any)?.inbox ?? null)
   } catch (e: any) {
     return { ok: false, message: 'Could not reach the mailbox.', note: String(e?.message ?? e).slice(0, 600) }
   }
