@@ -1,5 +1,6 @@
 import 'server-only'
 import { supabase, supabaseConfigured } from './supabase'
+import { desktopBidVerdict } from './mw-device-bids'
 import { runWorkbench } from './composio-mcp'
 import { gunzipSync } from 'node:zlib'
 import type { MwData } from './mw-data'
@@ -44,7 +45,7 @@ const GA4 = (() => {
 type Row = Record<string, any>
 type Pull = {
   err?: string[]
-  ads?: { cur: Row[]; prev: Row[]; daily: Row[]; kw: Row[]; budgets: Row[]; devices: Row[]; schedules: Row[]
+  ads?: { cur: Row[]; prev: Row[]; daily: Row[]; kw: Row[]; budgets: Row[]; devices: Row[]; devperf?: Row[]; schedules: Row[]
            ishare?: Row[]; isharePrev?: Row[]; adurls?: Row[] }
   ga4?: { cur: Row[]; prev: Row[]; daily: Row[] }
   span?: Record<string, any>
@@ -134,8 +135,18 @@ ishare      = gaql(ISHARE + (DATES % (CUR_S, CUR_E)))
 ishare_prev = gaql(ISHARE + (DATES % (PREV_S, PREV_E)))
 
 budgets   = gaql("SELECT campaign.name, campaign.status, campaign_budget.amount_micros FROM campaign")
-devices   = gaql("SELECT campaign.name, campaign_criterion.device.type, campaign_criterion.bid_modifier "
-                 "FROM campaign_criterion WHERE campaign_criterion.type = 'DEVICE'")
+# ENABLED ONLY. Without the status filter this counted 12 desktop criteria of
+# which 8 were paused and 2 deleted, and reported "no adjustment anywhere" about
+# campaigns that no longer run (owner, 9 Oct 2026).
+devices   = gaql("SELECT campaign.name, campaign.status, campaign.bidding_strategy_type, "
+                 "campaign_criterion.device.type, campaign_criterion.bid_modifier "
+                 "FROM campaign_criterion WHERE campaign_criterion.type = 'DEVICE' "
+                 "AND campaign.status = 'ENABLED'")
+# What each device actually DID. A rule that only reads configuration can never
+# stop asking for the setting it is looking for.
+devperf   = gaql("SELECT campaign.name, segments.device, metrics.clicks, metrics.cost_micros, "
+                 "metrics.conversions FROM campaign WHERE campaign.status = 'ENABLED' AND "
+                 + (DATES % (CUR_S, CUR_E)))
 schedules = gaql("SELECT campaign.name, campaign_criterion.ad_schedule.day_of_week "
                  "FROM campaign_criterion WHERE campaign_criterion.type = 'AD_SCHEDULE'")
 
@@ -214,9 +225,16 @@ OUT = {'err': ERR,
                             'b': float(g(r,'campaignBudget','amountMicros') or g(r,'campaign_budget','amount_micros') or 0)/1e6}
                            for r in budgets],
                'devices': [{'n': g(r,'campaign','name'),
+                            'strategy': g(r,'campaign','biddingStrategyType') or g(r,'campaign','bidding_strategy_type'),
                             'dev': g(r,'campaignCriterion','device','type') or g(r,'campaign_criterion','device','type'),
                             'mod': g(r,'campaignCriterion','bidModifier') or g(r,'campaign_criterion','bid_modifier')}
                            for r in devices],
+               'devperf': [{'n': g(r,'campaign','name'),
+                            'dev': g(r,'segments','device'),
+                            'clicks': float(g(r,'metrics','clicks') or 0),
+                            'cost': micros(r),
+                            'conv': float(g(r,'metrics','conversions') or 0)}
+                           for r in devperf],
                'schedules': [{'n': g(r,'campaign','name'),
                               'day': g(r,'campaignCriterion','adSchedule','dayOfWeek') or g(r,'campaign_criterion','ad_schedule','day_of_week')}
                              for r in schedules]},
@@ -495,7 +513,13 @@ type Probe = { ads: NonNullable<Pull['ads']>; channels: { n: string; s: number; 
   prevLabel: string; monthLabel: string; days: number; prevDays: number }
 
 async function refreshActions(p: Probe): Promise<number> {
-  const updates: { id: string; status: string; evidence: string }[] = []
+  // `moot_why` and `how_text` ride along for an item that no longer applies:
+  // the reason belongs on the card, and where there IS a real alternative it
+  // should be named rather than left for him to work out (owner, 9 Oct 2026).
+  const updates: {
+    id: string; status: string; evidence: string
+    moot_why?: string; how_text?: string
+  }[] = []
   const n = (v: number) => Math.round(v).toLocaleString('en-US')
 
   // a01 — Restart India Max Con with a bigger budget.
@@ -523,18 +547,23 @@ async function refreshActions(p: Probe): Promise<number> {
         (bleeding.length > 4 ? ` · and ${bleeding.length - 4} more, ${bleeding.length} in total` : ''),
   })
 
-  // a05 — Desktop bid adjustment. A null modifier means nothing was ever set.
-  const desktops = p.ads.devices.filter(d => String(d.dev ?? '') === 'DESKTOP')
-  if (desktops.length) {
-    const set = desktops.filter(d => d.mod != null && Number(d.mod) !== 1)
-    updates.push({
-      id: 'a05',
-      status: set.length === 0 ? 'not' : set.length === desktops.length ? 'done' : 'part',
-      evidence: set.length === 0
-        ? `all ${desktops.length} DESKTOP criteria still return a null bid modifier — no adjustment anywhere`
-        : `${set.length} of ${desktops.length} campaigns now adjust desktop (` +
-          `${set.slice(0, 3).map(d => `${Math.round((Number(d.mod) - 1) * 100)}%`).join(', ')})`,
-    })
+  // a05 — Desktop bid adjustment. The judgement lives in lib/mw-device-bids.ts
+  // so it can be tested against real account numbers; the note on why it had
+  // to be rewritten is there too.
+  {
+    const verdict = desktopBidVerdict(
+      (p.ads.devices ?? []).map((d: any) => ({
+        n: String(d.n ?? ''), dev: String(d.dev ?? ''),
+        mod: d.mod == null ? null : Number(d.mod), strategy: String(d.strategy ?? ''),
+      })),
+      (p.ads.devperf ?? []).map((x: any) => ({
+        n: String(x.n ?? ''), dev: String(x.dev ?? ''),
+        clicks: Number(x.clicks) || 0, cost: Number(x.cost) || 0, conv: Number(x.conv) || 0,
+      })),
+    )
+    if (verdict) {
+      updates.push({ id: 'a05', status: verdict.status, evidence: verdict.evidence, moot_why: verdict.mootWhy })
+    }
   }
 
   // a08 — Test weekends. Saturday or Sunday appearing in any ad schedule is the tell.
@@ -576,10 +605,30 @@ async function refreshActions(p: Probe): Promise<number> {
   }
 
   let done = 0
+  const now = new Date().toISOString()
   for (const u of updates) {
-    const { error } = await supabase.from('mw_actions')
-      .update({ status: u.status, evidence: u.evidence, updated_at: new Date().toISOString() })
-      .eq('id', u.id)
+    // checked_at moves on EVERY run, whether or not anything changed: the age
+    // of a claim is the thing he could not see, and "nothing changed" is still
+    // a fresh answer (owner, 9 Oct 2026).
+    const row: Record<string, unknown> = {
+      status: u.status, evidence: u.evidence, updated_at: now, checked_at: now,
+    }
+    if (u.status === 'moot') {
+      // The reason AND the real alternative, together, because "you can't do
+      // this" on its own leaves him to work out what he can do instead.
+      // NOT in `how`: that column has a fixed shape (steps, keywords, url…)
+      // that the playbook reads, and free text there would break it.
+      row.moot_why = [u.moot_why ?? u.evidence, u.how_text].filter(Boolean).join(' ')
+      // Set once and left alone, so "no longer applies" can say SINCE when.
+      const { data: had } = await supabase.from('mw_actions').select('moot_at').eq('id', u.id).maybeSingle()
+      if (!had?.moot_at) row.moot_at = now
+    } else {
+      // It applies again. A rule that could not un-moot itself would be the
+      // same mistake in the other direction.
+      row.moot_at = null
+      row.moot_why = null
+    }
+    const { error } = await supabase.from('mw_actions').update(row).eq('id', u.id)
     if (!error) done++
   }
   return done

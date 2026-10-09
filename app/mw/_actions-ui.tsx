@@ -19,7 +19,7 @@ export function ActionList({ rows }: { rows: ActionRow[] }) {
       {rows.map(r => {
         const d = r.decision
         return (
-          <div className="mw-act" key={r.id}>
+          <div className={`mw-act${r.status === 'moot' ? ' is-moot' : ''}`} key={r.id}>
             <div className="mw-act-head">
               <span className={`mw-pill mw-p-${r.status}`}>{STATUS_LABEL[r.status]}</span>
               {r.cross_channel && <span className="mw-chip">cross-channel</span>}
@@ -27,10 +27,25 @@ export function ActionList({ rows }: { rows: ActionRow[] }) {
               <span className="mw-chip" style={{ marginLeft: 'auto' }}>{IMPACT_LABEL[r.impact] ?? r.impact}</span>
             </div>
             {r.sub && <div className="sub">{r.sub}</div>}
+            {/* WHY it stopped applying, and what to do instead. An item that
+                simply vanished would teach him nothing — and one that sat there
+                saying "not started, high impact" sent him into Google Ads to
+                make a change that would have done nothing (9 Oct 2026). */}
+            {r.status === 'moot' && r.moot_why && (
+              <p className="mw-moot">
+                <b>No longer applies</b>
+                {r.moot_at && <> &middot; since {String(r.moot_at).slice(0, 10)}</>} &mdash; {r.moot_why}
+              </p>
+            )}
             {r.evidence && (
               <details>
                 <summary>Evidence</summary>
                 <p>{r.evidence}</p>
+                {/* How old the claim is. Without it, a number read four weeks
+                    ago and one read this morning look identical. */}
+                {r.checked_at && (
+                  <p className="mw-asof">Checked {String(r.checked_at).slice(0, 10)}</p>
+                )}
               </details>
             )}
 

@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { sendMessage } from '@/lib/telegram'
+import { mootSurprises } from '@/lib/mw-actions'
 import { getRecords, getFunnel, rm, todayISO, type Rec } from '@/lib/records'
 import { propose, proposeAndNotify, runAutopilot } from '@/lib/actions'
 import { SCHEDULED, type ProposalDraft } from '@/agents/registry'
@@ -176,7 +177,27 @@ export async function GET(req: Request) {
     console.error('[CFO] brief kitchen block failed:', e)
   }
 
-  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team, salesMissing, yesterday) + kitchen
+  // A PLAYBOOK ITEM HE COMMITTED TO THAT NO LONGER APPLIES.
+  //
+  // He marks items Will do and then works from that list. When the account
+  // moves underneath one — the campaign is paused, the bidding strategy makes
+  // the lever a no-op, the problem went away — a decision he made is void, and
+  // he will not learn that by opening a page he has no reason to open
+  // (owner, 9 Oct 2026). Never throws: a dead playbook must not stop a brief.
+  let voided = ''
+  try {
+    const gone = await mootSurprises()
+    if (gone.length) {
+      const NL2 = '\n'
+      voided = NL2 + NL2 + '<b>No longer applies</b>' + NL2 + gone.slice(0, 3).map(g =>
+        `• <s>${g.title}</s> — you marked it Will do. ${g.moot_why ?? ''}`.trim()).join(NL2)
+      if (gone.length > 3) voided += `${NL2}• and ${gone.length - 3} more on the playbook.`
+    }
+  } catch (e) {
+    console.error('[CFO] brief moot block failed:', e)
+  }
+
+  const brief = buildBrief(f, { cashIn, cashOut, owed }, proposed, ads, team, salesMissing, yesterday) + kitchen + voided
 
   // ② Optional Jarvis-Oyen narrative — a warm chief-of-staff paragraph. Only when a
   //    key is set; its absence NEVER blocks the mandated brief above.

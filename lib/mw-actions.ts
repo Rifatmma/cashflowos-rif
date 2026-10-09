@@ -23,7 +23,11 @@ export type MwHow = {
 export type MwAction = {
   id: string
   channel: 'paid' | 'seo'
-  status: 'done' | 'part' | 'not'
+  // 'moot' = cannot be done, or no longer should be. Distinct from 'not',
+  // which means outstanding: showing an impossible task as "not started, high
+  // impact" is what sent the owner into Google Ads to make a change that would
+  // have done nothing (9 Oct 2026).
+  status: 'done' | 'part' | 'not' | 'moot'
   title: string
   sub: string | null
   evidence: string | null
@@ -38,6 +42,11 @@ export type MwAction = {
   how: MwHow | null
   source: 'seeded' | 'generated'
   cycle: string | null
+  /** When it stopped applying, and why. Null while it still applies. */
+  moot_at: string | null
+  moot_why: string | null
+  /** When the evidence behind it was last re-pulled. */
+  checked_at: string | null
   /** The SEO action this task rolls up to. */
   theme: string | null
 }
@@ -105,5 +114,23 @@ export function byOwner(rows: ActionRow[], label: (marketKey: string) => string 
   return [...by.values()].map(x => ({ ...x, markets: [...x.markets] })).sort((a, b) => b.weight - a.weight)
 }
 
-export const STATUS_LABEL = { done: 'Done', part: 'Part-way', not: 'Not started' } as const
+export const STATUS_LABEL = {
+  done: 'Done', part: 'Part-way', not: 'Not started', moot: 'No longer applies',
+} as const
 export const CHOICE_LABEL = { accept: 'Will do', reject: "Won't do", done: 'Already done' } as const
+
+/**
+ * Things he said he would do that have since stopped applying.
+ *
+ * A decision he made is now void, and he will not find that out by opening a
+ * page he has no reason to open: "if one of those later becomes impossible or
+ * pointless, should Jarvis tell you? — yes, in the morning brief"
+ * (owner, 9 Oct 2026).
+ *
+ * Only the ones he marked WILL DO. An item he rejected, or never ruled on,
+ * going moot is housekeeping; one he committed to is news.
+ */
+export async function mootSurprises(): Promise<ActionRow[]> {
+  const rows = await getActions()
+  return rows.filter(r => r.status === 'moot' && r.decision?.choice === 'accept')
+}
