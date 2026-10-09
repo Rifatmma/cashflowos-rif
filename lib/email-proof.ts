@@ -392,3 +392,49 @@ export async function attachEmailProof(recordId: number, messageIds: string[]): 
 
   return { ok: true, kind, note: notes.join(' || ').slice(0, 900) }
 }
+
+/** A receipt that came from the mailbox and still has nothing readable on it. */
+export type NeedsProof = { recordId: number; merchant: string; amount: number; messageIds: string[] }
+
+/**
+ * Email-filed receipts with no proof, or with a snapshot saved before the
+ * readable text was kept on the row.
+ *
+ * Both count as unfinished: the second one opens to "this was saved before the
+ * text was kept", which is a dead end unless it is fetched again.
+ */
+export async function emailReceiptsNeedingProof(): Promise<NeedsProof[]> {
+  if (!supabaseConfigured) return []
+  const { data: recs } = await supabase.from('records')
+    .select('id, amount, meta').eq('category', 'cash_out').eq('meta->>source', 'email').order('id')
+  const rows = recs ?? []
+  if (!rows.length) return []
+
+  const ids = rows.map((r: any) => r.id)
+  const { data: files } = await supabase.from('vault_files')
+    .select('record_id, mime, meta, created_at').in('record_id', ids)
+    .order('created_at', { ascending: false })
+  const newest = new Map<number, any>()
+  for (const f of files ?? []) if (!newest.has(f.record_id)) newest.set(f.record_id, f)
+
+  const { data: pays } = await supabase.from('email_payments')
+    .select('record_id, message_ids').in('record_id', ids)
+  const msgs = new Map<number, string[]>()
+  for (const p of pays ?? []) msgs.set(Number(p.record_id), (p.message_ids ?? []) as string[])
+
+  const out: NeedsProof[] = []
+  for (const r of rows as any[]) {
+    const f = newest.get(r.id)
+    const done = f && (f.mime !== 'text/html' || f.meta?.text)
+    if (done) continue
+    const m = msgs.get(r.id) ?? []
+    if (!m.length) continue              // no email on file: nothing to go and get
+    out.push({
+      recordId: r.id,
+      merchant: String(r.meta?.merchant ?? `Record #${r.id}`),
+      amount: Number(r.amount) || 0,
+      messageIds: m,
+    })
+  }
+  return out
+}

@@ -24,6 +24,8 @@ import {
 import { isSalesRow, salesDayOf } from '@/lib/sales'
 import RuleToggle from './RuleToggle'
 import { Ledger, type LedgerRow } from './Ledger'
+import { EmailProofAll } from './EmailProofAll'
+import { emailReceiptsNeedingProof } from '@/lib/email-proof'
 import { recordsBetween, dayOf } from '@/lib/ledger'
 import { recordsWithPhotos } from '@/lib/receipt-photo'
 import { problemOf } from '@/lib/receipt-view'
@@ -292,6 +294,10 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
   // Everything, all months, filtered and opened in the browser. 213 receipts of
   // summary is a small payload and it buys instant filtering with no navigation.
   const allOut = await recordsBetween('cash_out', '2000-01-01', addDays(today, 1))
+  // Receipts that only ever existed as an email, still with nothing proving
+  // them. Their evidence is in the mailbox and nowhere else, so chasing a
+  // photo for them would never work (owner, 8 Oct 2026).
+  const needMail = await emailReceiptsNeedingProof()
   const photoed = await recordsWithPhotos(allOut.map(r => r.id))
   const ledgerRows: LedgerRow[] = allOut.map(r => {
     const p = problemOf(r, photoed.has(r.id))
@@ -472,6 +478,8 @@ export default async function CashOut({ searchParams }: { searchParams: Promise<
             This replaces three things: the "to check" block that inherited this
             page's month window, the eight-and-fold list, and the two separate
             tabs I should never have built (owner, 6 Oct 2026). */}
+          {needMail.length > 0 && <EmailProofAll count={needMail.length} />}
+
         <Ledger rows={ledgerRows} today={today} initialFilter={show} />
       </section>
 

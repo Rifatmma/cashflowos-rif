@@ -1188,3 +1188,9 @@ a.co-tap::after { content: '→'; color: var(--ink-faint); font-weight: 400; }
   white-space: pre-wrap; overflow-wrap: anywhere;
   font: 13.5px/1.65 var(--font-mono), ui-monospace, monospace;
 }
+
+/* Fetching proof for every email receipt at once. */
+.epa { margin: 0 0 18px; padding: 14px 16px; background: var(--paper-2); border-radius: 12px; }
+.epa-say { margin: 0 0 11px; font-size: 14px; line-height: 1.55; }
+.epa-done { margin: 0 0 16px; color: var(--green); }
+.epa-list { margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: var(--ink-soft); line-height: 1.7; }
