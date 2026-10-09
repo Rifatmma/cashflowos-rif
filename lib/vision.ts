@@ -117,7 +117,13 @@ const MAX_ITEMS = 40
 
 // The cheap model reads nearly every bill. The second one is for the ones it
 // cannot, and runs only then — see the note in readImage.
-const FIRST_MODEL = process.env.VISION_MODEL?.trim() || 'claude-haiku-4-5'
+//
+// Haiku 5.5 rather than 4.5: same job, a TENTH of the price ($0.10/$0.50 per
+// million against $1.00/$5.00), which is why the retry below pays for itself
+// several times over rather than costing anything (owner asked, 9 Oct 2026).
+// Both are env vars, so a bad read rate can be reverted from Vercel without a
+// deploy.
+const FIRST_MODEL = process.env.VISION_MODEL?.trim() || 'claude-haiku-5-5'
 const SECOND_MODEL = process.env.VISION_MODEL_RETRY?.trim() || 'claude-sonnet-5-5'
 const QTY_MAX = 10_000
 const UNIT_PRICE_MAX = 100_000
@@ -394,6 +400,14 @@ export async function readImage(
   // What the owner has taught us about specific shops' receipt layouts. Passed in
   // rather than fetched here so this stays a pure read with no database of its own.
   rules: SupplierRule[] = [],
+  /**
+   * May a failed read be tried again on the dearer model?
+   *
+   * The caller owns this because the caller owns the day's counters. False
+   * means the retry allowance for today is spent: the bill still files, with
+   * whatever the first read managed and a flag on it.
+   */
+  allowRetry = true,
 ): Promise<VisionResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   // No key yet → don't crash, don't spin. Degrade to the calm "unsure" result so
@@ -562,7 +576,7 @@ export async function readImage(
     console.error('[CFO] vision call failed:', e)
     raw = ''
   }
-  if (!raw || worthRetrying(raw)) {
+  if (allowRetry && (!raw || worthRetrying(raw))) {
     try {
       const second = await ask(SECOND_MODEL)
       // Keep the better of the two: the retry wins when it actually read the

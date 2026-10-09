@@ -102,6 +102,14 @@ const threshold = () => {
 // or spammy sender from burning your Anthropic credit. Resets each day (no cron).
 const VISION_DAILY_CAP = 20
 
+// And how many of those may be read a SECOND time on the dearer model when the
+// cheap one cannot manage them. A separate, smaller allowance: the retry is
+// what rescues a badly framed bill, but a sender stuck in a loop should not be
+// able to spend the month's credit on it (owner asked about cost, 9 Oct 2026).
+const VISION_RETRY_DAILY_CAP = Number(process.env.VISION_RETRY_DAILY_CAP) > 0
+  ? Number(process.env.VISION_RETRY_DAILY_CAP)
+  : 12
+
 // What the Vault will actually read/file. Photos are always JPEG; documents carry
 // their own mime. Anything outside this list gets a friendly "can't read that".
 const VAULT_MIME = new Set(['image/jpeg', 'image/png', 'application/pdf'])
@@ -1356,7 +1364,11 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     console.error('[CFO] supplier rules lookup failed, reading without them:', e)
   }
 
-  const v: VisionResult = await readImage(base64, mime, rules)
+  // The second read is allowed only while today's retry allowance lasts. The
+  // counter moves whether or not the retry ends up being needed, which keeps
+  // the ceiling honest at the cost of occasionally under-using it.
+  const retries = await bumpDailyCounter(chatId, 'vision_retry', todayISO())
+  const v: VisionResult = await readImage(base64, mime, rules, retries <= VISION_RETRY_DAILY_CAP)
 
   // Couldn't read a bill (usually handwriting): don't send a guess for approval.
   // Keep the photo, ask the sender to type it in the template, and attach this
