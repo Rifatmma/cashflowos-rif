@@ -97,9 +97,19 @@ const threshold = () => {
   return Number.isFinite(n) && n > 0 ? n : 200
 }
 
-// Cost guard: how many vision reads one chat may trigger per day. Keeps a stuck
-// or spammy sender from burning your Anthropic credit. Resets each day (no cron).
-const VISION_DAILY_CAP = 20
+// Cost guard: how many vision READS one chat may trigger per day.
+//
+// It was 20, and the owner hit it: "Why do I have a limit of 20 times I can
+// file a bill? that can't work" (10 Oct 2026). Quite right. 20 was sized when
+// a read cost about half a cent on Haiku 4.5; on Haiku 5.5 it is about a
+// twentieth of that, so 200 costs roughly 10 sen a day at the ceiling and the
+// restaurant's busiest day so far was 18.
+//
+// It bounds a sender stuck in a loop, nothing more — and past it the bill
+// STILL FILES, it just files unread. The cap limits spend, never filing.
+const VISION_DAILY_CAP = Number(process.env.VISION_DAILY_CAP) > 0
+  ? Number(process.env.VISION_DAILY_CAP)
+  : 200
 
 // And how many of those may be read a SECOND time on the dearer model when the
 // cheap one cannot manage them. A separate, smaller allowance: the retry is
@@ -1330,11 +1340,19 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     }
   }
 
-  // ASSESS — daily vision cap (per chat). Over the cap ⇒ friendly stop, no spend.
+  // ASSESS — daily vision cap (per chat).
+  //
+  // Over the cap this used to `return`: no record, no photo, the bill simply
+  // gone — the same way the old holds lost bills, and for a worse reason,
+  // since the sender had done nothing wrong. Now the read is skipped (which
+  // is the only thing that costs money) and the bill files unread, with its
+  // photo, for a total to be typed in the app (owner, 10 Oct 2026).
   const used = await bumpDailyCounter(chatId, 'vision', todayISO())
-  if (used > VISION_DAILY_CAP) {
-    await sendMessage(chatId, `📸 You've hit today's ${VISION_DAILY_CAP}-file reading limit. It resets tomorrow — or file this one from the app.`)
-    return
+  const overCap = used > VISION_DAILY_CAP
+  if (overCap) {
+    await sendMessage(chatId,
+      `📸 That is ${VISION_DAILY_CAP} bills read today, which is my limit for one day. ` +
+      `I am still filing this one with its photo — it just needs the total typed in the app.`)
   }
 
   // LOOK + ASSESS — ONE vision read → a small structured form (never an essay).
@@ -1366,8 +1384,12 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
   // The second read is allowed only while today's retry allowance lasts. The
   // counter moves whether or not the retry ends up being needed, which keeps
   // the ceiling honest at the cost of occasionally under-using it.
-  const retries = await bumpDailyCounter(chatId, 'vision_retry', todayISO())
-  const v: VisionResult = await readImage(base64, mime, rules, retries <= VISION_RETRY_DAILY_CAP)
+  const retries = overCap ? Number.MAX_SAFE_INTEGER : await bumpDailyCounter(chatId, 'vision_retry', todayISO())
+  // Over the cap, nothing is read and nothing is spent: the bill goes in as an
+  // unread one, exactly like a photo neither model could manage.
+  const v: VisionResult = overCap
+    ? { kind: 'receipt', confidence: 'low', missing: ['amount'], items: [] }
+    : await readImage(base64, mime, rules, retries <= VISION_RETRY_DAILY_CAP)
 
   // Couldn't read a bill (usually handwriting): don't send a guess for approval.
   // Keep the photo, ask the sender to type it in the template, and attach this
@@ -1504,7 +1526,7 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     idempotencyKey: `photo:${sha256}`,
   }
 
-  await decideAndFile({ v, payload, chatId, staffFiling, filer, approvalChatId,
+  await decideAndFile({ v, payload, chatId, staffFiling, filer, approvalChatId, overCap,
     fileId, isPhoto: !!msg.photo?.length })
 }
 
@@ -1548,6 +1570,8 @@ async function decideAndFile(a: {
   v: VisionResult; payload: any; chatId: any; staffFiling: boolean
   filer: { id: string; name: string }; approvalChatId: any
   fileId?: string; isPhoto?: boolean
+  /** True when the day's reading limit was reached, so nothing was read. */
+  overCap?: boolean
 }): Promise<void> {
   const { v, payload, chatId, staffFiling, filer, approvalChatId } = a
   const isExpense = typeof v.amount === 'number' && v.amount > 0 && v.kind !== 'doc'
@@ -1608,7 +1632,14 @@ async function decideAndFile(a: {
 
   // Everything else files. What was unclear rides along as a flag on the row.
   const unsureWhy = [
-    gaps.includes('total') ? 'I could not read the total — filed as RM 0.00, please set it' : null,
+    // Over the daily cap nothing was READ, so saying "I could not read it"
+    // would be a lie about what happened.
+    gaps.includes('total') && a.overCap
+      ? 'over today’s reading limit, so nothing was read — filed as RM 0.00, please set the total'
+      : null,
+    gaps.includes('total') && !a.overCap
+      ? 'I could not read the total — filed as RM 0.00, please set it'
+      : null,
     gaps.includes('shop') ? 'no shop name on it' : null,
     gaps.includes('date') ? 'no date on it' : null,
     mismatch ? 'the lines do not match the total' : null,
