@@ -30,29 +30,15 @@ import { inboxes, labelFor, type Inbox } from './email-inboxes'
 
 type Mail = { id: string; from: string; subject: string; at: string; text: string; inbox: string }
 
-/**
- * What to ask Gmail for.
- *
- * Without a label: guess at payments by keyword, over the whole mailbox. That
- * is the owner's own inbox, where business and personal are the same account.
- *
- * With a label: read EVERYTHING under it and apply no keywords at all. A staff
- * member tagging a receipt is a stronger signal than any word list, and
- * re-filtering her choice would drop exactly the oddly worded ones she took the
- * trouble to tag.
- */
-export const query = (days: number, gmailLabel?: string | null) => {
-  const label = (gmailLabel ?? '').trim()
-  if (label) return `newer_than:${days}d label:${JSON.stringify(label)}`
-  return `newer_than:${days}d ` + '(receipt OR invoice OR payment OR paid OR transfer OR donation OR subscription OR ' +
-    'charged OR billing OR order OR resit OR pembayaran OR "thank you for your purchase") ' +
-    '-category:promotions -category:social'
-}
+const query = (days: number) =>
+  `newer_than:${days}d ` + '(receipt OR invoice OR payment OR paid OR transfer OR donation OR subscription OR ' +
+  'charged OR billing OR order OR resit OR pembayaran OR "thank you for your purchase") ' +
+  '-category:promotions -category:social'
 
 // Runs INSIDE Composio's sandbox: fetch the inbox, turn each HTML email into
 // plain text there, and send back only that. (One raw email is ~50k tokens --
 // too big to travel back directly.)
-const FETCH_SCRIPT = (query: string, account: string, max: number, gmailLabel: string | null) => String.raw`
+const FETCH_SCRIPT = (query: string, account: string, max: number) => String.raw`
 import json, re, html
 def _plain(s):
     s = re.sub(r'(?is)<(style|script)[^>]*>.*?</\1>', ' ', s or '')
@@ -60,26 +46,15 @@ def _plain(s):
     s = html.unescape(s)
     s = re.sub(r'[\u200b-\u200f\u034f\ufeff\u00ad]', '', s)
     return re.sub(r'\s+', ' ', s).strip()
-_want = ${JSON.stringify(gmailLabel)}
-_missing = False
-if _want:
-    # A label query against a label that does not exist returns nothing, for
-    # ever, and reports no error -- so a renamed or never-created label looks
-    # exactly like a quiet month. Checked rather than assumed.
-    _lres, _lerr = run_composio_tool('GMAIL_LIST_LABELS', {}, print_schema_for_tool=False, account=${JSON.stringify(account)})
-    _names = [str((l or {}).get('name','')) for l in (((_lres or {}).get('data') or _lres or {}).get('labels') or [])]
-    _missing = bool(_names) and _want.strip().lower() not in [n.strip().lower() for n in _names]
 _res, _err = run_composio_tool('GMAIL_FETCH_EMAILS', {'query': ${JSON.stringify(query)}, 'max_results': ${max}, 'verbose': True, 'include_payload': True}, print_schema_for_tool=False, account=${JSON.stringify(account)})
 _msgs = ((_res or {}).get('data') or _res or {}).get('messages') or []
-_out = {'error': _err, 'label_missing': _missing, 'mails': [{'id': m.get('messageId'), 'from': m.get('sender',''), 'subject': m.get('subject',''), 'at': m.get('messageTimestamp',''), 'text': _plain(m.get('messageText') or (m.get('preview') or {}).get('body',''))[:1800]} for m in _msgs if m.get('messageId')]}
+_out = {'error': _err, 'mails': [{'id': m.get('messageId'), 'from': m.get('sender',''), 'subject': m.get('subject',''), 'at': m.get('messageTimestamp',''), 'text': _plain(m.get('messageText') or (m.get('preview') or {}).get('body',''))[:1800]} for m in _msgs if m.get('messageId')]}
 print('<<<CFO' + json.dumps(_out, ensure_ascii=True) + '\nCFO>>>')
 `
 
 async function fetchOne(box: Inbox, days: number): Promise<Mail[]> {
-  const out = await runWorkbench(FETCH_SCRIPT(query(days, box.gmailLabel), box.account, days > 2 ? 100 : 40, box.gmailLabel))
+  const out = await runWorkbench(FETCH_SCRIPT(query(days), box.account, days > 2 ? 100 : 40))
   if (out?.error) throw new Error(`Gmail ${box.address}: ${String(out.error).slice(0, 200)}`)
-  // Loud, because the alternative is a mailbox that reads as empty every night.
-  if (out?.label_missing) throw new Error(`there is no "${box.gmailLabel}" label in ${box.address} — nothing can be found until it exists`)
   return (out?.mails ?? []).map((m: any) => ({
     id: String(m.id), from: String(m.from ?? ''), subject: String(m.subject ?? ''), at: String(m.at ?? ''),
     text: String(m.text ?? ''), inbox: box.address,
