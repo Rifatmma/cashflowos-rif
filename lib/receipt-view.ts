@@ -152,6 +152,18 @@ export function problemOf(r: Rec, hasPhoto: boolean): Problem | null {
   // used to be a question is now a flag on the row, so a doubtful read is in
   // the books AND in front of him, instead of sitting in a chat he has to argue
   // with.
+  // A bill filed at RM 0.00 because the total could not be read. Highest
+  // priority of the derived problems: an amount nobody has set is the one
+  // thing on a receipt that makes every total below it wrong.
+  if (m.amount_unread && !(Number(r.amount) > 0)) {
+    return {
+      kind: 'unsure', rank: 2.4,
+      says: 'no total read — type what it came to',
+      detail: 'Jarvis could not read the amount, so this is filed at RM 0.00 with the photo '
+        + 'attached. Open it, read the bill, and type the real total.',
+    }
+  }
+
   if (m.needs_check) {
     const why = String(m.needs_check_why ?? '').replace(/\s+/g, ' ').trim()
     return {

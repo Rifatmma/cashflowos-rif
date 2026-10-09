@@ -105,6 +105,7 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
     delete meta.type_split; delete meta.items_note
     delete meta.needs_check; delete meta.needs_check_why
     const was = Number(rec.amount)
+    if (ownTotal !== null && ownTotal > 0) delete meta.amount_unread
     const amt = ownTotal !== null ? ownTotal : was
     if (ownTotal !== null && Math.abs(ownTotal - was) > 0.005) {
       meta.amount_set_by_owner = true
@@ -223,6 +224,7 @@ export async function correctReceipt(_prev: CorrectResult, form: FormData): Prom
   }
   // He has looked at it, so Jarvis's doubt is answered either way.
   delete meta.needs_check; delete meta.needs_check_why
+  if (amount > 0) delete meta.amount_unread
   // Parked from Jarvis with "I'll fix it in the app": this save is that fix.
   delete meta.fix_later; delete meta.fix_later_note
   // The lines changed, so an earlier "it's correct" no longer vouches for them.

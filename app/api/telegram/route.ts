@@ -1392,27 +1392,20 @@ async function runVaultPipeline(msg: any, staffFiling = false): Promise<void> {
     await remember(chatId, '[sent a photo while a typed bill waited for one]', note)
   }
 
-  if (unreadable) {
-    const path = await storeFile(bytes, mime, `receipts/${sha256}`)
-    await setPending(chatId, filer.id, { type: 'have_photo', sha256, storage_path: path, mime, size_bytes: bytes.length })
-    const ask =
-      `🤔 I can't read this bill${staffFiling ? `, ${esc(filer.name)}` : ''}. Please type it for me like this ` +
-      `(one Item Name / Weight / Quantity / Price per item):\n\n<code>${esc(TEMPLATE)}</code>\n\n` +
-      `<i>Weight = ONE item or pack, not the total for all of them (8 fish of 500 g each → write 500 g). Price = total for that item. I'll keep this photo with it.</i>`
-    await sendMessage(chatId, ask)
-    await remember(chatId, '[sent a bill photo that could not be read]', ask)
-    await noteEvent({
-      chatId, from: { id: filer.id, name: filer.name }, kind: 'unreadable',
-      reply: 'Asked them to type it out.', detail: { sha256, mime },
-    })
-    // So an unreadable bill can't quietly go missing if nobody types it.
-    if (staffFiling && OWNER) {
-      const heads = `🤔 ${esc(filer.name)} sent a bill I couldn't read. I've asked them to type it in the template.`
-      await sendMessage(Number(OWNER), heads)
-      await remember(OWNER, `[${filer.name} sent an unreadable bill]`, heads)
-    }
-    return
-  }
+  // AN UNREADABLE BILL IS STILL FILED. It used to stop here: the photo went
+  // into a 12-hour pending slot, the sender was asked to type the whole thing
+  // out in the template, and if nobody did, both the photo and the bill were
+  // simply gone.
+  //
+  //   "Jarvis is saying he can't read them please provide shop name, date,
+  //    item name, weight, quantity, price. Why is this still happening I
+  //    thought it shouldn't matter if he can read them or not. Save the photo
+  //    file the bill and mark it as need to check right?"  (owner, 9 Oct 2026)
+  //
+  // He is right, and this was my carve-out: I kept one case where asking still
+  // beat filing. It does not. The photo IS the bill, it goes in as proof, the
+  // record is flagged, and the total gets typed on the receipt page where he
+  // can see the picture while he does it.
 
   // Already filed today by someone else -- typically a colleague typed it and
   // this is the photo of the same bill. Attach the photo, fill in what the
@@ -1574,28 +1567,23 @@ async function decideAndFile(a: {
   const mismatch = /lines add to/i.test(String(v.items_note ?? ''))
   const doubtful = v.confidence === 'low' || mismatch
 
-  // The ONE thing that still cannot be filed: no amount at all. There is no
-  // receipt without a number, and a zero in the books is worse than a question.
+  // NOTHING IS HELD BACK ANY MORE, NOT EVEN A BILL WITH NO READABLE TOTAL.
+  //
+  // I kept this one exception on 8 Oct — "a bill with no number isn't a bill,
+  // and a zero in the books is worse than a question" — and it was the wrong
+  // call. A held bill is not a zero in the books; it is nothing in the books,
+  // AND the photo lost with it. A RM 0.00 row that says "I couldn't read this,
+  // check it" is visible, has the picture attached, and takes one number to
+  // put right on a page that shows him the bill while he types (owner,
+  // 9 Oct 2026).
   if (!isExpense && v.kind !== 'doc') {
-    await setPending(chatId, staffFiling ? 'chat' : filer.id, {
-      type: 'need_fields', gaps, payload, v, fileId: a.fileId, isPhoto: a.isPhoto, by: filer.name,
-    })
-    await noteEvent({
-      chatId, from: { id: filer.id, name: filer.name }, kind: 'template_sent',
-      reply: 'No amount could be read.', detail: { gaps, merchant: v.merchant ?? null },
-    })
-    await sendMessage(chatId,
-      `\u{1F9FE} I can't find a total on this one, and a bill with no number isn't a bill.` +
-      NL + NL + `Tell me what it came to and I'll file it:` +
-      NL + NL + `<code>${fieldTemplate(gaps)}</code>`)
-    await remember(chatId,
-      staffFiling ? `[${filer.name} sent a receipt with no readable total]` : '[sent a receipt with no readable total]',
-      'Asked for the total. Everything else files on a best guess; a missing amount cannot.')
-    return
+    payload.unread = true
+    payload.amount = 0
   }
 
   // Everything else files. What was unclear rides along as a flag on the row.
   const unsureWhy = [
+    gaps.includes('total') ? 'I could not read the total — filed as RM 0.00, please set it' : null,
     gaps.includes('shop') ? 'no shop name on it' : null,
     gaps.includes('date') ? 'no date on it' : null,
     mismatch ? 'the lines do not match the total' : null,
@@ -1624,7 +1612,9 @@ async function decideAndFile(a: {
   //
   // The check moved to where he can act on it: the card carries Looks right /
   // Correct it, and a doubtful receipt is flagged in Cash Out.
-  const autopilot = isExpense
+  // `unread` is a bill whose total could not be read. It files at RM 0.00
+  // rather than falling through to the approval path this replaced.
+  const autopilot = isExpense || payload.unread === true
   if (autopilot) {
     if (v.payment_proof) payload.payment_proof = true
     const done = await runAutopilot('expense', { ...payload, auto: true })
@@ -1632,8 +1622,11 @@ async function decideAndFile(a: {
       await sendMessage(chatId, '📁 That looked already handled — nothing was double-filed.')
       return
     }
-    const what = `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
-      `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
+    // "Filed RM 0.00" reads like a mistake. Say what actually happened.
+    const what = payload.unread
+      ? `the bill${payload.merchant ? ` from ${esc(payload.merchant)}` : ''} — total not read yet`
+      : `${rm(done.result.amount)} · ${done.result.category || 'expense'}` +
+        `${payload.merchant ? ` · ${esc(payload.merchant)}` : ''}`
     // Success is recorded too, not only friction. A read that sees nothing but
     // failures would conclude the team is drowning on a day when forty bills
     // went in first time (owner, 6 Oct 2026).

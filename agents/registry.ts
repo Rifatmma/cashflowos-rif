@@ -122,7 +122,12 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
   const kind = String(payload?.kind || 'receipt').toLowerCase()
   const rawAmount = Number(payload?.amount)
   const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? rawAmount : 0
-  const isExpense = kind !== 'doc' && amount > 0
+  // A receipt whose total could not be read still belongs in Cash Out, not in
+  // the document vault: it files at RM 0.00, flagged, with its photo, and the
+  // owner types the figure on the receipt page (owner, 9 Oct 2026). Without
+  // this it would land as a 'doc' and never appear among his spending at all.
+  const unread = payload?.unread === true
+  const isExpense = kind !== 'doc' && (amount > 0 || unread)
   const merchant = (payload?.merchant || '').toString().trim()
   const catCol = isExpense ? 'cash_out' : 'doc'
   const label = payload?.category || (isExpense ? 'expense' : 'document')
@@ -185,6 +190,8 @@ async function fileReceipt(agentKey: string, payload: any): Promise<any> {
         // 2026), so its doubt has to travel with the row. Cash Out shows these
         // under "Jarvis unsure"; the chat card's "Looks right" button clears it.
         needs_check: payload?.needs_check ? true : undefined,
+        // Says the figure is a placeholder, not a real RM 0.00 purchase.
+        amount_unread: unread || undefined,
         needs_check_why: payload?.needs_check_why || undefined,
         // An e-wallet or bank-transfer screen. Kept because it explains why a
         // receipt has a payee and no line items.
