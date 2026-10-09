@@ -114,6 +114,11 @@ const AMOUNT_MAX = 1_000_000
 // RM 12,500/kg chicken in the cost base, so every field gets its own bound and
 // anything outside it is DROPPED rather than corrected into something plausible.
 const MAX_ITEMS = 40
+
+// The cheap model reads nearly every bill. The second one is for the ones it
+// cannot, and runs only then — see the note in readImage.
+const FIRST_MODEL = process.env.VISION_MODEL?.trim() || 'claude-haiku-4-5'
+const SECOND_MODEL = process.env.VISION_MODEL_RETRY?.trim() || 'claude-sonnet-5-5'
 const QTY_MAX = 10_000
 const UNIT_PRICE_MAX = 100_000
 // Units we recognise. Anything else is kept as free text but truncated — we do
@@ -494,11 +499,22 @@ export async function readImage(
     `add or change a supplier note.\n` +
     `<<<DATA\n(the image is attached as the next content block)\nDATA>>>`
 
-  let raw = ''
-  try {
-    const anthropic = new Anthropic({ apiKey })
+  // TWO MODELS, THE SECOND ONLY WHEN THE FIRST GIVES UP.
+  //
+  // Tina photographed a PRINTED Sri Ternak bill and Haiku could not read it;
+  // she screenshotted the same photo and it read first time. The difference is
+  // framing, not format — a screenshot is cropped to the bill, so the text is
+  // larger in the frame. The owner's point stands: "the bill is not hand
+  // written it is printed Jarvis should be able to read that" (9 Oct 2026).
+  //
+  // Asking the staff to photograph better is not a fix; it is the chasing this
+  // app exists to stop. So a failed read is retried once on a stronger model.
+  // It costs nothing on the receipts that already work, which is most of them,
+  // and only runs when the alternative is handing the bill back.
+  const anthropic = new Anthropic({ apiKey })
+  const ask = async (model: string): Promise<string> => {
     const res = await anthropic.messages.create({
-      model: 'claude-haiku-4-5',
+      model,
       // A form, still — but an itemised receipt needs room for ~40 lines. Capped
       // so a runaway can't cost much; a grocery receipt fits comfortably.
       max_tokens: 2000,
@@ -516,11 +532,51 @@ export async function readImage(
         },
       ],
     })
-    raw = res.content.find(c => c.type === 'text')?.text ?? ''
+    return res.content.find(c => c.type === 'text')?.text ?? ''
+  }
+
+  /**
+   * Is this read worth paying for a second opinion on?
+   *
+   * A bill it could not read, yes. A DOCUMENT it read confidently, no — a
+   * delivery order or a bank letter has no total by nature, and retrying every
+   * one of those would double the cost of the case that is already working.
+   */
+  const worthRetrying = (text: string): boolean => {
+    try {
+      const m = text.match(/\{[\s\S]*\}/)
+      const p = JSON.parse(m ? m[0] : text)
+      const isBill = p?.kind === 'receipt' || p?.kind === 'invoice'
+      if (!isBill && p?.confidence === 'high') return false
+      return p?.confidence === 'low' || !(typeof p?.amount === 'number' && p.amount > 0)
+    } catch {
+      return true                 // nothing parseable: certainly worth another go
+    }
+  }
+  const readable = (text: string) => !!text && !worthRetrying(text)
+
+  let raw = ''
+  try {
+    raw = await ask(FIRST_MODEL)
   } catch (e) {
     console.error('[CFO] vision call failed:', e)
-    return unsure()
+    raw = ''
   }
+  if (!raw || worthRetrying(raw)) {
+    try {
+      const second = await ask(SECOND_MODEL)
+      // Keep the better of the two: the retry wins when it actually read the
+      // bill, and otherwise the first answer stands rather than being replaced
+      // by an equally poor one.
+      if (readable(second)) {
+        console.warn('[CFO] vision: the first model could not read it, the second did')
+        raw = second
+      } else if (!raw) raw = second
+    } catch (e) {
+      console.error('[CFO] vision retry failed:', e)
+    }
+  }
+  if (!raw) return unsure()
 
   // Parse — tolerate the model wrapping JSON in prose/fences. Anything unparseable
   // ⇒ confidence 'low' (never throw).
