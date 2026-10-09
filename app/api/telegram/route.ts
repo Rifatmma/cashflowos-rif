@@ -10,7 +10,6 @@ import {
   type InlineButton,
   answerCallbackQuery,
   editMessageReplyMarkup,
-  sendFileTo,
   getFilePath,
   downloadFileBytes,
 } from '@/lib/telegram'
@@ -1588,9 +1587,23 @@ async function decideAndFile(a: {
   // check it" is visible, has the picture attached, and takes one number to
   // put right on a page that shows him the bill while he types (owner,
   // 9 Oct 2026).
-  if (!isExpense && v.kind !== 'doc') {
+  //
+  // AND NOT A BILL THE READER CALLED A "DOCUMENT" EITHER. I wrote the line
+  // below as `!isExpense && v.kind !== 'doc'`, excluding documents on the
+  // reasoning that a contract or a bank letter should not become a RM 0.00
+  // cash-out row. But the receipts group is a letterbox for BILLS: when the
+  // reader calls something sent there a document, that is a misread receipt,
+  // not a document. Two of Tina's bills went that way on 9 and 10 Oct 2026,
+  // landed in the vault as "Document, RM 0.00", and never reached Cash Out at
+  // all — after asking him to approve them, which is the thing this was all
+  // meant to stop.
+  //
+  // So: in the receipts group, everything is a bill. Elsewhere a document is
+  // still a document — it just files to the vault without asking.
+  if (!isExpense && (v.kind !== 'doc' || staffFiling)) {
     payload.unread = true
     payload.amount = 0
+    payload.kind = 'receipt'
   }
 
   // Everything else files. What was unclear rides along as a flag on the row.
@@ -1698,34 +1711,27 @@ Reply <code>/undo-${done.row.id}</code> within 24h to reverse.` +
     return
   }
 
-  // ---- yellow: ask the owner, with the original attached ----------------------
-  const key = isExpense ? 'expense' : 'vault'
-  // What the staff actually sent, so the owner can decide without going to the
-  // group to look for it (owner, 23 Sep 2026).
-  const typed = payload?.typed_text ? `
-
-<i>${esc(filer.name)} typed:</i>
-<code>${esc(String(payload.typed_text).slice(0, 900))}</code>` : ''
-  const text = buildProposalText(v, threshold()) + detail + typed +
-    (staffFiling ? `
-
-Sent by ${esc(filer.name)} in the receipts group.` : '')
-  if (a.fileId && String(approvalChatId) !== String(chatId)) {
-    await sendFileTo(approvalChatId, a.fileId, a.isPhoto !== false,
-      `🧾 From ${esc(filer.name)} in the receipts group — needs your OK`)
+  // ---- a genuine document: file it to the vault, don't ask ------------------
+  //
+  // Only reachable now for something sent OUTSIDE the receipts group that the
+  // reader called a document — a contract, a bank letter, a delivery order.
+  // It used to raise an approval card. Nothing raises an approval card any
+  // more: "Everything should be filed without asking then correct it in the
+  // app later" (owner, 8 Oct 2026). It goes in the vault and he is told where
+  // it went, with the undo code if that was the wrong place.
+  const done = await runAutopilot('vault', { ...payload, auto: true })
+  if (!done) {
+    await sendMessage(chatId, '\u{1F4C1} That looked already handled \u2014 nothing was filed twice.')
+    return
   }
-  const row = await proposeAndNotify({ agentKey: key, idempotencyKey: payload.idempotencyKey, payload, chatId: approvalChatId, text })
-  if (row) {
-    await remember(approvalChatId, '[a receipt needs approval]',
-      `${text}
-
-(Waiting for the owner's approval — approval #${row.id}. Nothing is filed until they tap Approve or reply yes to the card.)`)
-  }
-  if (staffFiling) {
-    await sendMessage(chatId, `📸 Got it, thanks ${esc(filer.name)} — passed to ${jarvisName()} for filing.`)
-  } else if (!row) {
-    await sendMessage(chatId, '📁 Already waiting on your YES for this one — check the buttons above.')
-  }
+  const recordId = (done.result as any)?.record_id ?? null
+  const what = v.merchant ? esc(String(v.merchant)) : 'the document'
+  await sendMessage(chatId,
+    `\u{1F4C4} Filed <b>${what}</b> to the vault \u2014 I could not read a bill on it, so it is kept as a ` +
+    `document rather than as spending.${detail}${recordTag(recordId)}` +
+    `\n\nIf it IS a bill, tell me the total and I will file it properly. ` +
+    `Reply <code>/undo-${done.row.id}</code> within 24h to reverse.`)
+  await remember(chatId, '[sent a document]', `Filed to the vault as record #${recordId ?? '?'}.`)
 }
 
 /**
@@ -2274,40 +2280,4 @@ function recordTag(recordId: unknown): string {
   return Number.isFinite(n) && n > 0
     ? `\n\n\u{1F516} Record <b>#${n}</b> \u2014 quote this number to change it.`
     : ''
-}
-
-// The 🟡 proposal wording. Low confidence gets the "robot unsure" flag so the human
-// double-checks the amount (the evaluation-loop teach); a clear over-threshold
-// expense states the number; a plain document just asks to file.
-function buildProposalText(v: VisionResult, limit: number): string {
-  // An e-wallet screen is honest about who was paid and how much, and silent on
-  // what for. Say so, rather than dressing it up as a receipt.
-  if (v.payment_proof && typeof v.amount === 'number' && v.amount > 0) {
-    const who = v.merchant ? ` to <b>${esc(v.merchant)}</b>` : ''
-    return (
-      `💳 E-wallet / transfer payment${who}: <b>${rm(v.amount)}</b>` +
-      `${v.date ? ` on ${esc(v.date)}` : ''}.\n` +
-      `There's no itemised receipt, so I can't tell what it was for.\n` +
-      `Business expense → Approve. Paid for yourself → 👤 Personal. ` +
-      `Or just reply yes, personal, or no.`
-    )
-  }
-  const unsure = v.confidence === 'low'
-  const amt = typeof v.amount === 'number' ? rm(v.amount) : 'an unclear amount'
-  const bits = [v.merchant, v.date].filter(Boolean).join(' · ')
-  if (unsure) {
-    return (
-      `⚠️ <b>Robot unsure</b> — I couldn't read this clearly` +
-      `${v.missing?.length ? ` (missing: ${v.missing.join(', ')})` : ''}. ` +
-      `My best guess: ${amt}${bits ? ` · ${bits}` : ''}. Double-check, then file it?` +
-      TYPE_HINT
-    )
-  }
-  if (typeof v.amount === 'number' && v.amount > 0) {
-    return (
-      `🧾 Receipt read: <b>${amt}</b>${bits ? ` · ${bits}` : ''}. ` +
-      `That's over your RM${limit} auto-file limit — file it to Cash Out?`
-    )
-  }
-  return `🗂️ Looks like a document${v.merchant ? ` from ${v.merchant}` : ''}. File it to your Vault?`
 }
