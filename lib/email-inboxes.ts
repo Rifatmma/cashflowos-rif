@@ -11,13 +11,27 @@
 // to see: a mis-parsed address means a mailbox is silently never read, and
 // nothing in the nightly message would say so.
 //
-// CONFIG. PAYMENTS_EMAILS, comma separated, each entry `address` or
-// `address:Label`:
+// CONFIG. PAYMENTS_EMAILS, comma separated, each entry
+// `address[:Name[:GmailLabel]]`:
 //
-//   PAYMENTS_EMAILS=rifatmma@gmail.com:Rif,tuantinaa@gmail.com:Tina
+//   PAYMENTS_EMAILS=rifatmma@gmail.com:Rif,tuantinaa@gmail.com:Tina:Jaosamut
 //
-// The label is only ever shown to the owner, so he can tell at a glance whose
-// mailbox a payment was found in. Without one the address is the label.
+// The name is only ever shown to the owner, so he can tell at a glance whose
+// mailbox a payment was found in. Without one the address is the name.
+//
+// GmailLabel NARROWS the mailbox to one label. It exists because a staff
+// member's personal inbox is mostly not business: Tina's two-day window held
+// about 200 payment-looking emails, nearly all of them gym bookings and
+// refunds, and every one of those would have arrived in the owner's nightly
+// message for him to classify.
+//
+//   "yeah do the label way instead"  (owner, 10 Oct 2026)
+//
+// With a label set, the LABEL IS THE FILTER: everything under it is read, and
+// the payment keywords are not applied. Somebody deliberately tagging a
+// business receipt is a better signal than a word list, and re-filtering what
+// she already picked out would quietly drop the ones worded unusually -- which
+// is exactly the kind she would bother to tag.
 //
 // PAYMENTS_EMAIL (singular, the old name) still works and still means the one
 // inbox, so nothing breaks if PAYMENTS_EMAILS is never set.
@@ -34,6 +48,8 @@ export type Inbox = {
   label: string
   /** The Composio connection to fetch through. */
   account: string
+  /** Read only this Gmail label. null = the whole mailbox, keyword filtered. */
+  gmailLabel: string | null
 }
 
 export const DEFAULT_INBOX = 'rifatmma@gmail.com'
@@ -44,17 +60,21 @@ export function parseInboxes(list: string | undefined, single: string | undefine
   const out: Inbox[] = []
   const seen = new Set<string>()
   for (const part of raw.split(',')) {
-    const [addrRaw, ...labelBits] = part.split(':')
+    const [addrRaw, nameRaw, ...labelBits] = part.split(':')
     const address = (addrRaw ?? '').trim().toLowerCase()
     // An entry that is not an address is dropped rather than guessed at: a
     // typo must not become a mailbox nobody notices is missing.
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) continue
     if (seen.has(address)) continue
     seen.add(address)
-    const label = labelBits.join(':').trim()
-    out.push({ address, label: label || address, account: address })
+    const name = (nameRaw ?? '').trim()
+    // Everything after the second colon is the Gmail label, so a label with a
+    // colon in it survives. Case and spacing are kept: Gmail label names are
+    // matched as the person typed them.
+    const gmailLabel = labelBits.join(':').trim()
+    out.push({ address, label: name || address, account: address, gmailLabel: gmailLabel || null })
   }
-  if (!out.length) out.push({ address: DEFAULT_INBOX, label: DEFAULT_INBOX, account: DEFAULT_INBOX })
+  if (!out.length) out.push({ address: DEFAULT_INBOX, label: DEFAULT_INBOX, account: DEFAULT_INBOX, gmailLabel: null })
   // COMPOSIO_GMAIL_ACCOUNT predates the list and named the one connection, so
   // it keeps applying to the first entry and nothing else.
   const override = (firstAccount ?? '').trim()
