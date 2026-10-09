@@ -145,7 +145,11 @@ export default function CorrectForm({
     set(i, { total: v, ...(q && t != null ? { price: clean(t / q) } : {}) })
   }
   const remove = (i: number) => setDrafts(a => a.filter((_, j) => j !== i))
-  const add = () => setDrafts(a => [...a, { name: '', qty: '1', unit: '', price: '0', total: '0', type: '', sItem: '', sQty: '', sUnit: '', sPer: '', sPerUnit: '' }])
+  // EMPTY, NOT '0'. A new line used to arrive with a real zero in the price and
+  // total, which had to be deleted before a number could be typed — and if it
+  // was not, "10" became "100" (owner, 10 Oct 2026). The placeholder says 0
+  // without the field containing one.
+  const add = () => setDrafts(a => [...a, { name: '', qty: '1', unit: '', price: '', total: '', type: '', sItem: '', sQty: '', sUnit: '', sPer: '', sPerUnit: '' }])
   // Picking the item it had worked out starts from that reading (2 packs of
   // "2KG" -> 4 kg), so only the number needs checking. Another item starts
   // empty in its usual unit: a number carried over from a different item
@@ -234,7 +238,7 @@ export default function CorrectForm({
             <div className="cr-grid">
               <label className="cr-field">
                 <span>Qty</span>
-                <input inputMode="decimal" value={d.qty} onChange={e => onQty(i, e.target.value)} />
+                <input inputMode="decimal" placeholder="0" value={d.qty} onChange={e => onQty(i, e.target.value)} />
               </label>
               <label className="cr-field">
                 <span>Unit</span>
@@ -267,11 +271,11 @@ export default function CorrectForm({
               </label>
               <label className="cr-field">
                 <span>Price each (RM)</span>
-                <input inputMode="decimal" value={d.price} onChange={e => onPrice(i, e.target.value)} />
+                <input inputMode="decimal" placeholder="0" value={d.price} onChange={e => onPrice(i, e.target.value)} />
               </label>
               <label className="cr-field">
                 <span>Line total (RM)</span>
-                <input inputMode="decimal" value={d.total} onChange={e => onTotal(i, e.target.value)} />
+                <input inputMode="decimal" placeholder="0" value={d.total} onChange={e => onTotal(i, e.target.value)} />
               </label>
             </div>
             <label className="cr-field cr-wide">

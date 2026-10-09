@@ -1,4 +1,5 @@
 import './globals.css'
+import { NumberFields } from './_components/NumberFields'
 import type { Metadata, Viewport } from 'next'
 import { IBM_Plex_Sans, IBM_Plex_Mono, IBM_Plex_Serif } from 'next/font/google'
 
@@ -55,6 +56,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     return (
       <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}>
         <body>
+          <NumberFields />
           <main className="main">{children}</main>
         </body>
       </html>
@@ -72,6 +74,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Nav pendingCount={pending} />
             <p className="hint">One <code>records</code> table behind every tab. Your robots live in <code>agents/</code>.</p>
           </aside>
+          <NumberFields />
           <main className="main"><ConnStatus />{children}</main>
         </div>
         {/* Phone bottom bar — hidden on desktop. */}
