@@ -125,6 +125,10 @@ const MAX_ITEMS = 40
 // deploy.
 const FIRST_MODEL = process.env.VISION_MODEL?.trim() || 'claude-haiku-5-5'
 const SECOND_MODEL = process.env.VISION_MODEL_RETRY?.trim() || 'claude-sonnet-5-5'
+/** Output ceiling per read: enough for a long receipt AND the model's thinking. */
+const MAX_OUTPUT_TOKENS = Number(process.env.VISION_MAX_TOKENS) > 0
+  ? Number(process.env.VISION_MAX_TOKENS)
+  : 8000
 const QTY_MAX = 10_000
 const UNIT_PRICE_MAX = 100_000
 // Units we recognise. Anything else is kept as free text but truncated — we do
@@ -529,9 +533,23 @@ export async function readImage(
   const ask = async (model: string): Promise<string> => {
     const res = await anthropic.messages.create({
       model,
-      // A form, still — but an itemised receipt needs room for ~40 lines. Capped
-      // so a runaway can't cost much; a grocery receipt fits comfortably.
-      max_tokens: 2000,
+      // ROOM FOR THINKING AS WELL AS THE ANSWER. This was 2000, which was right
+      // for Haiku 4.5 and silently wrong for Haiku 5.5: the newer model spends
+      // ~1200 output tokens THINKING before it writes anything, so a 15-line
+      // grocery bill ran out of budget mid-JSON, the parse failed, and the
+      // receipt filed as RM 0.00 "I could not read it clearly" (10 Oct 2026).
+      //
+      // Measured on the Hijrah Grocer bill that exposed it:
+      //   haiku-4-5  @2000 -> end_turn,   1047 out, 0 thinking,    15 items
+      //   haiku-5-5  @2000 -> max_tokens, 2000 out, 1192 thinking,  FAILS
+      //   haiku-5-5  @8000 -> end_turn,   2198 out, 1200 thinking, 15 items
+      //
+      // Short bills still fitted, which is why the fault looked random: the
+      // RM 7.50 QR screenshot read perfectly the same minute this one failed.
+      //
+      // max_tokens is a CEILING, not a charge — unused budget costs nothing —
+      // so the generous number is free except on the bills that need it.
+      max_tokens: MAX_OUTPUT_TOKENS,
       system,
       messages: [
         {
@@ -546,6 +564,15 @@ export async function readImage(
         },
       ],
     })
+    // A truncated answer is not an answer. Returning the half-written JSON
+    // would send it to JSON.parse, which fails, which looks exactly like a
+    // photo too blurry to read — the wrong diagnosis, and the one that cost a
+    // morning. Say so, and let the retry have a real go at it.
+    if (res.stop_reason === 'max_tokens') {
+      console.warn(`[CFO] vision: ${model} hit the ${MAX_OUTPUT_TOKENS}-token ceiling (` +
+        `${res.usage?.output_tokens ?? '?'} out) — the read was cut off, not unreadable`)
+      return ''
+    }
     return res.content.find(c => c.type === 'text')?.text ?? ''
   }
 
