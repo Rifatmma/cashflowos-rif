@@ -131,6 +131,10 @@ const findings = facts.map(f => ({ f, v: readCity(f) })).filter(x => x.v)
 const { error: saveErr } = await db.from('mw_city_audit').upsert(findings.map(({ f, v }) => ({
   url: f.url, city: f.city, country_url: f.countryUrl, market: f.market,
   kind: v!.kind, says: v!.says, cost: v!.cost, clicks: v!.clicks, pos: v!.pos,
+  // A misrouted page is fixed in Google Ads, so it is the paid-search
+  // owner's, not the market lead's. Everything else stays unassigned here
+  // and is picked up by whoever owns the market.
+  owner: v!.kind === 'misrouted' ? (process.env.MW_PAID_OWNER || 'Rifat') : null,
   terms: v!.terms, words: f.words, title: f.title,
   lands_on: [...new Set(f.paid.filter(p => p.lands && p.lands.replace(/\/$/, '') !== f.url).map(p => p.lands.replace('https://www.movingwalls.com', '')))],
   cycle, checked_at: new Date().toISOString(),

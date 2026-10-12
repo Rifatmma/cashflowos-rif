@@ -26,7 +26,16 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
   const { who, market, theme } = await searchParams
-  const all = (await getActions('seo')).filter(r => r.source === 'generated')
+  // SEO work the planner generated, PLUS the paid-search board.
+  //
+  // The paid tasks sat on their own screen with no owner, which is how the
+  // biggest item on the board ended up being the one nobody was assigned.
+  // They are Rifat's and they belong here with everyone else's, chips and all
+  // (owner, 12 Oct 2026).
+  const all = [
+    ...(await getActions('seo')).filter(r => r.source === 'generated'),
+    ...(await getActions('paid')).filter(r => r.owner),
+  ]
   const owners = [...new Set(all.map(r => r.owner ?? 'Unassigned'))].sort()
   const markets = MARKETS.filter(m => all.some(r => r.market === m.key))
 
@@ -81,7 +90,7 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
     url: c.url, city: c.city, market: c.market, kind: c.kind, says: c.says,
     cost: Number(c.cost), clicks: c.clicks, pos: c.pos === null ? null : Number(c.pos),
     terms: Array.isArray(c.terms) ? c.terms : [], words: c.words, landsOn: Array.isArray(c.lands_on) ? c.lands_on : [],
-    status: c.status, statusBy: c.status_by, statusAt: c.status_at,
+    status: c.status, statusBy: c.status_by, statusAt: c.status_at, owner: c.owner ?? null,
   }))
   const cityDone = cityViews.filter(c => c.status === 'done').length
   // Pages that have a rendered proposal: their task no longer needs written
@@ -204,6 +213,21 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
               ))}
             </div>
           </Section>
+
+          {(() => {
+            // Cross-market work — the paid-search board — in the same shape as
+            // a market block so it reads as one more owner's list, not a
+            // special case.
+            const cross = rows.filter(r => !r.market && r.owner)
+            if (!cross.length) return null
+            const who = [...new Set(cross.map(r => r.owner))].join(', ')
+            return (
+              <Section title={`Paid ads — ${who}`}
+                sub="Google Ads work: budgets, keywords, bids and where the ads point. Not tied to one market.">
+                {cross.map(r => <PlanRow key={r.id} r={r as ActionRow} />)}
+              </Section>
+            )
+          })()}
 
           {MARKETS.filter(m => rows.some(r => r.market === m.key)).map(m => {
             const mine = rows.filter(r => r.market === m.key)

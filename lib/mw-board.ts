@@ -25,6 +25,8 @@ export type CityRow = {
   terms: string[]; words: number | null; title: string | null; lands_on: string[]
   status: 'not_started' | 'in_progress' | 'done'
   status_by: string | null; status_at: string | null
+  /** Who fixes it. A misrouted page is an ads change, so it is not the market lead's. */
+  owner: string | null
 }
 
 export type BoardItem = {
@@ -70,7 +72,8 @@ export function issuesFrom(cities: CityRow[], proposals: { slug: string; url: st
         `${clicks} clicks on ${mis.length} ${mis.length === 1 ? 'city' : 'cities'} land on the country page, while the city page ` +
         `for that exact city already exists and is written for those searches. Not one paid click reaches a city page. ` +
         `Biggest: ${mis.slice(0, 3).map(c => `${c.city} ${money(Number(c.cost))}`).join(', ')}. ` +
-        `This is an ad destination change, not a writing job — the pages are already there.`,
+        `This is an ad destination change, not a writing job — the pages are already there. ` +
+        `${[...new Set(mis.map(c => c.owner).filter(Boolean))].join(', ') || 'Unassigned'}.`,
       cost, anchor: '#cities',
     })
   }

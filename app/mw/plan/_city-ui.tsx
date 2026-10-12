@@ -16,6 +16,7 @@ export type CityView = {
   terms: string[]; words: number | null; landsOn: string[]
   status: 'not_started' | 'in_progress' | 'done'
   statusBy: string | null; statusAt: string | null
+  owner: string | null
 }
 
 const NEXT: Record<CityView['status'], CityView['status']> = {
@@ -51,6 +52,7 @@ export function CityCard({ c }: { c: CityView }) {
         <code>{c.url}</code>
         <span className={`mw-city-tag ${KIND[c.kind].cls}`}>{KIND[c.kind].tag}</span>
         {c.cost > 0 && <span className="mw-city-cost">S${c.cost.toFixed(2)}/mo · {c.clicks} clicks</span>}
+        {c.owner && <span className="mw-city-owner">{c.owner}</span>}
       </div>
 
       <p className="mw-city-says">{c.says}</p>
