@@ -33,6 +33,14 @@ for (const r of (seo ?? []) as any[]) {
   }
 }
 
+// ── what Google reports per page (mw_gsc_pages) ─────────────────────────────
+const { data: gscRows } = await db.from('mw_gsc_pages').select('*')
+const gsc = new Map((gscRows ?? []).map((g: any) => [String(g.url), {
+  impressions: Number(g.impressions) || 0, clicks: Number(g.clicks) || 0,
+  ctr: Number(g.ctr) || 0, position: Number(g.position) || 0,
+}]))
+console.error(`search console: ${gsc.size} pages`)
+
 // ── paid demand naming a city ───────────────────────────────────────────────
 const { data: snaps } = await db.from('mw_snapshots').select('data').order('pulled_at', { ascending: false }).limit(1)
 const sem: any = (snaps?.[0] as any)?.data?.sem ?? {}
@@ -117,6 +125,7 @@ const facts: CityFacts[] = rows.map(r => ({
   countryUrl: `/locations/${r.country}`, countryLabel: r.country, market: r.country,
   words: r.words, title: r.title,
   ranked: r.ranked, paid: r.paidTermsAll ?? r.paidTerms,
+  gsc: gsc.get(r.url) ?? null,
 }))
 const findings = facts.map(f => ({ f, v: readCity(f) })).filter(x => x.v)
 const { error: saveErr } = await db.from('mw_city_audit').upsert(findings.map(({ f, v }) => ({

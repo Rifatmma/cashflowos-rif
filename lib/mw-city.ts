@@ -38,10 +38,16 @@ export type CityFacts = {
   ranked: { q: string; pos: number; vol: number }[]
   /** Paid searches naming this city, whatever page they land on. */
   paid: { q: string; cost: number; clicks: number; conv: number; lands: string }[]
+  /**
+   * What Google itself reports for the page over 28 days. This is the source
+   * that settled the question Semrush could not: 29 of the 38 looked dead in
+   * Semrush and almost all of them are being shown to people.
+   */
+  gsc?: { impressions: number; clicks: number; ctr: number; position: number } | null
 }
 
 export type CityFinding = {
-  kind: 'misrouted' | 'near' | 'quiet'
+  kind: 'misrouted' | 'near' | 'lowctr' | 'deep' | 'quiet'
   url: string
   city: string
   market: string
@@ -56,6 +62,25 @@ export type CityFinding = {
 }
 
 const money = (n: number) => `S$${n.toFixed(2)}`
+
+/** Below this, 28 days of Search Console is too little to read anything into. */
+export const MIN_IMPRESSIONS = 100
+
+/**
+ * Roughly what a position earns, for spotting a listing that under-performs
+ * its rank. Deliberately coarse — the point is "half what it should be", not
+ * a forecast.
+ */
+export function expectedCtr(pos: number): number {
+  if (pos <= 1) return 0.28
+  if (pos <= 2) return 0.15
+  if (pos <= 3) return 0.11
+  if (pos <= 5) return 0.07
+  if (pos <= 8) return 0.04
+  if (pos <= 10) return 0.025
+  if (pos <= 15) return 0.015
+  return 0.008
+}
 const path = (u: string) => u.replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '')
 
 /** Paid clicks for this city that land anywhere other than its own page. */
@@ -93,6 +118,38 @@ export function readCity(c: CityFacts): CityFinding | null {
     }
   }
 
+  // ── what Google actually reports ────────────────────────────────────────
+  // Everything below here was guesswork until Search Console was connected
+  // (12 Oct 2026). Before that the only honest verdict for most of these was
+  // "we cannot see". Now we can, and almost none of them were dead.
+  const g = c.gsc
+  if (g && g.impressions >= MIN_IMPRESSIONS) {
+    // Ranking well and nobody clicking: the listing is losing, not the page.
+    // The cheapest fix on any of these — a title and a description, no
+    // content work at all.
+    if (g.position <= 15 && g.ctr < expectedCtr(g.position) / 2) {
+      return {
+        kind: 'lowctr', url: c.url, city: c.city, market: c.market,
+        says: `${c.url} was shown ${g.impressions.toLocaleString('en-US')} times in 28 days at an average of ` +
+          `#${g.position.toFixed(1)}, and earned ${g.clicks} click${g.clicks === 1 ? '' : 's'} — ` +
+          `${(g.ctr * 100).toFixed(2)}% where that position normally returns about ${(expectedCtr(g.position) * 100).toFixed(0)}%. ` +
+          `The ranking is fine. The title and description are what people are declining.`,
+        cost: 0, clicks: g.clicks, pos: g.position, terms: [],
+      }
+    }
+    // Plenty of impressions, buried. Real demand, wrong page or too little of it.
+    if (g.position > 20) {
+      return {
+        kind: 'deep', url: c.url, city: c.city, market: c.market,
+        says: `${c.url} was shown ${g.impressions.toLocaleString('en-US')} times in 28 days but sits at ` +
+          `#${g.position.toFixed(1)} — page three or worse, so almost nobody sees it. ` +
+          `${g.clicks === 0 ? 'It earned no clicks at all.' : `It earned ${g.clicks}.`} ` +
+          `The demand is real; the position is the problem.`,
+        cost: 0, clicks: g.clicks, pos: g.position, terms: [],
+      }
+    }
+  }
+
   const near = nearMisses(c)
   if (near.length) {
     const best = near.sort((a, b) => a.pos - b.pos)[0]
@@ -123,8 +180,12 @@ export function readCity(c: CityFacts): CityFinding | null {
   // this would be inventing a problem to give somebody a task.
   return {
     kind: 'quiet', url: c.url, city: c.city, market: c.market,
-    says: `${c.url} is ${c.words} words and linked from ${c.countryUrl}, and Semrush records no position for it. ` +
-      `That is not proof it is failing — it is proof we cannot see it. Nothing is being spent on ${c.city} either.`,
+    says: g
+      ? `${c.url} was shown only ${g.impressions} time${g.impressions === 1 ? '' : 's'} in 28 days. ` +
+        `It is ${c.words} words and linked from ${c.countryUrl}, so the page is not the problem — ` +
+        `almost nobody is searching for what it answers, or Google is not matching it to them yet.`
+      : `${c.url} is ${c.words} words and linked from ${c.countryUrl}, and neither Semrush nor Search Console ` +
+        `records anything for it. Nothing is being spent on ${c.city} either.`,
     cost: 0, clicks: 0, pos: null, terms: [],
   }
 }
@@ -132,21 +193,22 @@ export function readCity(c: CityFacts): CityFinding | null {
 export function readCities(cities: CityFacts[]): CityFinding[] {
   return cities.map(readCity).filter(Boolean as unknown as (f: CityFinding | null) => f is CityFinding)
     .sort((a, b) => {
-      const rank = { misrouted: 0, near: 1, quiet: 2 } as const
+      const rank = { misrouted: 0, lowctr: 1, near: 2, deep: 3, quiet: 4 } as const
       return rank[a.kind] - rank[b.kind] || b.cost - a.cost || (a.pos ?? 999) - (b.pos ?? 999)
     })
 }
 
 /** The headline for the whole hyperlocal programme, from the findings. */
 export function citySummary(f: CityFinding[]): string {
-  const mis = f.filter(x => x.kind === 'misrouted')
-  const near = f.filter(x => x.kind === 'near')
-  const quiet = f.filter(x => x.kind === 'quiet')
+  const n = (k: CityFinding['kind']) => f.filter(x => x.kind === k)
+  const mis = n('misrouted'), low = n('lowctr'), near = n('near'), deep = n('deep'), quiet = n('quiet')
   const spend = mis.reduce((s, x) => s + x.cost, 0)
   const clicks = mis.reduce((s, x) => s + x.clicks, 0)
   const bits: string[] = [`${f.length} city pages`]
   if (mis.length) bits.push(`${mis.length} are being paid for and bypassed — ${money(spend)} a month, ${clicks} clicks, landing on the country page instead`)
-  if (near.length) bits.push(`${near.length} rank on page two and could be pushed`)
-  if (quiet.length) bits.push(`${quiet.length} have no position Semrush can see, which is not the same as being broken`)
+  if (low.length) bits.push(`${low.length} rank well and are not being clicked, which is a title job`)
+  if (near.length) bits.push(`${near.length} sit on page two and could be pushed`)
+  if (deep.length) bits.push(`${deep.length} are shown often but buried past page two`)
+  if (quiet.length) bits.push(`${quiet.length} are barely shown at all`)
   return bits.join(' · ')
 }

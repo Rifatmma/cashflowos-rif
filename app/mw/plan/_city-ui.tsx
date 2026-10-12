@@ -11,7 +11,7 @@ import { setCityStatusAction } from '../actions'
 
 export type CityView = {
   url: string; city: string; market: string
-  kind: 'misrouted' | 'near' | 'quiet'
+  kind: 'misrouted' | 'near' | 'lowctr' | 'deep' | 'quiet'
   says: string; cost: number; clicks: number; pos: number | null
   terms: string[]; words: number | null; landsOn: string[]
   status: 'not_started' | 'in_progress' | 'done'
@@ -24,8 +24,10 @@ const NEXT: Record<CityView['status'], CityView['status']> = {
 const LABEL = { not_started: 'Not started', in_progress: 'In progress', done: 'Done' } as const
 const KIND = {
   misrouted: { tag: 'Ads sent elsewhere', cls: 'bad' },
+  lowctr: { tag: 'Ranks well, nobody clicks', cls: 'warn' },
   near: { tag: 'One push from page one', cls: 'warn' },
-  quiet: { tag: 'Nothing visible yet', cls: 'calm' },
+  deep: { tag: 'Seen a lot, buried', cls: 'warn' },
+  quiet: { tag: 'Barely shown', cls: 'calm' },
 } as const
 const day = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''

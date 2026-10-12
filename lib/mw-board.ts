@@ -20,7 +20,7 @@ import { supabase, supabaseConfigured } from './supabase'
 
 export type CityRow = {
   url: string; city: string; country_url: string; market: string
-  kind: 'misrouted' | 'near' | 'quiet'
+  kind: 'misrouted' | 'near' | 'lowctr' | 'deep' | 'quiet'
   says: string; cost: number; clicks: number; pos: number | null
   terms: string[]; words: number | null; title: string | null; lands_on: string[]
   status: 'not_started' | 'in_progress' | 'done'
@@ -119,17 +119,40 @@ export function opportunitiesFrom(cities: CityRow[]): BoardItem[] {
     })
   }
 
+  // Google shows these pages and nobody clicks. The cheapest work on the
+  // board after repointing the ads: a title and a description, no content.
+  const low = cities.filter(c => c.kind === 'lowctr' && c.status !== 'done')
+  if (low.length) {
+    out.push({
+      id: 'lowctr',
+      headline: `${low.length} city ${low.length === 1 ? 'page ranks' : 'pages rank'} well and ${low.length === 1 ? 'is' : 'are'} not being clicked`,
+      detail: low.map(c => `${c.city} #${Math.round(Number(c.pos))}`).join(' · ') +
+        '. The ranking is already won — what people are declining is the title and the description. ' +
+        'No content work, and the result shows up in days rather than months.',
+      cost: 0, anchor: '#cities',
+    })
+  }
+
+  const deep = cities.filter(c => c.kind === 'deep' && c.status !== 'done')
+  if (deep.length) {
+    out.push({
+      id: 'deep',
+      headline: `${deep.length} city ${deep.length === 1 ? 'page is' : 'pages are'} shown often and buried past page two`,
+      detail: deep.map(c => `${c.city} #${Math.round(Number(c.pos))}`).join(' · ') +
+        '. Google is matching real searches to them, so the demand is proven — these are the ones worth adding to.',
+      cost: 0, anchor: '#cities',
+    })
+  }
+
   const quiet = cities.filter(c => c.kind === 'quiet')
   if (quiet.length) {
-    const byMarket = new Map<string, number>()
-    for (const c of quiet) byMarket.set(c.market, (byMarket.get(c.market) ?? 0) + 1)
     out.push({
       id: 'unseen',
-      headline: `${quiet.length} city pages are built and nobody can tell whether they work`,
-      detail: `They are not thin, not duplicates and not orphans — all are 750+ words and linked from their country page. ` +
-        `Semrush simply records nothing for them, which is a gap in what we can SEE rather than evidence of a fault. ` +
-        `Spread across ${[...byMarket.entries()].sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m} ${n}`).join(', ')}. ` +
-        `The way to find out is Search Console, not another rewrite.`,
+      headline: `${quiet.length} city pages are barely shown at all`,
+      detail: `Search Console records under 100 impressions each in 28 days. They are not thin, not duplicates ` +
+        `and not orphans — all are 750+ words and linked from their country page — so the page is not what is ` +
+        `wrong. Either almost nobody searches for what they answer, or Google has not matched them yet. ` +
+        `Worth leaving alone until one of the three above is cleared.`,
       cost: 0, anchor: '#cities',
     })
   }
