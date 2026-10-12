@@ -104,6 +104,19 @@ export function readCity(c: CityFacts): CityFinding | null {
     }
   }
 
+  // It ranks, just not close enough to push. Saying "no position" here would
+  // be wrong — /locations/uae/dubai sits at #23 for "billboard advertising"
+  // (210 a month), which is a long way from nowhere.
+  const any = [...c.ranked].filter(k => k.pos > 0).sort((a, b) => a.pos - b.pos)[0]
+  if (any) {
+    return {
+      kind: 'quiet', url: c.url, city: c.city, market: c.market,
+      says: `${c.url} ranks #${Math.round(any.pos)} for "${any.q}"${any.vol ? ` (${any.vol} searches a month)` : ''} — ` +
+        `page three, further out than a push. Nothing is being spent on ${c.city} either.`,
+      cost: 0, clicks: 0, pos: any.pos, terms: [any.q],
+    }
+  }
+
   // NOT "this page is broken". Semrush showing nothing is not evidence of a
   // fault, and the audit ruled out the faults it could have been: the page is
   // long enough, it is not a duplicate, and it is linked. Saying more than

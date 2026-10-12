@@ -9,6 +9,8 @@ import { MwHero, Section } from '../_ui'
 import { Load, PlanRow, PlanNote } from './_plan-ui'
 import { ProposalPage, type ProposalView } from './_proposal-ui'
 import { openProposals, proposalUrl, spendOf, clicksOf, bestPos } from '@/lib/mw-proposals'
+import { CityBoard, type CityView } from './_city-ui'
+import { cityRows, issuesFrom, opportunitiesFrom } from '@/lib/mw-board'
 
 // 👉 Moving Walls → Market plan. Who does what, in which market, and how.
 //
@@ -69,6 +71,25 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
   })
   const waiting = pages.reduce((s, p) => s + p.items.filter(i => i.status === 'open').length, 0)
 
+  // The hyperlocal half, and the two read-only summaries that open the page:
+  // what is wrong, and what there is to win. Both are views of evidence
+  // gathered elsewhere — nothing is computed twice.
+  const cities = await cityRows()
+  const issues = issuesFrom(cities, props.map(p => ({ slug: p.slug, url: p.url, kind: p.kind, status: p.status, evidence: p.evidence })))
+  const chances = opportunitiesFrom(cities)
+  const cityViews: CityView[] = cities.map(c => ({
+    url: c.url, city: c.city, market: c.market, kind: c.kind, says: c.says,
+    cost: Number(c.cost), clicks: c.clicks, pos: c.pos === null ? null : Number(c.pos),
+    terms: Array.isArray(c.terms) ? c.terms : [], words: c.words, landsOn: Array.isArray(c.lands_on) ? c.lands_on : [],
+    status: c.status, statusBy: c.status_by, statusAt: c.status_at,
+  }))
+  const cityDone = cityViews.filter(c => c.status === 'done').length
+  // Pages that have a rendered proposal: their task no longer needs written
+  // steps, because the render says the same thing in place.
+  const renderFor = new Map(pages
+    .filter(p => p.href)
+    .map(p => [p.url.replace(/^https?:\/\/(www\.)?movingwalls\.com/, '').replace(/\/$/, ''), p.href as string]))
+
   const link = (o: { who?: string; market?: string }) => {
     const q = new URLSearchParams()
     if (o.who) q.set('who', o.who)
@@ -121,6 +142,40 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
             </Section>
           )}
 
+          {issues.length > 0 && (
+            <Section title="What is wrong right now"
+              sub="Ordered by what it costs a month. Each one points at the work that answers it.">
+              {issues.map(i => (
+                <div className="mw-board is-issue" key={i.id}>
+                  <h4>{i.headline}</h4>
+                  <p>{i.detail}</p>
+                  {i.anchor && <a href={i.anchor}>Take me to it ↓</a>}
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {chances.length > 0 && (
+            <Section title="What there is to win"
+              sub="Positions already earned, and pages already built. Cheaper than anything written from scratch.">
+              {chances.map(i => (
+                <div className="mw-board is-chance" key={i.id}>
+                  <h4>{i.headline}</h4>
+                  <p>{i.detail}</p>
+                  {i.anchor && <a href={i.anchor}>Take me to it ↓</a>}
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {cityViews.length > 0 && (
+            <Section title="City pages"
+              sub={`The hyperlocal pages, one card each. ${cityDone} of ${cityViews.length} marked done.`}>
+              <div id="cities" />
+              <CityBoard cities={cityViews} />
+            </Section>
+          )}
+
           {pages.length > 0 && (
             <Section title="Page changes waiting on a yes or no"
               sub="Each one is shown on the real page in the download. Approve or reject here; a reason is kept and used to judge the next one.">
@@ -132,6 +187,7 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
             </Section>
           )}
 
+          <div id="work" />
           <Section title="Filter">
             <div className="mw-filters">
               <Link href={link({ market })} aria-current={!who ? 'page' : undefined}>Everyone</Link>
@@ -157,7 +213,18 @@ export default async function MwPlan({ searchParams }: { searchParams: Promise<{
                 sub={work.length
                   ? `${work.length} ${work.length === 1 ? 'task' : 'tasks'} this cycle · regional lead ${m.lead ?? '—'}`
                   : `Regional lead ${m.lead ?? '—'}`}>
-                {work.map(r => <PlanRow key={r.id} r={r as ActionRow} />)}
+                {work.map(r => (
+                  <PlanRow key={r.id} r={r as ActionRow}
+                    render={
+                      // Only for work ON an existing page. A "write the India
+                      // page for X" task points at the country page too, and
+                      // handing it a render of that page tells the writer to
+                      // edit something they were asked to create.
+                      ['strike', 'health', 'no-clicks', 'cannibal'].includes(String((r.how as any)?.kind ?? ''))
+                        ? renderFor.get(String((r.how as any)?.url ?? '').replace(/\/$/, '')) ?? null
+                        : null
+                    } />
+                ))}
                 {mine.filter(r => r.how?.kind === 'blind').map(r => <PlanNote key={r.id} r={r as ActionRow} />)}
               </Section>
             )

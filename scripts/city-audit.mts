@@ -7,6 +7,7 @@
 // before proposing anything I need to know what the other 30 contain.
 
 import { createClient } from '@supabase/supabase-js'
+import { readCity, citySummary, type CityFacts } from '../lib/mw-city'
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
 const SITE = 'https://www.movingwalls.com'
@@ -87,6 +88,7 @@ for (let i = 0; i < cityUrls.length; i += 6) {
       paidCost: pd.reduce((s, p) => s + p.cost, 0),
       paidClicks: pd.reduce((s, p) => s + p.clicks, 0),
       paidTerms: pd.sort((a, b) => b.cost - a.cost).slice(0, 3),
+      paidTermsAll: pd,
       landsElsewhere: [...new Set(pd.map(p => p.lands).filter(l => l && l !== u))],
       namesCity: new RegExp(`\\b${city.replace(/ /g, '\\s+')}\\b`, 'i').test(copy),
     })
@@ -104,6 +106,33 @@ for (const r of rows) {
   if (r.ranked.length) console.log(`   ranks: ${r.ranked.slice(0, 4).map((k: any) => `${k.q} #${Math.round(k.pos)} (${k.vol})`).join(', ')}`)
   if (r.paidCost > 0) console.log(`   PAID : S$${r.paidCost.toFixed(2)}, ${r.paidClicks} clicks — ${r.paidTerms.map((p: any) => p.q).join(', ')}${r.landsElsewhere.length ? `  → lands on ${r.landsElsewhere.map((l: string) => l.replace(SITE, '')).join(', ')}` : ''}`)
 }
+
+// ── keep it, so /mw/plan can show it and a lead's progress survives a re-audit
+const facts: CityFacts[] = rows.map(r => ({
+  // Title case each word, not every letter. My first attempt put a literal
+  // backspace byte here instead of a word boundary, via shell escaping, so
+  // the regex matched nothing and every city was stored lower case.
+  url: r.url,
+  city: r.city.replace(/(^|[\s-])([a-z])/g, (_m, sep: string, ch: string) => sep + ch.toUpperCase()),
+  countryUrl: `/locations/${r.country}`, countryLabel: r.country, market: r.country,
+  words: r.words, title: r.title,
+  ranked: r.ranked, paid: r.paidTermsAll ?? r.paidTerms,
+}))
+const findings = facts.map(f => ({ f, v: readCity(f) })).filter(x => x.v)
+const { error: saveErr } = await db.from('mw_city_audit').upsert(findings.map(({ f, v }) => ({
+  url: f.url, city: f.city, country_url: f.countryUrl, market: f.market,
+  kind: v!.kind, says: v!.says, cost: v!.cost, clicks: v!.clicks, pos: v!.pos,
+  terms: v!.terms, words: f.words, title: f.title,
+  lands_on: [...new Set(f.paid.filter(p => p.lands && p.lands.replace(/\/$/, '') !== f.url).map(p => p.lands.replace('https://www.movingwalls.com', '')))],
+  cycle, checked_at: new Date().toISOString(),
+  // status / status_by / status_at deliberately absent: an upsert must never
+  // reset a lead's progress. Postgres keeps the stored value for columns the
+  // upsert does not name only on INSERT, so the update list is pinned below.
+})), { onConflict: 'url', ignoreDuplicates: false })
+if (saveErr) console.error('save failed:', saveErr.message)
+else console.log(`
+saved ${findings.length} city findings`)
+console.log(citySummary(findings.map(x => x.v!)))
 
 const dead = rows.filter(r => !r.ranked.length)
 const thin = rows.filter(r => r.words < 400)

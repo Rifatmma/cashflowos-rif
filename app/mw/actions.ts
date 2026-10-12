@@ -6,6 +6,7 @@ import { setRivals, storeImport } from '@/lib/mw-gap-run'
 import { readFile, describe } from '@/lib/mw-import'
 import { COUNTRIES, dbOf } from '@/lib/mw-markets'
 import { decide, undecide } from '@/lib/mw-proposals'
+import { setCityStatus } from '@/lib/mw-board'
 import { revalidatePath } from 'next/cache'
 
 // Recording a decision. The ONLY writes /mw makes.
@@ -171,5 +172,14 @@ export async function decideProposal(formData: FormData) {
   if (!id) return
   if (choice === 'undo') await undecide(id)
   else if (choice === 'approved' || choice === 'rejected') await decide(id, choice, await actor(), reason)
+  revalidatePath('/mw/plan')
+}
+
+/** A market lead's own progress on a city page (lib/mw-board.ts). */
+export async function setCityStatusAction(formData: FormData) {
+  const url = String(formData.get('url') ?? '')
+  const status = String(formData.get('status') ?? '')
+  if (!url || !['not_started', 'in_progress', 'done'].includes(status)) return
+  await setCityStatus(url, status as any, await actor())
   revalidatePath('/mw/plan')
 }

@@ -92,5 +92,20 @@ const city = (o: Partial<CityFacts>): CityFacts => ({
   is(/not the same as being broken/.test(s), 'and carries the caveat about the quiet ones into the headline')
 }
 
+// A page that ranks, just not close enough to push, must not read as "no
+// position". /locations/uae/dubai is #23 for "billboard advertising" (210 a
+// month), which the first version reported as nothing at all.
+{
+  const dubai = city({
+    url: '/locations/uae/dubai', city: 'Dubai', market: 'mena',
+    ranked: [{ q: 'billboard advertising', pos: 23, vol: 210 }],
+  })
+  const f = readCity(dubai)!
+  is(f.kind === 'quiet', '#23 is not a push — it sits below the near-miss band')
+  is(/#23/.test(f.says) && /billboard advertising/.test(f.says), 'but the position it does hold is stated')
+  is(!/no position/.test(f.says), 'and it is never described as having no position')
+  is(f.pos === 23, 'the position is carried through for ordering')
+}
+
 console.log(bad ? `\n${bad} failed` : '\nall passed')
 process.exit(bad ? 1 : 0)

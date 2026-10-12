@@ -594,3 +594,48 @@
   .mw-prop-acts button { background: #0b1220; color: #e2e8f0; border-color: #1e293b; }
   .mw-prop-no { color: #fca5a5; }
 }
+
+/* ── Issues / opportunities, and the city board ──────────────────────────── */
+.mw-board { border-left: 4px solid #b91c1c; background: #fff; border: 1px solid var(--mw-line, #e2e8f0);
+  border-left-width: 4px; border-radius: 8px; padding: 14px 16px; margin: 0 0 12px; }
+.mw-board.is-chance { border-left-color: #16a34a; }
+.mw-board h4 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+.mw-board p { margin: 0; font-size: 14px; line-height: 1.65; color: #334155; }
+.mw-board a { display: inline-block; margin-top: 8px; font-size: 13px; color: #2563eb; }
+
+.mw-city { border: 1px solid var(--mw-line, #e2e8f0); border-left: 4px solid #94a3b8;
+  border-radius: 8px; padding: 13px 15px; margin: 0 0 10px; background: #fff; }
+.mw-city.is-bad { border-left-color: #b91c1c; }
+.mw-city.is-warn { border-left-color: #f59e0b; }
+.mw-city.is-done { opacity: .6; }
+.mw-city-head { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+.mw-city-head b { font-size: 15px; }
+.mw-city-head code, .mw-city-terms code, .mw-city-fix code {
+  font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; color: #334155; }
+.mw-city-terms code { margin-right: 5px; }
+.mw-city-tag { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: 4px; background: #e2e8f0; color: #475569; }
+.mw-city-tag.bad { background: #fee2e2; color: #991b1b; }
+.mw-city-tag.warn { background: #fef3c7; color: #92400e; }
+.mw-city-cost { font-size: 13px; font-weight: 600; color: #b91c1c; font-variant-numeric: tabular-nums; }
+.mw-city-says { font-size: 14px; line-height: 1.6; color: #334155; margin: 9px 0 0; }
+.mw-city-terms { font-size: 13px; color: #475569; margin: 8px 0 0; }
+.mw-city-fix { font-size: 14px; line-height: 1.6; margin: 9px 0 0; padding: 9px 11px;
+  background: #ecfdf5; border-radius: 6px; color: #064e3b; }
+.mw-city-foot { display: flex; gap: 12px; align-items: center; margin-top: 11px; flex-wrap: wrap; }
+.mw-city-foot a { font-size: 13px; color: #2563eb; }
+.mw-city-by { font-size: 12px; color: #64748b; }
+.mw-city-status { min-height: 36px; padding: 0 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--mw-line, #cbd5e1); background: #fff; color: #334155; cursor: pointer; }
+.mw-city-status.is-in_progress { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+.mw-city-status.is-done { background: #dcfce7; border-color: #86efac; color: #166534; }
+.mw-city-status:disabled { opacity: .6; cursor: progress; }
+.mw-render-lede { font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 10px; }
+
+@media (prefers-color-scheme: dark) {
+  .mw-board, .mw-city { background: #0f172a; border-color: #1e293b; }
+  .mw-board p, .mw-city-says { color: #cbd5e1; }
+  .mw-city-head code, .mw-city-terms code, .mw-city-fix code { background: #1e293b; color: #cbd5e1; }
+  .mw-city-fix { background: #052e1a; color: #86efac; }
+  .mw-city-status { background: #0b1220; color: #e2e8f0; border-color: #1e293b; }
+}

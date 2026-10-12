@@ -65,7 +65,7 @@ export function PlanNote({ r }: { r: ActionRow }) {
 }
 
 /** One task: the summary line, and everything needed to do it when opened. */
-export function PlanRow({ r }: { r: ActionRow }) {
+export function PlanRow({ r, render }: { r: ActionRow; render?: string | null }) {
   const how = r.how
   const d = r.decision
   const done = r.status === 'done' || d?.choice === 'done'
@@ -95,7 +95,22 @@ export function PlanRow({ r }: { r: ActionRow }) {
           </p>
         )}
 
-        {how?.steps?.length ? (
+        {/* WRITTEN STEPS, OR THE RENDER — never both.
+            The steps said "open this page, work these keywords in, give each
+            its own H2, add an FAQ". The render says the same thing, on the
+            page, in the place it goes. Printing both is telling one person
+            the same instruction twice: "you're repeating yourself... it
+            doesn't make sense" (owner, 12 Oct 2026). */}
+        {render ? (
+          <>
+            <h4>What to do</h4>
+            <p className="mw-render-lede">
+              The changes are drawn on the page itself — each one numbered where it belongs, with what it
+              was, what it becomes, and the search behind it. Nothing here is live.
+            </p>
+            <p><a className="mw-dl" href={render} download>⬇ Open this page with the changes on it</a></p>
+          </>
+        ) : how?.steps?.length ? (
           <>
             <h4>What to do</h4>
             <ol className="mw-steps">{how.steps.map((s, i) => <li key={i}>{s}</li>)}</ol>
