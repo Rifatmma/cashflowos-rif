@@ -160,6 +160,10 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
     const got = await gscQuery({
       property, start: ymd(start), end: ymd(end),
       dimensions: ['query', 'page', 'country'], rowLimit: 5000,
+      // Filtered in the sandbox: it is the difference between 78k and 30k of
+      // payload, and a query seen twice in a month is noise in every
+      // calculation downstream.
+      minImpressions: 3,
     })
     const rows: MarketRow[] = got.map(r => ({
       query: String(r.keys[0] ?? ''),
