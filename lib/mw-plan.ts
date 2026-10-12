@@ -63,6 +63,13 @@ export type PlanInput = {
   ranked?: Record<string, PlanKeyword[]>
   /** The indexed blog, so a task can NAME the posts worth linking from. */
   posts?: BlogPost[]
+  /**
+   * Searches several of our pages compete for, worked out once across every
+   * market. Per-country generation cannot see this: UAE, the Philippines and
+   * Australia all rank 23-29 for "billboard advertising" and each would have
+   * been told to point the same blog post at its own page (13 Oct 2026).
+   */
+  contested?: Map<string, ContestedTerm>
   markets: Market[]
   /** Cross-market people. `pages` builds pages and owns on-page SEO on them. */
   specialists?: Partial<Specialists>
@@ -147,6 +154,57 @@ const list = (ks: PlanKeyword[], n = 6) =>
 const MIN_VOL = 20         // below this a search is noise, not an opportunity
 const STRIKE_FROM = 4      // already top three? nothing to win here
 const STRIKE_TO = 20       // past page two it is a new-content job, not a tweak
+
+/** One search, several of our pages, across more than one market. */
+export type ContestedTerm = {
+  q: string
+  vol: number
+  pages: { url: string; pos: number; market: string }[]
+  /** The page with the best position: the one that should own it. */
+  owner: string
+}
+
+/**
+ * Searches more than one of our pages turns up for.
+ *
+ * Deliberately stricter than the per-country version, which fires at three
+ * pages inside one country. Here two is enough, because two pages in DIFFERENT
+ * markets competing is not an accident of a big site — it is two leads about
+ * to be given the same job, and it stays invisible to a per-country pass.
+ */
+export function contestedTerms(input: PlanInput, marketOf: (url: string) => string | null): Map<string, ContestedTerm> {
+  const byQuery = new Map<string, Map<string, { pos: number; market: string }>>()
+  const add = (url: string, q: string, pos: number, vol: number) => {
+    if (!(pos >= 1 && pos <= 30) || vol < MIN_VOL || isBrand(q)) return
+    const path = pathOf(url)
+    const mk = marketOf(path)
+    if (!mk) return
+    const key = q.toLowerCase().trim()
+    const pages = byQuery.get(key) ?? new Map()
+    const seen = pages.get(path)
+    if (!seen || pos < seen.pos) pages.set(path, { pos, market: mk })
+    byQuery.set(key, pages)
+  }
+  const vols = new Map<string, number>()
+  const note = (q: string, vol: number) => {
+    const k = q.toLowerCase().trim()
+    vols.set(k, Math.max(vols.get(k) ?? 0, vol))
+  }
+  for (const r of input.rows) { add(r.page, r.query, r.position, r.volume); note(r.query, r.volume) }
+  for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) { add(url, k.q, k.pos, k.vol); note(k.q, k.vol) }
+
+  const out = new Map<string, ContestedTerm>()
+  for (const [q, pages] of byQuery) {
+    if (pages.size < 2) continue
+    const list = [...pages.entries()].map(([url, v]) => ({ url, pos: v.pos, market: v.market }))
+      .sort((a, b) => a.pos - b.pos)
+    // One market with two pages is the per-country task's job. This one is for
+    // work that would otherwise be handed to two different people.
+    if (new Set(list.map(p => p.market)).size < 2) continue
+    out.set(q, { q, vol: vols.get(q) ?? 0, pages: list, owner: list[0].url })
+  }
+  return out
+}
 
 // ---------------------------------------------------------------- the rules
 /** Every candidate task for one country. `pick()` keeps the best per market. */
@@ -546,6 +604,11 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) push(url, k.q, k.pos, k.vol)
 
     const targets = targetsFor([...termsOf.entries()].map(([url, terms]) => ({ url, terms })))
+      // A search several markets compete for is not a linking job for each of
+      // them — it is one decision about which page owns it, raised below as a
+      // single task. Without this, three leads were each told to point the same
+      // blog post at a different page with the same anchor text.
+      .filter(t => !input.contested?.has(t.term.toLowerCase().trim()))
     const jobs = linkJobs(targets, input.posts ?? [], [co.label, ...(co.cities ?? []).slice(0, 4)])
     const edits = editCount(jobs)
     if (jobs.length) {
@@ -724,10 +787,56 @@ export function pick(tasks: PlanTask[], n = 3): PlanTask[] {
 
 /** The whole plan: every market, top few each. */
 export function buildPlan(input: PlanInput, perMarket = 3): PlanTask[] {
+  // WORKED OUT ONCE, ACROSS EVERYTHING. A search two markets compete for is
+  // invisible to a per-country pass, and the per-country pass would hand the
+  // same job to both leads.
+  const marketOf = (url: string): string | null => {
+    const m = url.match(/^\/locations\/([^/?#]+)/)
+    if (!m) return null
+    for (const mk of input.markets) if (mk.countries.some(c => c.key === m[1])) return mk.key
+    return null
+  }
+  const contested = contestedTerms(input, marketOf)
+  const withContested: PlanInput = { ...input, contested }
+
+  const perMarketTasks = input.markets.flatMap(m => pick(tasksFor(m, withContested), perMarket))
+
+  // One task per contested search, owned by whoever owns the markup — this is
+  // a decision about which page is about what, not a writing job.
+  const builder = withSpecialists(input.specialists).pages
+  const cross: PlanTask[] = []
+  for (const c of [...contested.values()].sort((a, b) => b.vol - a.vol).slice(0, 6)) {
+    const home = input.markets.find(m => m.key === c.pages[0].market)
+    const others = c.pages.slice(1)
+    const label = (u: string) => input.markets.find(m => m.key === c.pages.find(p => p.url === u)?.market)?.label ?? u
+    cross.push({
+      cycle: input.cycle, market: home?.key ?? '', marketLabel: home?.label ?? '',
+      country: '', countryLabel: '', owner: builder ?? home?.owner ?? null,
+      group: null, blockedBy: null, lead: home?.lead ?? null, theme: null, holds: [],
+      id: `xm-cannibal-${slug(c.q)}`, kind: 'cannibal',
+      title: `Decide which page owns "${c.q}" — ${c.pages.length} markets are competing`,
+      why: `"${c.q}" is searched ${round(c.vol)} times a month, and ${c.pages.length} of our pages turn up for it ` +
+        `across ${new Set(c.pages.map(p => p.market)).size} markets — ${c.pages.map(p => `${p.url} #${Math.round(p.pos)}`).join(', ')}. ` +
+        `Google is choosing between them instead of ranking one properly, and each market lead would otherwise be ` +
+        `told to push their own.`,
+      steps: [
+        `Decide which page owns it. On the evidence that is ${c.owner}, which ranks highest at #${Math.round(c.pages[0].pos)} (${label(c.owner)}).`,
+        `Make ${c.owner} unambiguously about it: the phrase in the title, the H1 and the opening paragraph.`,
+        `On ${others.map(p => p.url).join(' and ')}, take the phrase out of the title and headings and link to ${c.owner} using it as the anchor text instead.`,
+        `Tell ${[...new Set(others.map(p => input.markets.find(m => m.key === p.market)?.owner).filter(Boolean))].join(' and ') || 'the other leads'} before changing their pages — they own the markets those sit in.`,
+        `Nobody should add internal links for this phrase until the decision is made. That is why it is not on their boards as a linking task.`,
+        'Re-check in four weeks. Consolidation usually shows within two.',
+      ],
+      keywords: c.pages.map(p => ({ q: c.q, pos: p.pos, vol: c.vol, visits: 0, url: p.url })),
+      url: c.owner, size: c.pages.length > 3 ? 'M' : 'S',
+      doneWhen: `One page owns "${c.q}" and the others link to it instead of competing.`,
+      score: c.vol * 0.04 * Math.min(c.pages.length, 6),
+    })
+  }
+
   // The theme is stamped here, once, from the kind. A task cannot be created
   // outside the chain and a theme cannot claim work that does not exist.
-  return input.markets
-    .flatMap(m => pick(tasksFor(m, input), perMarket))
+  return [...perMarketTasks, ...cross]
     .map(t => ({ ...t, theme: t.theme ?? themeOf(t.kind) }))
 }
 
