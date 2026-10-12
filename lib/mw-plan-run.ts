@@ -297,18 +297,34 @@ export async function refreshGscPages(): Promise<{ ok: boolean; message: string;
   const stamp = new Date().toISOString()
   try {
     const got = await gscQuery({ property, start: ymd(start), end: ymd(end), dimensions: ['page'], rowLimit: 1000 })
-    const rows = got
-      .map((r: any) => ({
-        // Stored as a path: every other table in /mw is keyed that way, and
-        // the trailing slash differs between Google and the sitemap.
-        url: String(r.keys[0] ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/',
-        impressions: Math.round(r.impressions),
-        clicks: Math.round(r.clicks),
-        ctr: r.ctr,
-        position: r.position,
-        start_date: ymd(start), end_date: ymd(end), pulled_at: stamp,
-      }))
-      .filter((r: any) => r.url && r.impressions > 0)
+
+    // MERGED BY PATH, NOT JUST MAPPED. Google reports the same page under more
+    // than one URL — with and without a trailing slash — and both normalise to
+    // one path, which made the upsert fail outright: "ON CONFLICT DO UPDATE
+    // command cannot affect row a second time". Summing them is also the
+    // truthful answer: those are the same page's impressions.
+    const merged = new Map<string, { url: string; impressions: number; clicks: number; posWeight: number }>()
+    for (const r of got) {
+      // Stored as a path: every other table in /mw is keyed that way, and the
+      // trailing slash differs between Google and the sitemap.
+      const url = String(r.keys[0] ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/'
+      if (!url || !(r.impressions > 0)) continue
+      const at = merged.get(url) ?? { url, impressions: 0, clicks: 0, posWeight: 0 }
+      at.impressions += r.impressions
+      at.clicks += r.clicks
+      // Average position weighted by impressions: an average of averages would
+      // let a page seen twice count as much as one seen two thousand times.
+      at.posWeight += r.position * r.impressions
+      merged.set(url, at)
+    }
+    const rows = [...merged.values()].map(m => ({
+      url: m.url,
+      impressions: Math.round(m.impressions),
+      clicks: Math.round(m.clicks),
+      ctr: m.impressions > 0 ? m.clicks / m.impressions : 0,
+      position: m.impressions > 0 ? Math.round((m.posWeight / m.impressions) * 100) / 100 : 0,
+      start_date: ymd(start), end_date: ymd(end), pulled_at: stamp,
+    }))
     if (!rows.length) return { ok: true, message: 'Search Console pages: no rows', pages: 0 }
 
     const { error } = await supabase.from('mw_gsc_pages').upsert(rows, { onConflict: 'url' })
