@@ -25,6 +25,7 @@ import { getGaps } from './mw-gap-run'
 import { worthWriting, type GapCluster } from './mw-gap'
 import { buildPlan, type MarketRow, type Ga4Country, type PlanInput, type PlanTask, type PlanKeyword } from './mw-plan'
 import type { BlogPost } from './mw-linkers'
+import { gscQuery } from './mw-gsc'
 
 const SITE = 'https://www.movingwalls.com'
 const SITE_DOMAIN = 'movingwalls.com'
@@ -154,22 +155,21 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
   const end = new Date(Date.now() - 3 * 86_400_000)      // GSC lags two to three days
   const start = new Date(end.getTime() - 28 * 86_400_000)
   try {
-    const out = await runTool('GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY', undefined, {
-      site_url: property,
-      start_date: ymd(start),
-      end_date: ymd(end),
-      dimensions: ['query', 'page', 'country'],
-      row_limit: 5000,
+    // Through the sandbox: a direct call for this comes back "response too
+    // large (parked in Composio's sandbox)" and the rows never arrive.
+    const got = await gscQuery({
+      property, start: ymd(start), end: ymd(end),
+      dimensions: ['query', 'page', 'country'], rowLimit: 5000,
     })
-    const rows: MarketRow[] = (out?.rows ?? []).map((r: any) => ({
-      query: String(r.keys?.[0] ?? ''),
-      page: String(r.keys?.[1] ?? ''),
-      country: String(r.keys?.[2] ?? '').toUpperCase(),
-      visits: Number(r.clicks ?? 0),
-      volume: Number(r.impressions ?? 0),
-      ctr: Number(r.ctr ?? 0),
-      position: Number(r.position ?? 0),
-    })).filter((r: MarketRow) => r.query && r.country)
+    const rows: MarketRow[] = got.map(r => ({
+      query: String(r.keys[0] ?? ''),
+      page: String(r.keys[1] ?? ''),
+      country: String(r.keys[2] ?? '').toUpperCase(),
+      visits: r.clicks,
+      volume: r.impressions,
+      ctr: r.ctr,
+      position: r.position,
+    })).filter(r => r.query && r.country)
     return { rows, note: rows.length ? `Search Console: ${rows.length} rows` : 'Search Console returned no rows' }
   } catch (e: any) {
     const msg = String(e?.message ?? e)
@@ -292,22 +292,16 @@ export async function refreshGscPages(): Promise<{ ok: boolean; message: string;
   const start = new Date(end.getTime() - 28 * 86_400_000)
   const stamp = new Date().toISOString()
   try {
-    const out = await runTool('GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY', undefined, {
-      site_url: property,
-      start_date: ymd(start),
-      end_date: ymd(end),
-      dimensions: ['page'],
-      row_limit: 1000,
-    })
-    const rows = (out?.rows ?? [])
+    const got = await gscQuery({ property, start: ymd(start), end: ymd(end), dimensions: ['page'], rowLimit: 1000 })
+    const rows = got
       .map((r: any) => ({
         // Stored as a path: every other table in /mw is keyed that way, and
         // the trailing slash differs between Google and the sitemap.
-        url: String(r.keys?.[0] ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/',
-        impressions: Math.round(Number(r.impressions ?? 0)),
-        clicks: Math.round(Number(r.clicks ?? 0)),
-        ctr: Number(r.ctr ?? 0),
-        position: Number(r.position ?? 0),
+        url: String(r.keys[0] ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/',
+        impressions: Math.round(r.impressions),
+        clicks: Math.round(r.clicks),
+        ctr: r.ctr,
+        position: r.position,
         start_date: ymd(start), end_date: ymd(end), pulled_at: stamp,
       }))
       .filter((r: any) => r.url && r.impressions > 0)
