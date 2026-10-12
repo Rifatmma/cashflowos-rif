@@ -642,3 +642,37 @@
 .mw-city-owner { font-size: 12px; font-weight: 600; color: #475569; background: #f1f5f9;
   padding: 3px 8px; border-radius: 999px; }
 @media (prefers-color-scheme: dark) { .mw-city-owner { background: #1e293b; color: #cbd5e1; } }
+
+/* ── Market index: ten cards, one state each ─────────────────────────────── */
+.mw-mkt-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.mw-mkt { display: block; border: 1px solid var(--mw-line, #e2e8f0); border-radius: 10px; padding: 15px 17px;
+  background: #fff; text-decoration: none !important; color: inherit; transition: border-color .12s, transform .12s; }
+.mw-mkt:hover, .mw-mkt:focus-visible { border-color: #2563eb; transform: translateY(-1px); }
+.mw-mkt-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.mw-mkt-top b { font-size: 16px; }
+.mw-mkt-owner { font-size: 12px; font-weight: 600; color: #475569; background: #f1f5f9;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.mw-mkt-nums { display: flex; align-items: baseline; gap: 7px; margin: 10px 0 2px; }
+.mw-mkt-nums span { font-size: 30px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.mw-mkt-nums span.open { color: #b91c1c; }
+.mw-mkt-nums span.clear { color: #16a34a; }
+.mw-mkt-nums small { font-size: 13px; color: #64748b; }
+.mw-mkt-line { font-size: 13px; color: #334155; margin: 6px 0 0; }
+.mw-mkt-what { font-size: 12px; color: #64748b; margin: 4px 0 0; }
+
+/* A tag saying what KIND of work a task is, now that one list carries all of them. */
+.mw-task-wrap { position: relative; }
+.mw-kind { position: absolute; top: 13px; right: 14px; z-index: 2; font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; padding: 3px 7px; border-radius: 4px;
+  background: #e2e8f0; color: #475569; pointer-events: none; }
+.mw-kind.is-ads { background: #fee2e2; color: #991b1b; }
+.mw-kind.is-seo { background: #dbeafe; color: #1e40af; }
+.mw-kind.is-content { background: #fef3c7; color: #92400e; }
+.mw-kind.is-page { background: #e0e7ff; color: #3730a3; }
+
+@media (prefers-color-scheme: dark) {
+  .mw-mkt { background: #0f172a; border-color: #1e293b; }
+  .mw-mkt-owner { background: #1e293b; color: #cbd5e1; }
+  .mw-mkt-line { color: #cbd5e1; }
+  .mw-kind { background: #1e293b; color: #cbd5e1; }
+}

@@ -2,257 +2,108 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { currentGuest } from '@/lib/guest'
-import { getActions, byOwner, type ActionRow } from '@/lib/mw-actions'
-import { MARKETS } from '@/lib/mw-markets'
-import { THEME } from '@/lib/mw-themes'
 import { MwHero, Section } from '../_ui'
-import { Load, PlanRow, PlanNote } from './_plan-ui'
-import { ProposalPage, type ProposalView } from './_proposal-ui'
-import { openProposals, proposalUrl, spendOf, clicksOf, bestPos } from '@/lib/mw-proposals'
-import { CityBoard, type CityView } from './_city-ui'
+import { marketViews } from '@/lib/mw-market-view'
 import { cityRows, issuesFrom, opportunitiesFrom } from '@/lib/mw-board'
+import { openProposals } from '@/lib/mw-proposals'
+import { rollupLine } from '@/lib/mw-status'
 
-// 👉 Moving Walls → Market plan. Who does what, in which market, and how.
+// 👉 Moving Walls → Market plan. The index.
 //
-// The SEO tab says what is happening; this page says what to do about it and
-// whose job it is. One row per task, filterable by person or market, with the
-// decision and the lead's own date on it (owner, 29 Sep 2026).
+// This page used to be the whole plan: 32,000 pixels, 274 buttons, 59
+// accordions, and a filter buried sixth that only reached one of the three
+// work sections — filtering to the India lead still left her 16 city cards and
+// 22 page changes belonging to other people.
+//
+//   "I want each market lead to be in charge of whatever is going on in the
+//    market as a top level."                            (owner, 12 Oct 2026)
+//
+// So the market is the top-level object now. This is ten rows; the work lives
+// at /mw/plan/<market>. Nobody loads everything, because there is no longer a
+// page that shows everything.
 
 export const dynamic = 'force-dynamic'
 
-export default async function MwPlan({ searchParams }: { searchParams: Promise<{ who?: string; market?: string; theme?: string }> }) {
+const money = (n: number) => `S$${n.toFixed(2)}`
+
+export default async function MwPlanIndex() {
   const guest = await currentGuest()
   const jar = await cookies()
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
-  const { who, market, theme } = await searchParams
-  // SEO work the planner generated, PLUS the paid-search board.
-  //
-  // The paid tasks sat on their own screen with no owner, which is how the
-  // biggest item on the board ended up being the one nobody was assigned.
-  // They are Rifat's and they belong here with everyone else's, chips and all
-  // (owner, 12 Oct 2026).
-  const all = [
-    ...(await getActions('seo')).filter(r => r.source === 'generated'),
-    ...(await getActions('paid')).filter(r => r.owner),
-  ]
-  const owners = [...new Set(all.map(r => r.owner ?? 'Unassigned'))].sort()
-  const markets = MARKETS.filter(m => all.some(r => r.market === m.key))
-
-  const rows = all.filter(r =>
-    (!who || (r.owner ?? 'Unassigned') === who) &&
-    (!market || r.market === market) &&
-    (!theme || r.theme === theme))
-
-  const real = rows.filter(r => r.how?.kind !== 'blind')
-  const answered = rows.filter(r => r.decision).length
-  const dated = rows.filter(r => r.decision?.proposed_due).length
-  const cycle = all.find(r => r.cycle)?.cycle ?? '—'
-
-  // Page proposals, grouped by page. They live here rather than on a tab of
-  // their own because the plan page is already the list of what each market
-  // owes, and a page rewrite is exactly that.
-  const props = await openProposals()
-  const byPage = new Map<string, typeof props>()
-  for (const r of props) {
-    const list = byPage.get(r.slug) ?? []
-    list.push(r)
-    byPage.set(r.slug, list)
-  }
-  const pages = await Promise.all([...byPage.entries()].map(async ([slug, rows]) => ({
-    slug,
-    url: rows[0].url,
-    href: await proposalUrl(rows[0].html_path),
-    items: rows.map((r): ProposalView => ({
-      id: r.id, kind: r.kind, where: r.where_, was: r.was, now: r.now_, why: r.why,
-      status: r.status, reason: r.reason, decidedBy: r.decided_by, decidedAt: r.decided_at,
-      reopenWhy: r.reopen_why, blocked: r.blocked,
-      spend: spendOf(r.evidence),
-      clicks: clicksOf(r.evidence),
-      conv: (r.evidence?.paid ?? []).reduce((s: number, x: any) => s + (Number(x?.conv) || 0), 0),
-      bestPos: bestPos(r.evidence),
-    })),
-  })))
-  pages.sort((a, b) => {
-    const open = (p: typeof a) => p.items.filter(i => i.status === 'open').length
-    const spend = (p: typeof a) => p.items.reduce((s, i) => s + i.spend, 0)
-    return (open(b) > 0 ? 1 : 0) - (open(a) > 0 ? 1 : 0) || spend(b) - spend(a)
-  })
-  const waiting = pages.reduce((s, p) => s + p.items.filter(i => i.status === 'open').length, 0)
-
-  // The hyperlocal half, and the two read-only summaries that open the page:
-  // what is wrong, and what there is to win. Both are views of evidence
-  // gathered elsewhere — nothing is computed twice.
-  const cities = await cityRows()
+  const views = await marketViews()
+  const [cities, props] = await Promise.all([cityRows(), openProposals()])
   const issues = issuesFrom(cities, props.map(p => ({ slug: p.slug, url: p.url, kind: p.kind, status: p.status, evidence: p.evidence })))
   const chances = opportunitiesFrom(cities)
-  const cityViews: CityView[] = cities.map(c => ({
-    url: c.url, city: c.city, market: c.market, kind: c.kind, says: c.says,
-    cost: Number(c.cost), clicks: c.clicks, pos: c.pos === null ? null : Number(c.pos),
-    terms: Array.isArray(c.terms) ? c.terms : [], words: c.words, landsOn: Array.isArray(c.lands_on) ? c.lands_on : [],
-    status: c.status, statusBy: c.status_by, statusAt: c.status_at, owner: c.owner ?? null,
-  }))
-  const cityDone = cityViews.filter(c => c.status === 'done').length
-  // Pages that have a rendered proposal: their task no longer needs written
-  // steps, because the render says the same thing in place.
-  const renderFor = new Map(pages
-    .filter(p => p.href)
-    .map(p => [p.url.replace(/^https?:\/\/(www\.)?movingwalls\.com/, '').replace(/\/$/, ''), p.href as string]))
 
-  const link = (o: { who?: string; market?: string }) => {
-    const q = new URLSearchParams()
-    if (o.who) q.set('who', o.who)
-    if (o.market) q.set('market', o.market)
-    if (theme) q.set('theme', theme)
-    const s = q.toString()
-    return s ? `/mw/plan?${s}` : '/mw/plan'
-  }
+  const live = views.filter(v => v.roll.total > 0)
+  const totalOpen = live.reduce((s, v) => s + v.roll.open, 0)
+  const totalRisk = live.reduce((s, v) => s + v.atRisk, 0)
 
   return (
     <div className="mw-wrap">
-      <MwHero tab="plan" pulled={cycle} stale={false}
-        headline="What each market does next">
+      <MwHero tab="plan" pulled={''} stale={false} headline={`${totalOpen} open across ${live.length} markets`}>
         <p>
-          One list for the whole team: the task, who owns it, and exactly how to do it. Nobody is given a
-          deadline — each lead says when they can do theirs.
+          Each market lead owns everything in their market — the tasks, the city pages and the page
+          changes, in one place. Open yours below.
+          {totalRisk > 0 && <> There is <b>{money(totalRisk)} a month</b> of paid spend riding on what is still open.</>}
           {guest ? ` Signed in as ${guest}.` : ''}
         </p>
       </MwHero>
 
-      {all.length === 0 ? (
+      {live.length === 0 ? (
         <Section title="No plan generated yet">
           <p className="lede">
-            The market plan is built from Search Console, GA4 and the site&rsquo;s own sitemap. Run the refresh,
-            or wait for the 9am pull, and the tasks appear here. <Link href="/mw/seo">SEO tab</Link>
+            The plan is built from Search Console, GA4 and the site&rsquo;s own sitemap. Run the refresh, or wait
+            for the 9am pull. <Link href="/mw/seo">SEO tab</Link>
           </p>
         </Section>
       ) : (
         <>
-          <Section title="Who is holding what"
-            sub="Size is effort, not importance: S about an hour, M half a day, L a day or two.">
-            <Load rows={byOwner(real, k => MARKETS.find(m => m.key === k)?.label ?? k)} />
-            <p className="lede">
-              {real.length} task{real.length === 1 ? '' : 's'} this cycle · {answered} answered ·{' '}
-              {dated} with a date from the lead.
-            </p>
-            <p className="lede">
-              A new page is two tasks: the market lead writes the copy, then the page is built and its meta tags,
-              schema and links set. Each is somebody&rsquo;s own task, and the build says who it is waiting on.
-            </p>
+          <Section title="Markets" sub="One owner each. The number is what is still open.">
+            <div className="mw-mkt-grid">
+              {live.map(v => (
+                <Link key={v.market.key} href={`/mw/plan/${v.market.key}`} className="mw-mkt">
+                  <div className="mw-mkt-top">
+                    <b>{v.market.label}</b>
+                    <span className="mw-mkt-owner">{v.market.owner ?? 'Unassigned'}</span>
+                  </div>
+                  <div className="mw-mkt-nums">
+                    <span className={v.roll.open ? 'open' : 'clear'}>{v.roll.open}</span>
+                    <small>{v.roll.open === 1 ? 'thing open' : 'things open'}</small>
+                  </div>
+                  <p className="mw-mkt-line">{rollupLine(v.roll, v.atRisk)}</p>
+                  <p className="mw-mkt-what">
+                    {v.tasks.length > 0 && `${v.tasks.length} task${v.tasks.length === 1 ? '' : 's'}`}
+                    {v.cities.length > 0 && ` · ${v.cities.length} city page${v.cities.length === 1 ? '' : 's'}`}
+                    {v.proposals.length > 0 && ` · ${v.proposals.length} page${v.proposals.length === 1 ? '' : 's'} to review`}
+                  </p>
+                </Link>
+              ))}
+            </div>
           </Section>
 
-          {theme && THEME[theme] && (
-            <Section title={THEME[theme].title}>
-              <p className="lede">{THEME[theme].why}</p>
-              <p className="lede" style={{ marginTop: 10 }}>
-                <b>Closes when:</b> {THEME[theme].doneWhen}{' '}
-                <Link href="/mw/plan">Show every task instead</Link>
-              </p>
-            </Section>
-          )}
-
           {issues.length > 0 && (
-            <Section title="What is wrong right now"
-              sub="Ordered by what it costs a month. Each one points at the work that answers it.">
+            <Section title="What is wrong right now" sub="Across every market, ordered by what it costs a month.">
               {issues.map(i => (
                 <div className="mw-board is-issue" key={i.id}>
                   <h4>{i.headline}</h4>
                   <p>{i.detail}</p>
-                  {i.anchor && <a href={i.anchor}>Take me to it ↓</a>}
                 </div>
               ))}
             </Section>
           )}
 
           {chances.length > 0 && (
-            <Section title="What there is to win"
-              sub="Positions already earned, and pages already built. Cheaper than anything written from scratch.">
+            <Section title="What there is to win" sub="Positions already earned and pages already built.">
               {chances.map(i => (
                 <div className="mw-board is-chance" key={i.id}>
                   <h4>{i.headline}</h4>
                   <p>{i.detail}</p>
-                  {i.anchor && <a href={i.anchor}>Take me to it ↓</a>}
                 </div>
               ))}
             </Section>
           )}
-
-          {cityViews.length > 0 && (
-            <Section title="City pages"
-              sub={`The hyperlocal pages, one card each. ${cityDone} of ${cityViews.length} marked done.`}>
-              <div id="cities" />
-              <CityBoard cities={cityViews} />
-            </Section>
-          )}
-
-          {pages.length > 0 && (
-            <Section title="Page changes waiting on a yes or no"
-              sub="Each one is shown on the real page in the download. Approve or reject here; a reason is kept and used to judge the next one.">
-              {pages.map(p => <ProposalPage key={p.slug} {...p} />)}
-              <p className="lede" style={{ marginTop: 12 }}>
-                {waiting} change{waiting === 1 ? '' : 's'} across {pages.length} page{pages.length === 1 ? '' : 's'} still
-                waiting. No change that would remove a phrase the page already ranks for is proposed as safe.
-              </p>
-            </Section>
-          )}
-
-          <div id="work" />
-          <Section title="Filter">
-            <div className="mw-filters">
-              <Link href={link({ market })} aria-current={!who ? 'page' : undefined}>Everyone</Link>
-              {owners.map(o => (
-                <Link key={o} href={link({ who: o, market })} aria-current={who === o ? 'page' : undefined}>{o}</Link>
-              ))}
-            </div>
-            <div className="mw-filters">
-              <Link href={link({ who })} aria-current={!market ? 'page' : undefined}>All markets</Link>
-              {markets.map(m => (
-                <Link key={m.key} href={link({ who, market: m.key })} aria-current={market === m.key ? 'page' : undefined}>
-                  {m.label}
-                </Link>
-              ))}
-            </div>
-          </Section>
-
-          {(() => {
-            // Cross-market work — the paid-search board — in the same shape as
-            // a market block so it reads as one more owner's list, not a
-            // special case.
-            const cross = rows.filter(r => !r.market && r.owner)
-            if (!cross.length) return null
-            const who = [...new Set(cross.map(r => r.owner))].join(', ')
-            return (
-              <Section title={`Paid ads — ${who}`}
-                sub="Google Ads work: budgets, keywords, bids and where the ads point. Not tied to one market.">
-                {cross.map(r => <PlanRow key={r.id} r={r as ActionRow} />)}
-              </Section>
-            )
-          })()}
-
-          {MARKETS.filter(m => rows.some(r => r.market === m.key)).map(m => {
-            const mine = rows.filter(r => r.market === m.key)
-            const work = mine.filter(r => r.how?.kind !== 'blind')
-            return (
-              <Section key={m.key} title={`${m.label} — ${m.owner ?? 'no owner'}`}
-                sub={work.length
-                  ? `${work.length} ${work.length === 1 ? 'task' : 'tasks'} this cycle · regional lead ${m.lead ?? '—'}`
-                  : `Regional lead ${m.lead ?? '—'}`}>
-                {work.map(r => (
-                  <PlanRow key={r.id} r={r as ActionRow}
-                    render={
-                      // Only for work ON an existing page. A "write the India
-                      // page for X" task points at the country page too, and
-                      // handing it a render of that page tells the writer to
-                      // edit something they were asked to create.
-                      ['strike', 'health', 'no-clicks', 'cannibal'].includes(String((r.how as any)?.kind ?? ''))
-                        ? renderFor.get(String((r.how as any)?.url ?? '').replace(/\/$/, '')) ?? null
-                        : null
-                    } />
-                ))}
-                {mine.filter(r => r.how?.kind === 'blind').map(r => <PlanNote key={r.id} r={r as ActionRow} />)}
-              </Section>
-            )
-          })}
         </>
       )}
     </div>
