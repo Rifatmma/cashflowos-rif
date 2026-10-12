@@ -279,6 +279,37 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   // up: listing one keyword as both "work this in" and "do not lose this"
   // reads as a contradiction and makes the whole block easy to ignore.
   /**
+   * Pages ANYWHERE on the site already ranking for this family of searches.
+   *
+   * holdsOn() asks "what does this one page hold in the top ten", which is the
+   * wrong question before writing a NEW page. A gap task for "advertising
+   * boards" told Sukrithi "this is new ground, so nothing on the site is at
+   * risk" while /locations/india/bengaluru sat at #14 for "advertising boards
+   * near me" and #15 for "billboards near me" — the best city page on the
+   * site, two places off the first screen. A fifth page for the same family
+   * splits the signal with it (owner asked what the task meant, 12 Oct 2026).
+   *
+   * Matched loosely in both directions, because "advertising boards" and
+   * "advertising boards near me" are the same territory and an exact match
+   * would have missed exactly the case that caused this.
+   */
+  const rankingElsewhere = (queries: string[], notOn: string): { url: string; q: string; pos: number; vol: number }[] => {
+    const want = queries.map(q => q.toLowerCase().trim()).filter(Boolean)
+    const out: { url: string; q: string; pos: number; vol: number }[] = []
+    const add = (url: string, q: string, pos: number, vol: number) => {
+      if (!(pos >= 1 && pos <= 30) || pathOf(url) === notOn) return
+      const lower = q.toLowerCase()
+      if (!want.some(w => lower.includes(w) || w.includes(lower))) return
+      const seen = out.find(x => x.url === pathOf(url) && x.q.toLowerCase() === lower)
+      if (!seen) out.push({ url: pathOf(url), q, pos, vol })
+      else if (pos < seen.pos) seen.pos = pos
+    }
+    for (const r of earned) add(r.page, r.query, r.position, r.volume)
+    for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) add(url, k.q, k.pos, k.vol)
+    return out.sort((a, b) => a.pos - b.pos).slice(0, 5)
+  }
+
+  /**
    * Says, in one sentence, which keywords are on BOTH lists.
    *
    * 4-10 is simultaneously striking distance and top ten, so the overlap is
@@ -346,13 +377,37 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       title: `Write the ${co.label} page for “${g.head}”`,
       why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and ${g.keywords.length === 1 ? 'we do not rank for it at all' : 'we rank for none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
       steps: [
-        `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`,
-        `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`,
+        // One search is not a cluster. The old wording said "answering all of
+        // these, not a page per search — the same question asked different
+        // ways" and then listed one, and the next step offered an H2 for
+        // "each of the others" when there were none.
+        g.keywords.length > 1
+          ? `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`
+          : `Write one page answering "${g.keywords[0]?.q ?? g.head}" (${round(g.keywords[0]?.vol ?? g.vol)} searches a month).`,
+        g.keywords.length > 1
+          ? `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`
+          : `Put "${g.head}" in the title and the H1, and answer the question properly rather than repeating the phrase.`,
         `Read how ${g.rivals[0] ?? 'the competitor'} answers it, then answer it better with something they cannot copy — our inventory, our measurement, a named local campaign.`,
         `Link it from ${page} and from the related blog posts, and tell ${builder} to build it once the copy is ready.`,
-        defend.length
-          ? `While you are in there: ${page} already ranks top ten for ${list(defend, 6)}. Do not lose those — this is a new page, so link to it rather than moving that content onto it.`
-          : 'This is new ground, so nothing on the site is at risk from writing it.',
+        ...(() => {
+          const near = rankingElsewhere(g.keywords.map(k => k.q).concat(g.head), pathOf(page))
+          if (!near.length) {
+            return defend.length
+              ? [`While you are in there: ${page} already ranks top ten for ${list(defend, 6)}. Do not lose those — this is a new page, so link to it rather than moving that content onto it.`]
+              : ['Nothing else on the site ranks for this family of searches, so a new page competes with nobody of ours.']
+          }
+          const best = near[0]
+          return [
+            `STOP AND CHECK BEFORE WRITING. We already rank for this family of searches: ` +
+            `${near.map(n => `${n.url} #${Math.round(n.pos)} for "${n.q}"`).join(', ')}. ` +
+            `A new page splits the signal with ${best.url}, which is ${Math.round(best.pos)}th — ` +
+            `${best.pos <= 20 ? 'close enough that improving it is almost certainly the cheaper win' : 'worth a look before adding another page'}. ` +
+            `Decide which page should own the topic, strengthen that one, and only write a new page if it stalls.`,
+            ...(defend.length
+              ? [`And ${page} already ranks top ten for ${list(defend, 6)} — do not move that content onto anything new.`]
+              : []),
+          ]
+        })(),
       ],
       keywords: g.keywords.slice(0, 8).map(k => ({ q: k.q, pos: 0, vol: k.vol, visits: 0, kd: k.kd })),
       url: page, size: e.size,

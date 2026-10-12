@@ -203,7 +203,6 @@ const again = buildPlan(input)
 if (JSON.stringify(again.map(t => t.id)) !== JSON.stringify(plan.map(t => t.id))) fail('ids are not stable between runs')
 else ok('ids are stable, so a re-run updates rather than duplicates')
 
-console.log(bad ? `\n${bad} failing` : `\nall good — ${plan.length} tasks across ${new Set(plan.map(t => t.market)).size} markets`)
 process.exitCode = bad ? 1 : 0
 
 // -- a source going dark must not retire the work it found last time --------
@@ -312,3 +311,51 @@ process.exitCode = bad ? 1 : 0
     fail('a Semrush top-ten position is not protected when Search Console shows no clicks')
   } else ok('a ranking with no clicks is still protected — Semrush is merged in, not ignored')
 }
+
+// ── a gap task must not claim new ground that is already occupied ─────────
+// "Write the India page for 'advertising boards'" ended with "This is new
+// ground, so nothing on the site is at risk from writing it", while
+// /locations/india/bengaluru held #14 for "advertising boards near me" and
+// #15 for "billboards near me" -- the best city page on the site, two places
+// off the first screen (owner asked what the task meant, 12 Oct 2026).
+{
+  const gapInput: PlanInput = {
+    ...input, ga4: [], rows: [],
+    gaps: { india: [{ head: 'advertising boards', vol: 2900, cpc: 0.13, rivals: ['gohoardings.com'],
+      keywords: [{ q: 'advertising boards', vol: 2900, kd: 25 }] } as any] },
+    ranked: {
+      '/locations/india/bengaluru': [
+        { q: 'advertising boards near me', pos: 14, vol: 110, visits: 0 },
+        { q: 'billboards near me', pos: 15, vol: 210, visits: 0 },
+      ],
+    },
+  }
+  const gap = buildPlan(gapInput, 9).find(t => t.kind === 'gap')
+  if (!gap) fail('no gap task produced for the advertising-boards fixture')
+  else {
+    const steps = gap.steps.join(' ')
+    if (/new ground/.test(steps)) fail('a gap task still claims new ground while a sibling ranks #14 for it')
+    else ok('a gap task no longer claims new ground when a sibling page already ranks')
+    if (!/bengaluru/i.test(steps)) fail('it does not name the page that already ranks')
+    else ok('it names the page that already ranks, and its position')
+    if (!/splits the signal/.test(steps)) fail('it does not warn that a new page splits the signal')
+    else ok('and warns a new page would split the signal with it')
+    if (/the same question asked different ways/.test(steps)) fail('a single-keyword gap still uses the cluster wording')
+    else ok('a single-keyword gap drops the cluster wording')
+    if (/each of the others its own H2/.test(steps)) fail('it still offers an H2 for others that do not exist')
+    else ok('and does not offer an H2 for others that do not exist')
+  }
+}
+{
+  const clean = buildPlan({
+    ...input, ga4: [], rows: [], ranked: {},
+    gaps: { india: [{ head: 'mall branding', vol: 500, cpc: 0, rivals: ['x.com'],
+      keywords: [{ q: 'mall branding', vol: 500, kd: 20 }] } as any] },
+  }, 9).find(t => t.kind === 'gap')
+  if (!clean) fail('no gap task for the clean fixture')
+  else if (!/competes with nobody of ours/.test(clean.steps.join(' '))) fail('genuinely new ground is not reported as clear')
+  else ok('and where nothing of ours ranks, it says so plainly')
+}
+
+console.log(bad ? `\n${bad} failing` : `\nall good — ${plan.length} tasks across ${new Set(plan.map(t => t.market)).size} markets`)
+process.exit(bad ? 1 : 0)
