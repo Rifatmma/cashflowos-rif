@@ -16,6 +16,7 @@ import type { Country, Market, Specialists } from './mw-markets'
 import { cityPageFor, isBrand, isRelevant, marketOfCountry, marketOfGa4, pageFor, withSpecialists } from './mw-markets'
 import { themeOf } from './mw-themes'
 import type { PageHealth } from './mw-pagehealth'
+import { rankLinkers, linkStep, type BlogPost } from './mw-linkers'
 import { effortOf, type GapCluster } from './mw-gap'
 
 // ---------------------------------------------------------------- the inputs
@@ -59,6 +60,8 @@ export type PlanInput = {
    * worth protecting, and GSC alone will not show it.
    */
   ranked?: Record<string, PlanKeyword[]>
+  /** The indexed blog, so a task can NAME the posts worth linking from. */
+  posts?: BlogPost[]
   markets: Market[]
   /** Cross-market people. `pages` builds pages and owns on-page SEO on them. */
   specialists?: Partial<Specialists>
@@ -407,7 +410,17 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
           ? `Add one section to ${host} answering all of these together — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}. One H2, two or three real paragraphs under it.`
           : `Add one section to ${host} answering "${g.keywords[0]?.q ?? g.head}" (${round(g.keywords[0]?.vol ?? g.vol)} searches a month): an H2 using those words, and two or three real paragraphs under it that answer the question.`,
         `Read how ${g.rivals[0] ?? 'the competitor'} answers it, then answer it better with something they cannot copy — our inventory, our measurement, a named local campaign.`,
-        `Link to ${host} from two or three pages that already mention the topic — the related blog posts and the sibling ${co.label} pages — using "${g.head}" as the anchor text. This is the cheapest lever and the one most often skipped.`,
+        // NAMED, not described. "Link from two or three pages that already
+        // mention the topic" sounded actionable and was not: none of the 289
+        // posts uses the phrase "advertising boards", so the lead would have
+        // gone looking and found nothing (owner asked, 12 Oct 2026).
+        linkStep(
+          rankLinkers({
+            posts: input.posts ?? [], topic: g.head, target: host,
+            places: [co.label, ...(co.cities ?? []).slice(0, 3)],
+          }),
+          g.head, host,
+        ) ?? `Link to ${host} from the related blog posts, using "${g.head}" as the anchor text.`,
         `If ${host} is within a few places of page one for it, the title and meta description are worth rewriting to lead with "${g.head}" too. If it is not ranking at all yet, leave the title alone until the section has had eight weeks.`,
         ...(near.length > 1
           ? [`Keep it on one page. ${near.slice(1).map(n => `${n.url} is #${Math.round(n.pos)} for "${n.q}"`).join(', ')} — do not add the same section there as well, or they compete with each other.`]

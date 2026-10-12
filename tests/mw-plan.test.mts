@@ -312,6 +312,8 @@ process.exitCode = bad ? 1 : 0
   } else ok('a ranking with no clicks is still protected — Semrush is merged in, not ignored')
 }
 
+let gapInput: PlanInput
+
 // ── a gap task must not claim new ground that is already occupied ─────────
 // "Write the India page for 'advertising boards'" ended with "This is new
 // ground, so nothing on the site is at risk from writing it", while
@@ -319,7 +321,7 @@ process.exitCode = bad ? 1 : 0
 // #15 for "billboards near me" -- the best city page on the site, two places
 // off the first screen (owner asked what the task meant, 12 Oct 2026).
 {
-  const gapInput: PlanInput = {
+  gapInput = {
     ...input, ga4: [], rows: [],
     gaps: { india: [{ head: 'advertising boards', vol: 2900, cpc: 0.13, rivals: ['gohoardings.com'],
       keywords: [{ q: 'advertising boards', vol: 2900, kd: 25 }] } as any] },
@@ -350,8 +352,12 @@ process.exitCode = bad ? 1 : 0
 
     if (!/Add one section/.test(steps)) fail('it does not ask for a section on the existing page')
     else ok('the work is a section on a page that already exists')
-    if (!/anchor text/.test(steps)) fail('internal linking is not offered as a lever')
-    else ok('internal linking is offered — the cheapest lever and the most often skipped')
+    // With no indexed posts there is nothing to name, so the step correctly
+    // falls back to the explainer advice instead of inventing a post to link
+    // from. The naming path is exercised below with a corpus.
+    if (!/Nothing we have published is close enough/.test(steps)) {
+      fail('with no blog indexed it should say so, not send the lead hunting')
+    } else ok('with no blog indexed, it says nothing is close enough rather than inventing a post')
     if (!/title and meta/.test(steps)) fail('the title rewrite is not offered as a lever')
     else ok('and the title rewrite, conditional on already being close')
 
@@ -359,6 +365,27 @@ process.exitCode = bad ? 1 : 0
     else ok('a single-keyword gap drops the cluster wording')
     if (/each of the others its own H2/.test(steps)) fail('it still offers an H2 for others that do not exist')
     else ok('and does not offer an H2 for others that do not exist')
+  }
+}
+{
+  // The naming path: a corpus that DOES cover the topic.
+  const withPosts = buildPlan({
+    ...gapInput,
+    posts: [
+      { url: '/blog/boards-explained', title: 'Advertising boards explained', words: 1200,
+        text: 'Advertising boards come in many formats. Advertising boards in India are common.',
+        links: [], impressions: 900 },
+    ],
+  }, 9).find(t => t.kind === 'gap')
+  if (!withPosts) fail('no gap task for the corpus fixture')
+  else {
+    const steps = withPosts.steps.join(' ')
+    if (!/anchor text/.test(steps)) fail('with a matching post indexed, internal linking is not offered')
+    else ok('with a matching post indexed, internal linking is offered as a lever')
+    if (!/boards-explained/.test(steps)) fail('the matching post is not named')
+    else ok('and the post is named, so the lead does not have to go looking')
+    if (!/an edit, not a new page/.test(steps)) fail('it does not say the work is an edit')
+    else ok('and it says plainly that the work is an edit')
   }
 }
 {

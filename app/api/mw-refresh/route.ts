@@ -1,5 +1,5 @@
 import { refreshMw } from '@/lib/mw-refresh'
-import { refreshPlan, refreshHealth, refreshGscPages } from '@/lib/mw-plan-run'
+import { refreshPlan, refreshHealth, refreshGscPages, indexBlog } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
 import { zohoConfigured, fetchUsers, zohoCredentialShape, zohoGet as zohoGetRaw } from '@/lib/zoho'
@@ -44,6 +44,13 @@ export async function GET(req: Request) {
   }
   // ?only=gsc — run the Search Console pull on its own. The quickest way to
   // tell whether the property is readable without waiting for a nightly run.
+  // ?only=blog — re-index the 289 posts. 289 fetches, so it rides the plan
+  // day rather than running nightly: posts do not appear or change topic daily.
+  if (only === 'blog') {
+    const b = await indexBlog()
+    return Response.json({ ok: b.ok, blog: b.message, posts: b.posts })
+  }
+
   if (only === 'gsc') {
     const g = await refreshGscPages()
     return Response.json({ ok: g.ok, search_console: g.message, pages: g.pages })
@@ -173,6 +180,11 @@ export async function GET(req: Request) {
   const force = new URL(req.url).searchParams.get('force') === 'plan'
   const planDay = force || new Date().getUTCDate() === 1
 
+  // The blog index feeds the plan's link suggestions, so it is refreshed just
+  // BEFORE the plan, on the same day.
+  const blog = planDay ? await indexBlog() : null
+  if (blog && !blog.ok) console.error('[CFO]', blog.message)
+
   const plan = planDay ? await refreshPlan() : null
   if (plan && !plan.ok) console.error('[CFO]', plan.message)
 
@@ -204,6 +216,7 @@ export async function GET(req: Request) {
     health: health.message,
     broken: health.broken,
     search_console: gsc ? gsc.message : 'Search Console: threw, see the log',
+    blog: blog ? blog.message : 'not a plan day',
     gap: gap ? gap.message : 'not a gap day (runs on the 1st of a quarter)',
     sales: sales.message,
     close: closed ? closed.message : 'not due (runs in the first week of a month)',

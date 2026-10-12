@@ -24,6 +24,7 @@ import { auditPage, type PageHealth } from './mw-pagehealth'
 import { getGaps } from './mw-gap-run'
 import { worthWriting, type GapCluster } from './mw-gap'
 import { buildPlan, type MarketRow, type Ga4Country, type PlanInput, type PlanTask, type PlanKeyword } from './mw-plan'
+import type { BlogPost } from './mw-linkers'
 
 const SITE = 'https://www.movingwalls.com'
 const SITE_DOMAIN = 'movingwalls.com'
@@ -197,6 +198,80 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
  *
  * Fails soft: the rest of the refresh is still worth running.
  */
+/**
+ * Re-crawl the blog so a task can name the posts worth linking from.
+ *
+ * 289 fetches, so it rides the plan day rather than running nightly — posts do
+ * not appear or change topic between one morning and the next.
+ *
+ * NAV LINKS ARE NOT EDITORIAL LINKS. Six /locations pages sit in the menu of
+ * every post; counting those as "already links there" would tell every task
+ * there was nothing to add. Found by frequency rather than by parsing the nav:
+ * anything on more than half the posts is chrome, whatever markup it is in.
+ */
+export async function indexBlog(): Promise<{ ok: boolean; message: string; posts: number }> {
+  if (!supabaseConfigured) return { ok: false, message: 'blog index: Supabase not configured', posts: 0 }
+  const clean = (x: string) => x
+    .replace(/<(script|style|noscript)[\s\S]*?<\/>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ').trim()
+  try {
+    const sm = await (await fetch(`${SITE}/sitemap.xml`, { signal: AbortSignal.timeout(30_000) })).text()
+    const blogs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map(m => m[1].replace(/\/$/, '')).filter(u => /\/blog\//.test(u))
+    if (!blogs.length) return { ok: false, message: 'blog index: no posts in the sitemap', posts: 0 }
+
+    const rows: any[] = []
+    for (let i = 0; i < blogs.length; i += 8) {
+      await Promise.all(blogs.slice(i, i + 8).map(async u => {
+        try {
+          const r = await fetch(u + '/', { headers: { 'user-agent': 'Mozilla/5.0 (compatible; CashflowOS)' }, signal: AbortSignal.timeout(20_000) })
+          if (!r.ok) return
+          const h = await r.text()
+          const body = clean(h)
+          rows.push({
+            url: u.replace(SITE, ''),
+            title: clean((h.match(/<title[^>]*>([\s\S]*?)<\/title>/i) ?? [])[1] ?? '') || null,
+            words: body.split(' ').length,
+            text: body.slice(0, 3000),
+            links: [...new Set([...h.matchAll(/href="([^"]*\/locations\/[^"#?]*)"/gi)]
+              .map(m => m[1].replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '')))],
+            crawled_at: new Date().toISOString(),
+          })
+        } catch { /* one post failing is not the crawl failing */ }
+      }))
+    }
+    if (!rows.length) return { ok: false, message: 'blog index: nothing could be fetched', posts: 0 }
+
+    const freq = new Map<string, number>()
+    for (const r of rows) for (const l of r.links) freq.set(l, (freq.get(l) ?? 0) + 1)
+    const nav = new Set([...freq.entries()].filter(([, n]) => n > rows.length / 2).map(([l]) => l))
+    for (const r of rows) r.links = r.links.filter((l: string) => !nav.has(l))
+
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await supabase.from('mw_blog_index').upsert(rows.slice(i, i + 100), { onConflict: 'url' })
+      if (error) return { ok: false, message: `blog index: ${error.message.slice(0, 120)}`, posts: 0 }
+    }
+    return { ok: true, message: `blog index: ${rows.length} posts, ${nav.size} nav links ignored`, posts: rows.length }
+  } catch (e: any) {
+    return { ok: false, message: `blog index: ${String(e?.message ?? e).slice(0, 140)}`, posts: 0 }
+  }
+}
+
+/** The indexed blog, for naming the posts a task should link from. */
+export async function blogPosts(): Promise<BlogPost[]> {
+  if (!supabaseConfigured) return []
+  const [{ data: posts }, { data: gsc }] = await Promise.all([
+    supabase.from('mw_blog_index').select('url, title, words, text, links'),
+    supabase.from('mw_gsc_pages').select('url, impressions'),
+  ])
+  const reach = new Map((gsc ?? []).map((g: any) => [String(g.url), Number(g.impressions) || 0]))
+  return (posts ?? []).map((p: any) => ({
+    url: String(p.url), title: p.title ?? null, words: Number(p.words) || 0,
+    text: String(p.text ?? ''), links: Array.isArray(p.links) ? p.links : [],
+    impressions: reach.get(String(p.url)) ?? 0,
+  }))
+}
+
 export async function refreshGscPages(): Promise<{ ok: boolean; message: string; pages: number }> {
   if (!supabaseConfigured) return { ok: false, message: 'Search Console pages: Supabase not configured', pages: 0 }
   const notes: string[] = []
@@ -521,7 +596,9 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
     }
 
     const ranked = rankedByPage(semrush)
-    const input: PlanInput = { rows, ga4, pages, markets, specialists, health, gaps, ranked, cycle }
+    const posts = await blogPosts()
+    if (posts.length) notes.push(`blog index: ${posts.length} posts available to link from`)
+    const input: PlanInput = { rows, ga4, pages, markets, specialists, health, gaps, ranked, posts, cycle }
     const tasks = buildPlan(input)
     const real = tasks.filter(t => t.kind !== 'blind')
 
