@@ -1,5 +1,5 @@
 import { refreshMw } from '@/lib/mw-refresh'
-import { refreshPlan, refreshHealth } from '@/lib/mw-plan-run'
+import { refreshPlan, refreshHealth, refreshGscPages } from '@/lib/mw-plan-run'
 import { refreshGaps } from '@/lib/mw-gap-run'
 import { refreshSales } from '@/lib/mw-sales-run'
 import { zohoConfigured, fetchUsers, zohoCredentialShape, zohoGet as zohoGetRaw } from '@/lib/zoho'
@@ -42,6 +42,13 @@ export async function GET(req: Request) {
     const p = await refreshPlan()
     return Response.json({ ok: p.ok, plan: p.message, notes: p.notes })
   }
+  // ?only=gsc — run the Search Console pull on its own. The quickest way to
+  // tell whether the property is readable without waiting for a nightly run.
+  if (only === 'gsc') {
+    const g = await refreshGscPages()
+    return Response.json({ ok: g.ok, search_console: g.message, pages: g.pages })
+  }
+
   if (only === 'health') {
     const h = await refreshHealth()
     return Response.json({ ok: h.ok, health: h.message, broken: h.broken })
@@ -142,6 +149,19 @@ export async function GET(req: Request) {
   const r = await refreshMw()
   if (!r.ok) console.error('[CFO]', r.message)
 
+  // SEARCH CONSOLE, DAILY. One call, and it is the only source that can tell a
+  // page nobody searches for from one that ranks and is simply not clicked —
+  // Semrush recorded nothing for three Indian city pages that Google shows a
+  // thousand times a month inside the top ten (12 Oct 2026). Never blocks the
+  // rest: a dark Search Console is a worse board, not a failed refresh.
+  let gsc: { ok: boolean; message: string; pages: number } | null = null
+  try {
+    gsc = await refreshGscPages()
+    if (!gsc.ok) console.error('[CFO]', gsc.message)
+  } catch (e: any) {
+    console.error('[CFO] Search Console pages threw:', String(e?.message ?? e).slice(0, 160))
+  }
+
   // THE PLAN IS MONTHLY, THE HEALTH WATCH IS DAILY.
   //
   // Semrush refreshes its databases about monthly and SEO work takes four to
@@ -183,6 +203,7 @@ export async function GET(req: Request) {
     plan: plan ? plan.message : `not a plan day (runs on the 1st; ?force=plan to run now)`,
     health: health.message,
     broken: health.broken,
+    search_console: gsc ? gsc.message : 'Search Console: threw, see the log',
     gap: gap ? gap.message : 'not a gap day (runs on the 1st of a quarter)',
     sales: sales.message,
     close: closed ? closed.message : 'not due (runs in the first week of a month)',

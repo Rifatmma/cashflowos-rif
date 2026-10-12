@@ -182,6 +182,79 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
   }
 }
 
+/**
+ * Per-page Search Console numbers, refreshed daily into mw_gsc_pages.
+ *
+ * Separate from fetchGsc() above, which pulls query x page x country for the
+ * monthly plan. This is one cheap call for the page-level view, and it runs
+ * every day because it answers a question nothing else can:
+ *
+ *   Semrush recorded nothing at all for /locations/india/chennai,
+ *   /locations/india/kolkata and /locations/india/hyderabad. Google shows all
+ *   three a thousand times a month at an average position inside the top ten.
+ *   Without this the city board called 29 pages "quiet" and had no way to tell
+ *   a page nobody searches for from one that ranks and is simply not clicked.
+ *
+ * Fails soft: the rest of the refresh is still worth running.
+ */
+export async function refreshGscPages(): Promise<{ ok: boolean; message: string; pages: number }> {
+  if (!supabaseConfigured) return { ok: false, message: 'Search Console pages: Supabase not configured', pages: 0 }
+  const notes: string[] = []
+  const property = await findGscProperty(notes)
+  if (!property) return { ok: false, message: notes[0] ?? 'Search Console: no readable property', pages: 0 }
+
+  const end = new Date(Date.now() - 3 * 86_400_000)       // GSC lags two to three days
+  const start = new Date(end.getTime() - 28 * 86_400_000)
+  const stamp = new Date().toISOString()
+  try {
+    const out = await runTool('GOOGLE_SEARCH_CONSOLE_SEARCH_ANALYTICS_QUERY', undefined, {
+      site_url: property,
+      start_date: ymd(start),
+      end_date: ymd(end),
+      dimensions: ['page'],
+      row_limit: 1000,
+    })
+    const rows = (out?.rows ?? [])
+      .map((r: any) => ({
+        // Stored as a path: every other table in /mw is keyed that way, and
+        // the trailing slash differs between Google and the sitemap.
+        url: String(r.keys?.[0] ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/',
+        impressions: Math.round(Number(r.impressions ?? 0)),
+        clicks: Math.round(Number(r.clicks ?? 0)),
+        ctr: Number(r.ctr ?? 0),
+        position: Number(r.position ?? 0),
+        start_date: ymd(start), end_date: ymd(end), pulled_at: stamp,
+      }))
+      .filter((r: any) => r.url && r.impressions > 0)
+    if (!rows.length) return { ok: true, message: 'Search Console pages: no rows', pages: 0 }
+
+    const { error } = await supabase.from('mw_gsc_pages').upsert(rows, { onConflict: 'url' })
+    if (error) return { ok: false, message: `Search Console pages: ${error.message.slice(0, 120)}`, pages: 0 }
+
+    // A page that stopped appearing entirely should not sit there showing last
+    // month's impressions for ever. Anything this pull did not touch is zeroed,
+    // which reads as "Google showed it nothing" rather than silently going
+    // stale.
+    //
+    // Matched on pulled_at rather than a NOT IN list: the pull can carry a
+    // thousand URLs and sending all of them back as a filter is a request
+    // large enough to fail on its own.
+    await supabase.from('mw_gsc_pages')
+      .update({ impressions: 0, clicks: 0, ctr: 0, position: null, start_date: ymd(start), end_date: ymd(end) })
+      .lt('pulled_at', stamp)
+
+    return { ok: true, message: `Search Console pages: ${rows.length} pages`, pages: rows.length }
+  } catch (e: any) {
+    const msg = String(e?.message ?? e)
+    return {
+      ok: false, pages: 0,
+      message: /permission|403|forbidden/i.test(msg)
+        ? `Search Console: no access to ${property} — the connected account must be a user on that property`
+        : `Search Console pages: ${msg.slice(0, 140)}`,
+    }
+  }
+}
+
 // ------------------------------------------------------------------- owners
 export async function getOwners(): Promise<Market[]> {
   if (!supabaseConfigured) return withOwners()
