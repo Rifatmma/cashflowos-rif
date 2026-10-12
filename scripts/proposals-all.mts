@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildProposal, type ProtectedTerm } from '../lib/mw-page-proposal'
 import { readPage, type PageFacts, type PaidTerm, type OrganicTerm } from '../lib/mw-page-gaps'
 import { changesFor } from '../lib/mw-page-changes'
+import { saveProposals, reopenStale } from '../lib/mw-proposals'
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
 const SITE = 'https://www.movingwalls.com'
@@ -135,6 +136,14 @@ for (const requested of [...urls].sort()) {
   const p = buildProposal({ url: url + '/', liveHtml: html, changes, terms, generatedOn: new Date().toISOString().slice(0, 10) })
   writeFileSync(`docs/proposals/${p.filename}`, p.html, 'utf8')
   made++; blockedTotal += p.blocked
+
+  // Keep them, so a suggestion has a history and a decision survives the next run.
+  const reopened = await reopenStale(slug, new Map(changes.map(c => [`${slug}:${c.id}`, c.evidence ?? {}])))
+  for (const r of reopened) console.log(`   ↻ re-raised ${r}`)
+  await saveProposals({
+    url, slug, cycle: cycle ?? null, html: p.html, filename: p.filename,
+    changes: changes.map(c => ({ change: c, blocked: false })),
+  })
   index.push(`| [${url.replace(SITE, '')}](${p.filename}) | ${changes.length} | ${p.blocked} | S$${v.spend.toFixed(2)} | ${v.clicks} | ${v.conv} | ${v.hasPrice ? '—' : 'no price copy'} |`)
   console.log(`✓  ${url.replace(SITE, '')}  ${changes.length} changes, ${p.blocked} blocked  → ${p.filename}`)
 }

@@ -5,6 +5,7 @@ import { currentGuest } from '@/lib/guest'
 import { setRivals, storeImport } from '@/lib/mw-gap-run'
 import { readFile, describe } from '@/lib/mw-import'
 import { COUNTRIES, dbOf } from '@/lib/mw-markets'
+import { decide, undecide } from '@/lib/mw-proposals'
 import { revalidatePath } from 'next/cache'
 
 // Recording a decision. The ONLY writes /mw makes.
@@ -153,4 +154,22 @@ export async function importSemrush(_prev: unknown, formData: FormData): Promise
 
   revalidatePath('/mw/seo'); revalidatePath('/mw/gaps'); revalidatePath('/mw/plan'); revalidatePath('/mw/import')
   return { lines, ok, skipped }
+}
+
+// ---------------------------------------------------------------------------
+// Page proposals (lib/mw-proposals.ts)
+//
+// Approve / reject sits beside the download rather than on a page of its own:
+// "I just feel adding another page inside /mw is a bit too much page too
+// confusing" (owner, 12 Oct 2026).
+// ---------------------------------------------------------------------------
+
+export async function decideProposal(formData: FormData) {
+  const id = String(formData.get('id') ?? '')
+  const choice = String(formData.get('choice') ?? '')
+  const reason = String(formData.get('reason') ?? '')
+  if (!id) return
+  if (choice === 'undo') await undecide(id)
+  else if (choice === 'approved' || choice === 'rejected') await decide(id, choice, await actor(), reason)
+  revalidatePath('/mw/plan')
 }

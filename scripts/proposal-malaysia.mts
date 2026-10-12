@@ -12,6 +12,7 @@
 
 import { writeFileSync, mkdirSync } from 'fs'
 import { buildProposal, type Change, type ProtectedTerm } from '../lib/mw-page-proposal'
+import { saveProposals, reopenStale } from '../lib/mw-proposals'
 
 const URL_ = 'https://www.movingwalls.com/locations/malaysia/'
 
@@ -194,6 +195,14 @@ const p = buildProposal({
 
 mkdirSync('docs/proposals', { recursive: true })
 writeFileSync(`docs/proposals/${p.filename}`, p.html, 'utf8')
+
+const slug = 'malaysia'
+const reopened = await reopenStale(slug, new Map(changes.map(c => [`${slug}:${c.id}`, c.evidence ?? {}])))
+for (const r of reopened) console.log(`↻ re-raised ${r}`)
+await saveProposals({
+  url: URL_.replace(/\/$/, ''), slug, cycle: '2026-09', html: p.html, filename: p.filename,
+  changes: changes.map(c => ({ change: c, blocked: false })),
+})
 console.log(`\nwrote docs/proposals/${p.filename} (${(p.html.length / 1024).toFixed(0)} KB)`)
 console.log(`${changes.length} changes, ${p.blocked} blocked by the ranking-protection rule\n`)
 for (const s of p.summary) console.log(s)

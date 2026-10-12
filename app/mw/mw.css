@@ -541,3 +541,56 @@
   background: var(--mw-s1); color: #fff; border: 0; border-radius: 8px; padding: 11px 20px;
 }
 .mw-dl:hover { filter: brightness(1.08); }
+
+/* ── Page proposals on the plan page ─────────────────────────────────────────
+   A decision card, not a dashboard tile: the before struck through, the after
+   in green, the evidence as a line of figures, and two buttons. */
+.mw-prop { border: 1px solid var(--mw-line, #e2e8f0); border-left: 4px solid #2563eb;
+  border-radius: 8px; padding: 14px 16px; margin: 0 0 12px; background: #fff; }
+.mw-prop.is-approved { border-left-color: #16a34a; background: #f6fef9; }
+.mw-prop.is-rejected { border-left-color: #94a3b8; background: #f8fafc; opacity: .85; }
+.mw-prop.is-blocked  { border-left-color: #b91c1c; background: #fef2f2; }
+.mw-prop-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.mw-prop-head b { font-size: 15px; }
+.mw-prop-where { color: #64748b; font-size: 13px; }
+.mw-prop-ba { font-family: ui-monospace, Menlo, monospace; font-size: 13px; line-height: 1.5;
+  margin: 6px 0 0; padding: 7px 9px; border-radius: 5px; white-space: pre-wrap; }
+.mw-prop-was { background: #fef2f2; color: #7f1d1d; text-decoration: line-through; }
+.mw-prop-now { background: #ecfdf5; color: #064e3b; }
+.mw-prop-why { font-size: 14px; line-height: 1.6; color: #334155; margin: 10px 0 0; }
+.mw-prop-ev { font-size: 13px; color: #475569; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+.mw-prop-blocked { font-size: 13px; color: #991b1b; background: #fee2e2; padding: 8px 10px;
+  border-radius: 5px; margin: 10px 0 0; }
+.mw-prop-reopen { font-size: 13px; color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b;
+  padding: 8px 10px; border-radius: 0 5px 5px 0; margin: 0 0 10px; }
+.mw-prop-acts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.mw-prop-acts button { min-height: 40px; padding: 0 16px; border-radius: 7px; font-size: 14px;
+  font-weight: 600; border: 1px solid var(--mw-line, #cbd5e1); background: #fff; cursor: pointer; }
+.mw-prop-acts button:disabled { opacity: .5; cursor: progress; }
+.mw-prop-yes { background: #16a34a !important; border-color: #16a34a !important; color: #fff; }
+.mw-prop-no  { background: #fff; border-color: #cbd5e1 !important; color: #b91c1c; }
+.mw-prop-form { margin-top: 12px; }
+.mw-prop-form label { display: block; font-size: 13px; color: #334155; margin-bottom: 6px; }
+.mw-prop-form textarea { width: 100%; font-size: 16px; padding: 9px 11px; border-radius: 7px;
+  border: 1px solid var(--mw-line, #cbd5e1); font-family: inherit; }
+.mw-prop-note { font-size: 12px; color: #64748b; margin: 7px 0 0; line-height: 1.5; }
+.mw-prop-done { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-top: 12px;
+  font-size: 13px; }
+.mw-prop-done .ok { color: #15803d; font-weight: 600; }
+.mw-prop-done .no { color: #64748b; font-weight: 600; }
+.mw-prop-reason { color: #475569; font-style: italic; }
+.mw-prop-done button { background: none; border: none; color: #2563eb; text-decoration: underline;
+  cursor: pointer; font-size: 13px; padding: 0; min-height: 32px; }
+
+@media (prefers-color-scheme: dark) {
+  .mw-prop { background: #0f172a; border-color: #1e293b; }
+  .mw-prop.is-approved { background: #052e1a; }
+  .mw-prop.is-rejected { background: #0b1220; }
+  .mw-prop.is-blocked  { background: #2a0d0d; }
+  .mw-prop-why { color: #cbd5e1; }
+  .mw-prop-was { background: #3f1212; color: #fca5a5; }
+  .mw-prop-now { background: #052e1a; color: #86efac; }
+  .mw-prop-form textarea { background: #0b1220; color: #e2e8f0; border-color: #1e293b; }
+  .mw-prop-acts button { background: #0b1220; color: #e2e8f0; border-color: #1e293b; }
+  .mw-prop-no { color: #fca5a5; }
+}
