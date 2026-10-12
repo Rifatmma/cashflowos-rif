@@ -196,9 +196,18 @@ export async function reopenStale(slug: string, fresh: Map<string, any>): Promis
   return out
 }
 
-/** A link the browser can download the mirror from. */
+/**
+ * A link the browser can download the mirror from.
+ *
+ * `download` matters. Without it Supabase serves the object inline, and it
+ * refuses to serve text/html AS html — so the owner clicked the button and got
+ * a page of markup on screen instead of a file ("I was redirected to the
+ * storage page with codes in it", 12 Oct 2026). The same quirk bit the email
+ * proof snapshots a week earlier; I should have remembered it here.
+ */
 export async function proposalUrl(path: string | null): Promise<string | null> {
   if (!path || !supabaseConfigured) return null
-  const { data } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60)
+  const name = path.split('/').pop() ?? 'proposal.html'
+  const { data } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60, { download: name })
   return data?.signedUrl ?? null
 }
