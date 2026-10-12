@@ -82,13 +82,26 @@ if (withHolds.every(t => t.holds.every(h => h.pos <= 10 && !/moving ?walls?/i.te
   ok('protected rankings are all top ten and none of them are our own name')
 }
 
-// A keyword must never be listed as both "push this up" and "do not lose this".
-const contradictory = withHolds.filter(t => {
+// A keyword CAN be both "push this up" and "do not lose this" — and must be.
+//
+// This assertion used to demand the opposite, and that is what the bug was
+// built on: striking distance is #4-20, protected is #1-10, so anything at
+// 4-10 is honestly both. Enforcing "never both" is what made the generator
+// drop a #8 from the protection list and then announce there was nothing to
+// protect. The rule is not that the overlap cannot happen; it is that when it
+// happens the task has to SAY so.
+const overlapping = withHolds.filter(t => {
   const target = new Set(t.keywords.map(k => k.q.toLowerCase()))
   return t.holds.some(h => target.has(h.q.toLowerCase()))
 })
-if (contradictory.length) fail(`${contradictory.map(t => t.id).join(', ')} list the same search as both a target and something to protect`)
-else ok('no search is listed as both a target and something to protect')
+const silent = overlapping.filter(t => !/on both lists/i.test(t.steps.join(' ')))
+if (silent.length) fail(`${silent.map(t => t.id).join(', ')} target a keyword they also protect without saying so`)
+else ok(`${overlapping.length} task(s) target a keyword they also protect, and every one of them says so`)
+
+// And the contradiction itself can never be printed.
+const lying = withHolds.filter(t => /nothing to protect/i.test(t.steps.join(' ')))
+if (lying.length) fail(`${lying.map(t => t.id).join(', ')} hold a top-ten ranking and still say there is nothing to protect`)
+else ok('no task holding a ranking claims there is nothing to protect')
 
 if (withHolds.some(t => !t.steps.some(s => /already wins|already ranks/i.test(s)))) {
   fail('a task lists rankings to protect but never says so in the steps')
@@ -242,4 +255,60 @@ process.exitCode = bad ? 1 : 0
   })
   if (!withGaps.some(t => t.kind === 'gap')) fail('the content gap stopped producing when the keyword pull failed')
   else ok('content briefs survive a keyword outage — they come from their own quarterly pull')
+}
+
+// ── the contradiction that could have cost a top-ten ranking ───────────────
+// Striking distance is #4-20 and protected is #1-10, so 4-10 is BOTH. The
+// strike task used to pass its own keywords to holdsOn() as an exclude list,
+// which emptied the protection list and printed "Nothing on this page ranks in
+// the top ten yet, so there is nothing to protect — write it the way it should
+// have been written" on a card whose own table showed a #8 (/locations/malaysia,
+// 12 Oct 2026). Anyone following that could have rewritten over the ranking.
+{
+  const page = 'https://www.movingwalls.com/locations/malaysia'
+  const myRows: MarketRow[] = [
+    // On the strike list AND already top ten. This is the dangerous one.
+    row({ query: 'out of home media malaysia', page, country: 'MYS', position: 8, volume: 140, visits: 1 }),
+    row({ query: 'billboard price malaysia', page, country: 'MYS', position: 8, volume: 90 }),
+    // Striking distance only.
+    row({ query: 'digital billboard advertising malaysia', page, country: 'MYS', position: 14, volume: 320 }),
+    row({ query: 'billboard advertising malaysia', page, country: 'MYS', position: 13, volume: 260 }),
+  ]
+  const tasks = buildPlan({ ...input, rows: myRows, ranked: {}, ga4: [], gaps: {} }, 9)
+  const strike = tasks.find(t => t.kind === 'strike' && t.url === '/locations/malaysia')
+  if (!strike) fail('no strike task was produced for the Malaysia fixture')
+  else {
+    const steps = strike.steps.join(' ')
+    if (/nothing to protect/i.test(steps)) fail('a page holding #8 is still told there is nothing to protect')
+    else ok('a page holding a top-ten position is never told there is nothing to protect')
+
+    if (!strike.holds.some(h => h.q === 'out of home media malaysia')) {
+      fail('the #8 is missing from the protection list because it is also a strike keyword')
+    } else ok('a keyword that is both striking-distance and top-ten appears on BOTH lists')
+
+    if (!/on both lists/i.test(steps)) fail('the step does not point out that a keyword is on both lists')
+    else ok('and the step says so, so nobody rewrites the wording that earned it')
+  }
+}
+
+// Semrush positions protect a page even when Search Console shows no clicks.
+{
+  const page = 'https://www.movingwalls.com/locations/malaysia'
+  const tasks = buildPlan({
+    ...input, ga4: [], gaps: {},
+    rows: [
+      row({ query: 'digital billboard advertising malaysia', page, country: 'MYS', position: 14, volume: 320 }),
+      row({ query: 'billboard advertising malaysia', page, country: 'MYS', position: 13, volume: 260 }),
+    ],
+    ranked: {
+      '/locations/malaysia': [
+        { q: 'out of home media malaysia', pos: 8, vol: 140, visits: 0 },
+      ],
+    },
+  }, 9)
+  const strike = tasks.find(t => t.kind === 'strike' && t.url === '/locations/malaysia')
+  if (!strike) fail('no strike task for the Semrush fixture')
+  else if (!strike.holds.some(h => h.q === 'out of home media malaysia')) {
+    fail('a Semrush top-ten position is not protected when Search Console shows no clicks')
+  } else ok('a ranking with no clicks is still protected — Semrush is merged in, not ignored')
 }

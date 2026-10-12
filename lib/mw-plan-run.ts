@@ -23,7 +23,7 @@ import { fetchDbRanks, fetchKeywords, fetchCompetitors, brandSplit, type Semrush
 import { auditPage, type PageHealth } from './mw-pagehealth'
 import { getGaps } from './mw-gap-run'
 import { worthWriting, type GapCluster } from './mw-gap'
-import { buildPlan, type MarketRow, type Ga4Country, type PlanInput, type PlanTask } from './mw-plan'
+import { buildPlan, type MarketRow, type Ga4Country, type PlanInput, type PlanTask, type PlanKeyword } from './mw-plan'
 
 const SITE = 'https://www.movingwalls.com'
 const SITE_DOMAIN = 'movingwalls.com'
@@ -271,6 +271,30 @@ export async function fetchSemrush(
 }
 
 /** Semrush keywords, reshaped into the rows the planner reasons over. */
+/**
+ * Semrush positions keyed by path, for the protection list.
+ *
+ * Separate from toMarketRows because they answer different questions: the rows
+ * feed the opportunity maths (and are filtered by country, brand and
+ * relevance on the way in), while this is simply "what does this URL rank
+ * for", unfiltered — a brand term at #3 is still a ranking a rewrite can
+ * break.
+ */
+export function rankedByPage(ev: MarketEvidence[]): Record<string, PlanKeyword[]> {
+  const out: Record<string, PlanKeyword[]> = {}
+  for (const e of ev) {
+    for (const k of e.keywords) {
+      const path = String(k.url ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/'
+      if (!k.q || !(k.pos > 0)) continue
+      const list = out[path] ?? (out[path] = [])
+      const seen = list.find(x => x.q.toLowerCase() === k.q.toLowerCase())
+      if (seen) { if (k.pos < seen.pos) { seen.pos = k.pos; seen.vol = Math.max(seen.vol, k.vol) } continue }
+      list.push({ q: k.q, pos: k.pos, vol: k.vol, visits: k.traffic, kd: k.kd, prev: k.prev, url: path })
+    }
+  }
+  return out
+}
+
 export function toMarketRows(ev: MarketEvidence[]): MarketRow[] {
   return ev.flatMap(e => e.keywords.map(k => ({
     query: k.q,
@@ -423,7 +447,8 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
       }
     }
 
-    const input: PlanInput = { rows, ga4, pages, markets, specialists, health, gaps, cycle }
+    const ranked = rankedByPage(semrush)
+    const input: PlanInput = { rows, ga4, pages, markets, specialists, health, gaps, ranked, cycle }
     const tasks = buildPlan(input)
     const real = tasks.filter(t => t.kind !== 'blind')
 

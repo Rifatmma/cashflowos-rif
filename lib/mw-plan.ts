@@ -52,6 +52,13 @@ export type PlanInput = {
   health?: Record<string, PageHealth>
   /** Content gap topics per country key, from the quarterly pull. */
   gaps?: Record<string, GapCluster[]>
+  /**
+   * Semrush positions keyed by path. Search Console knows what WE were clicked
+   * for; Semrush knows what the page ranks for whether or not anyone clicked.
+   * A page can hold a top-ten position that earns almost nothing and still be
+   * worth protecting, and GSC alone will not show it.
+   */
+  ranked?: Record<string, PlanKeyword[]>
   markets: Market[]
   /** Cross-market people. `pages` builds pages and owns on-page SEO on them. */
   specialists?: Partial<Specialists>
@@ -271,13 +278,58 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   // `exclude` drops the searches the same task is already asking them to push
   // up: listing one keyword as both "work this in" and "do not lose this"
   // reads as a contradiction and makes the whole block easy to ignore.
-  const holdsOn = (onPage: string, exclude: Iterable<string> = []): PlanKeyword[] => {
-    const skip = new Set([...exclude].map(q => q.toLowerCase()))
-    return earned
-    .filter(r => pathOf(r.page) === onPage && r.position >= 1 && r.position <= 10 && !skip.has(r.query.toLowerCase()))
-    .sort((a, b) => b.visits - a.visits || b.volume - a.volume)
-    .slice(0, 8)
-    .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+  /**
+   * Says, in one sentence, which keywords are on BOTH lists.
+   *
+   * 4-10 is simultaneously striking distance and top ten, so the overlap is
+   * normal and naming it is the whole safeguard: these are the phrases you
+   * most want to improve and least want to break.
+   */
+  const bothNote = (holds: PlanKeyword[], targets: PlanKeyword[]): string => {
+    const both = holds.filter(h => targets.some(k => k.q.toLowerCase() === h.q.toLowerCase()))
+    if (!both.length) return ''
+    const it = both.length === 1 ? 'it' : 'them'
+    return ` Note ${list(both, 4)} ${both.length === 1 ? 'is' : 'are'} on both lists — already top ten AND worth pushing higher. ` +
+      `Improve the section around ${it}; do not replace the wording that got ${it} there.`
+  }
+
+  /**
+   * Everything this page already ranks in the top ten for — the list a rewrite
+   * must not break.
+   *
+   * TWO BUGS FIXED HERE AT ONCE, both found on /locations/malaysia (12 Oct 2026).
+   *
+   * It used to take an `exclude` list and was called with the task's own strike
+   * keywords. But striking distance is #4-20, so a term at #8 is BOTH worth
+   * pushing and worth protecting. Excluding it emptied the list, and the task
+   * then printed "Nothing on this page ranks in the top ten yet, so there is
+   * nothing to protect — write it the way it should have been written" on a
+   * card whose own table showed `out of home media malaysia` at #8. Anyone
+   * following that instruction could rewrite over a top-ten ranking. Nothing
+   * is excluded now: a term appearing in both lists is the point, not a
+   * duplicate to be tidied away.
+   *
+   * It also read Search Console only. Semrush is merged in, because a position
+   * that earns few clicks is still a position, and losing it is still a loss.
+   */
+  const holdsOn = (onPage: string): PlanKeyword[] => {
+    const best = new Map<string, PlanKeyword>()
+    const add = (k: PlanKeyword) => {
+      const key = k.q.toLowerCase()
+      const seen = best.get(key)
+      // Keep the better-placed reading when the two sources disagree: that is
+      // the one with more to lose.
+      if (!seen || (k.pos > 0 && k.pos < seen.pos)) best.set(key, { ...seen, ...k })
+    }
+    for (const r of earned) {
+      if (pathOf(r.page) !== onPage || !(r.position >= 1 && r.position <= 10)) continue
+      add({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev })
+    }
+    for (const k of input.ranked?.[onPage] ?? []) {
+      if (!(k.pos >= 1 && k.pos <= 10)) continue
+      add(k)
+    }
+    return [...best.values()].sort((a, b) => (b.visits - a.visits) || (b.vol - a.vol)).slice(0, 10)
   }
 
   // ── a page our competitors have and we do not ──────────────────────────
@@ -334,7 +386,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     const groupVol = group.reduce((t, r) => t + r.volume, 0)
     if (group.length < 2 && groupVol < 200) continue
     if (gain < 3) continue
-    const holds = holdsOn(onPage, kws.map(k => k.q))
+    const holds = holdsOn(onPage)
     out.push({
       ...base, holds, id: `mkt-${co.key}-strike-${slug(onPage)}`, kind: 'strike',
       title: `Push ${onPage} onto page one for ${kws.length} ${co.label} ${kws.length === 1 ? 'search' : 'searches'}`,
@@ -349,7 +401,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
           ? `Link to ${onPage} from ${page}, using the query wording as the anchor text.`
           : `Link to ${onPage} from two related blog posts, using the query wording as the anchor text.`,
         holds.length
-          ? `DO NOT LOSE WHAT THIS PAGE ALREADY WINS. It ranks in the top ten for ${list(holds, 8)}. Keep the wording that earns those — the existing H1, the headings and the paragraphs that answer them — and add the new sections around them rather than rewriting over the top. If the title has to change, keep the phrase from the best of them in it.`
+          ? `DO NOT LOSE WHAT THIS PAGE ALREADY WINS. It ranks in the top ten for ${list(holds, 8)}. Keep the wording that earns those — the existing H1, the headings and the paragraphs that answer them — and add the new sections around them rather than rewriting over the top. If the title has to change, keep the phrase from the best of them in it.${bothNote(holds, kws)}`
           : 'Nothing on this page ranks in the top ten yet, so there is nothing to protect — write it the way it should have been written.',
         'Resubmit the URL in Search Console when it is live.',
       ],
@@ -375,7 +427,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     if (t.vol < 400 || ctr >= 0.01 || avgPos > 20) continue
     const kws = earned.filter(r => pathOf(r.page) === onPage).sort((a, b) => b.volume - a.volume).slice(0, 6)
       .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
-    const ctrHolds = holdsOn(onPage, kws.map(k => k.q))
+    const ctrHolds = holdsOn(onPage)
     out.push({
       ...base, owner: builder, holds: ctrHolds, id: `mkt-${co.key}-ctr-${slug(onPage)}`, kind: 'no-clicks',
       title: `Rewrite the title and description on ${onPage}`,
@@ -386,7 +438,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
         'Rewrite the meta description as a promise with a number in it — what the reader gets, not what the company is. Under 155 characters.',
         'Change nothing else. If clicks move, it was the listing; if they do not, the page needs the content work instead.',
         ...(ctrHolds.length
-          ? [`Keep the wording that already wins: this page also ranks top ten for ${list(ctrHolds, 6)}. A new title that drops those phrases can cost more than the clicks it buys.`]
+          ? [`Keep the wording that already wins: this page also ranks top ten for ${list(ctrHolds, 6)}. A new title that drops those phrases can cost more than the clicks it buys.${bothNote(ctrHolds, kws)}`]
           : []),
       ],
       keywords: kws, url: onPage, size: 'S',
