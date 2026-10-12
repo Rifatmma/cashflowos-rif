@@ -211,7 +211,7 @@ export function parseTotalOnly(text: string, today: string): Typed | null {
   if (!name || name.length < 2 || name.length > 40) return null
   // Whole words only: without the boundaries "Domino's" contains "do" and
   // "Isetan" contains "is", and a real payee would be refused.
-  if (/(can|could|would|will|what|which|how|why|when|where|who|is|are|was|were|do|does|did|should|please|thanks|tolong|boleh|berapa|kenapa)/i.test(name)) return null
+  if (/\b(can|could|would|will|what|which|how|why|when|where|who|is|are|was|were|do|does|did|should|please|thanks|tolong|boleh|berapa|kenapa)\b/i.test(name)) return null
   // A payee is a name, not a clause. Five words is Technology Park Malaysia
   // Flexi Parking; anything longer is somebody talking.
   if (name.split(/\s+/).filter(Boolean).length > 5) return null

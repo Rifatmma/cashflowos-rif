@@ -17,6 +17,7 @@ import { cityPageFor, isBrand, isRelevant, marketOfCountry, marketOfGa4, pageFor
 import { themeOf } from './mw-themes'
 import type { PageHealth } from './mw-pagehealth'
 import { rankLinkers, linkStep, type BlogPost } from './mw-linkers'
+import { targetsFor, linkJobs, linkTaskSteps, editCount } from './mw-internal-links'
 import { effortOf, type GapCluster } from './mw-gap'
 
 // ---------------------------------------------------------------- the inputs
@@ -94,7 +95,7 @@ export type PlanTask = {
   blockedBy: { id: string; owner: string | null; title: string } | null
   lead: string | null
   kind: 'strike' | 'no-page' | 'page-build' | 'no-clicks' | 'city' | 'city-build'
-  | 'orphan' | 'health' | 'convert' | 'cannibal' | 'gap' | 'blind'
+  | 'orphan' | 'health' | 'convert' | 'cannibal' | 'gap' | 'links' | 'blind'
   title: string
   /** One line, with the numbers that justify it. */
   why: string
@@ -520,6 +521,50 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       doneWhen: 'Title and description are live; compare clicks on this page in four weeks.',
       score: t.vol * Math.max(0, ctrAt(avgPos) - ctr),
     })
+  }
+
+  // ── links we already own and have not spent ─────────────────────────────
+  //
+  // Of 289 posts, 27 link to a location page outside the nav. The rest of that
+  // equity sits unspent while leads are asked to write new things. This task
+  // asks for edits to posts already published — no new pages, nobody waiting
+  // on the pages specialist (owner, 13 Oct 2026).
+  {
+    // Every page in this country, with what it ranks for, from both sources.
+    const underCountry = (u: string) => pathOf(u).startsWith(`/locations/${co.key}`)
+    const termsOf = new Map<string, { q: string; pos: number; vol: number }[]>()
+    const push = (url: string, q: string, pos: number, vol: number) => {
+      const path = pathOf(url)
+      if (!underCountry(path) || !(pos > 0) || isBrand(q)) return
+      const list = termsOf.get(path) ?? []
+      const seen = list.find(t => t.q.toLowerCase() === q.toLowerCase())
+      if (!seen) list.push({ q, pos, vol })
+      else if (pos < seen.pos) seen.pos = pos
+      termsOf.set(path, list)
+    }
+    for (const r of earned) push(r.page, r.query, r.position, r.volume)
+    for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) push(url, k.q, k.pos, k.vol)
+
+    const targets = targetsFor([...termsOf.entries()].map(([url, terms]) => ({ url, terms })))
+    const jobs = linkJobs(targets, input.posts ?? [], [co.label, ...(co.cities ?? []).slice(0, 4)])
+    const edits = editCount(jobs)
+    if (jobs.length) {
+      out.push({
+        ...base, id: `mkt-${co.key}-links`, kind: 'links', holds: [],
+        title: `Spend the links we already have on ${jobs.length} ${co.label} page${jobs.length === 1 ? '' : 's'}`,
+        why: `${jobs.length} ${co.label} ${jobs.length === 1 ? 'page sits' : 'pages sit'} between ` +
+          `#${Math.round(Math.min(...jobs.map(j => j.target.pos)))} and #${Math.round(Math.max(...jobs.map(j => j.target.pos)))} ` +
+          `for searches worth ${round(jobs.reduce((t, j) => t + j.target.vol, 0))} a month, and posts we have already ` +
+          `published cover those topics without linking to them. ${edits} edit${edits === 1 ? '' : 's'}, no new pages.`,
+        steps: linkTaskSteps(jobs, co.label),
+        keywords: jobs.map(j => ({ q: j.target.term, pos: j.target.pos, vol: j.target.vol, visits: 0, url: j.target.url })),
+        url: jobs[0].target.url, size: edits > 5 ? 'M' : 'S',
+        doneWhen: `The ${edits} link${edits === 1 ? '' : 's'} are live, and the positions of the ` +
+          `${jobs.length} page${jobs.length === 1 ? '' : 's'} are checked in six weeks.`,
+        // Cheap and quick, so it should not sit under a month of writing.
+        score: jobs.reduce((t, j) => t + j.target.vol, 0) * 0.01 + 5,
+      })
+    }
   }
 
   // ── a city people search for, with nowhere to send them ─────────────────

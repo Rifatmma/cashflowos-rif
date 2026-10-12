@@ -83,11 +83,19 @@ export function rankLinkers(opts: {
     const hay = `${p.title ?? ''} ${p.text}`
     const phrase = countOf(hay, topic)
     const partial = words.reduce((s, w) => s + Math.min(countOf(hay, w), 4), 0)
-    // Nothing of the topic in it at all: a link from here is a non sequitur,
-    // and a link nobody would write by hand is a link Google discounts.
-    if (!phrase && !partial) continue
-
     const place = places.reduce((s, q) => s + Math.min(countOf(hay, q), 3), 0)
+
+    // A SHARED WORD IS NOT A SHARED SUBJECT. The first version accepted any
+    // post containing a distinctive word, which offered a UAE DOOH guide and a
+    // piece on African media owners as linkers for "billboards near me" on a
+    // Bengaluru page — because all three say "billboard". Nobody would write
+    // those links by hand, and a link nobody would write by hand is a link
+    // Google discounts.
+    //
+    // So: either the post uses the phrase itself, or it covers the subject AND
+    // names the place, which is what makes the sentence carrying the link
+    // possible to write.
+    if (!phrase && !(partial && place)) continue
     const reach = Math.log10(1 + (p.impressions ?? 0))
     const already = p.links.some(l => l.replace(/\/$/, '') === target.replace(/\/$/, ''))
 

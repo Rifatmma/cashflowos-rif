@@ -77,7 +77,7 @@ const city = (o: Partial<CityFacts>): CityFacts => ({
   // Word boundaries. Without them /thin/ matched "no(thin)g is being spent" —
   // the fourth substring false positive in this project today, this time in a
   // test written to catch exactly that class of mistake.
-  is(!/(thin|duplicate|broken|rewrite|poor|weak)/i.test(f.says),
+  is(!/\b(thin|duplicate|broken|rewrite|poor|weak)\b/i.test(f.says),
      'and never invents a content fault to manufacture a task')
   is(f.cost === 0, 'with no money on it, so it sorts below the real problems')
 }

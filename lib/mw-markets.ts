@@ -180,8 +180,8 @@ export const isBrand = (q: string) => BRAND.test(String(q || ''))
  */
 const INDUSTRY = new RegExp([
   'billboard', 'hoarding', 'bigboard', 'unipole', 'signage', 'banner',
-  'ooh', 'dooh', 'pdooh', 'out.?of.?home', 'outdoor advert', 'outdoor ads?',
-  'advertis', 'ads?', 'ad (?:space|board|network)', 'media (?:owner|buying|planning)',
+  'ooh', 'dooh', 'pdooh', 'out.?of.?home', 'outdoor advert', 'outdoor ads?\b',
+  'advertis', '\bads?\b', '\bad (?:space|board|network)', 'media (?:owner|buying|planning)',
   'programmatic', 'digital screen', 'led screen', 'audience measurement',
   'campaign', 'bus shelter', 'transit media', 'mrt ads', 'retail media',
 ].join('|'), 'i')

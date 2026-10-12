@@ -212,7 +212,12 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
 export async function indexBlog(): Promise<{ ok: boolean; message: string; posts: number }> {
   if (!supabaseConfigured) return { ok: false, message: 'blog index: Supabase not configured', posts: 0 }
   const clean = (x: string) => x
-    .replace(/<(script|style|noscript)[\s\S]*?<\/>/gi, ' ')
+    // No backreference: `\1` written through a shell heredoc arrived here as
+    // the byte 0x01, so this matched nothing and the crawl indexed JSON-LD
+    // instead of article text. Spelled out, it cannot be mangled again.
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
     .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ').trim()
   try {

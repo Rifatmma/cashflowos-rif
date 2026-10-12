@@ -339,7 +339,7 @@ let gapInput: PlanInput
     // The owner's rule: no new pages to chase a keyword. One person already
     // owns 22 of 37 tasks, so a plan answering every gap with "build
     // something" is a plan that does not happen.
-    if (/(write|build|create)[^.]{0,30}new page/i.test(steps) || /Write the .* page for/i.test(gap.title)) {
+    if (/\b(write|build|create)\b[^.]{0,30}\bnew page\b/i.test(steps) || /Write the .* page for/i.test(gap.title)) {
       fail('a gap task still asks for a new page to be written')
     } else ok('a gap task never asks for a new page')
     if (!/NO NEW PAGE/.test(steps)) fail('it does not say so out loud')
