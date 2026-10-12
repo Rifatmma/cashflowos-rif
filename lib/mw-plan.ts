@@ -372,46 +372,53 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     const e = effortOf(g)
     const rivals = g.rivals.length ? g.rivals.join(' and ') : 'a competitor'
     const defend = holdsOn(page)
+
+    // WHICH PAGE WE ALREADY HAVE SHOULD OWN THIS SEARCH.
+    //
+    // This task used to say "write a new page". The owner stopped it:
+    //
+    //   "adding a new page is not realistic solution for me... you shouldn't
+    //    ask us to create a new page just to cover for a keyword. If you want
+    //    a particular keyword to rank well there are a bunch of ways."
+    //                                                (owner, 12 Oct 2026)
+    //
+    // He is right, and the numbers agree: one person owns 22 of the 37 tasks
+    // on the board, so a plan that answers every keyword with "build
+    // something" is a plan that does not happen. The site is /locations/
+    // country and /locations/country/city and that is the shape we work in.
+    //
+    // So the task picks the page that should own the search — the one already
+    // ranking for that family if there is one, otherwise the country page —
+    // and asks for a section on it. Which is work that already has a review
+    // path: it becomes a change on that page, with the render beside it.
+    const near = rankingElsewhere(g.keywords.map(k => k.q).concat(g.head), '')
+    const host = near[0]?.url ?? pathOf(page)
+    const hostWhy = near[0]
+      ? `${host} already ranks #${Math.round(near[0].pos)} for “${near[0].q}”, so it is the page Google already associates with this`
+      : `${host} is the page for this market and has the most authority to lend`
+
     out.push({
       ...base, id: `mkt-${co.key}-gap-${slug(g.head)}`, kind: 'gap', holds: defend,
-      title: `Write the ${co.label} page for “${g.head}”`,
+      title: `Make ${host} rank for “${g.head}”`,
       why: `${rivals} rank for ${g.keywords.length === 1 ? 'this search' : `these ${g.keywords.length} searches`}, worth ${round(g.vol)} a month in ${co.label}, and ${g.keywords.length === 1 ? 'we do not rank for it at all' : 'we rank for none of them'} — ${e.says}.${g.cpc > 0 ? ` Buying that traffic costs $${g.cpc.toFixed(2)} a click.` : ''}`,
       steps: [
-        // One search is not a cluster. The old wording said "answering all of
-        // these, not a page per search — the same question asked different
-        // ways" and then listed one, and the next step offered an H2 for
-        // "each of the others" when there were none.
+        `NO NEW PAGE. ${host} should own this search: ${hostWhy}.`,
         g.keywords.length > 1
-          ? `Write ONE page answering all of these, not a page per search — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}.`
-          : `Write one page answering "${g.keywords[0]?.q ?? g.head}" (${round(g.keywords[0]?.vol ?? g.vol)} searches a month).`,
-        g.keywords.length > 1
-          ? `Lead with "${g.head}" in the title and the H1; give each of the others its own H2.`
-          : `Put "${g.head}" in the title and the H1, and answer the question properly rather than repeating the phrase.`,
+          ? `Add one section to ${host} answering all of these together — they are the same question asked different ways: ${g.keywords.slice(0, 8).map(k => `"${k.q}" (${round(k.vol)}/mo)`).join(', ')}. One H2, two or three real paragraphs under it.`
+          : `Add one section to ${host} answering "${g.keywords[0]?.q ?? g.head}" (${round(g.keywords[0]?.vol ?? g.vol)} searches a month): an H2 using those words, and two or three real paragraphs under it that answer the question.`,
         `Read how ${g.rivals[0] ?? 'the competitor'} answers it, then answer it better with something they cannot copy — our inventory, our measurement, a named local campaign.`,
-        `Link it from ${page} and from the related blog posts, and tell ${builder} to build it once the copy is ready.`,
-        ...(() => {
-          const near = rankingElsewhere(g.keywords.map(k => k.q).concat(g.head), pathOf(page))
-          if (!near.length) {
-            return defend.length
-              ? [`While you are in there: ${page} already ranks top ten for ${list(defend, 6)}. Do not lose those — this is a new page, so link to it rather than moving that content onto it.`]
-              : ['Nothing else on the site ranks for this family of searches, so a new page competes with nobody of ours.']
-          }
-          const best = near[0]
-          return [
-            `STOP AND CHECK BEFORE WRITING. We already rank for this family of searches: ` +
-            `${near.map(n => `${n.url} #${Math.round(n.pos)} for "${n.q}"`).join(', ')}. ` +
-            `A new page splits the signal with ${best.url}, which is ${Math.round(best.pos)}th — ` +
-            `${best.pos <= 20 ? 'close enough that improving it is almost certainly the cheaper win' : 'worth a look before adding another page'}. ` +
-            `Decide which page should own the topic, strengthen that one, and only write a new page if it stalls.`,
-            ...(defend.length
-              ? [`And ${page} already ranks top ten for ${list(defend, 6)} — do not move that content onto anything new.`]
-              : []),
-          ]
-        })(),
+        `Link to ${host} from two or three pages that already mention the topic — the related blog posts and the sibling ${co.label} pages — using "${g.head}" as the anchor text. This is the cheapest lever and the one most often skipped.`,
+        `If ${host} is within a few places of page one for it, the title and meta description are worth rewriting to lead with "${g.head}" too. If it is not ranking at all yet, leave the title alone until the section has had eight weeks.`,
+        ...(near.length > 1
+          ? [`Keep it on one page. ${near.slice(1).map(n => `${n.url} is #${Math.round(n.pos)} for "${n.q}"`).join(', ')} — do not add the same section there as well, or they compete with each other.`]
+          : []),
+        ...(defend.length
+          ? [`Do not lose what ${host} already wins: it ranks top ten for ${list(defend, 6)}. Add the new section around that wording rather than over it.`]
+          : []),
       ],
       keywords: g.keywords.slice(0, 8).map(k => ({ q: k.q, pos: 0, vol: k.vol, visits: 0, kd: k.kd })),
-      url: page, size: e.size,
-      doneWhen: `A page answering “${g.head}” is live and linked, and its positions are checked in eight weeks.`,
+      url: host, size: e.size,
+      doneWhen: `${host} has a section answering “${g.head}”, is linked to with that wording, and its position is checked in eight weeks.`,
       score: g.vol * 0.02,
     })
   }

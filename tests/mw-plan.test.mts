@@ -334,12 +334,27 @@ process.exitCode = bad ? 1 : 0
   if (!gap) fail('no gap task produced for the advertising-boards fixture')
   else {
     const steps = gap.steps.join(' ')
-    if (/new ground/.test(steps)) fail('a gap task still claims new ground while a sibling ranks #14 for it')
-    else ok('a gap task no longer claims new ground when a sibling page already ranks')
-    if (!/bengaluru/i.test(steps)) fail('it does not name the page that already ranks')
-    else ok('it names the page that already ranks, and its position')
-    if (!/splits the signal/.test(steps)) fail('it does not warn that a new page splits the signal')
-    else ok('and warns a new page would split the signal with it')
+    // The owner's rule: no new pages to chase a keyword. One person already
+    // owns 22 of 37 tasks, so a plan answering every gap with "build
+    // something" is a plan that does not happen.
+    if (/(write|build|create)[^.]{0,30}new page/i.test(steps) || /Write the .* page for/i.test(gap.title)) {
+      fail('a gap task still asks for a new page to be written')
+    } else ok('a gap task never asks for a new page')
+    if (!/NO NEW PAGE/.test(steps)) fail('it does not say so out loud')
+    else ok('and says so out loud, so nobody reaches for one out of habit')
+
+    if (!/bengaluru/i.test(gap.title)) fail('the task is not titled after the page that should own the search')
+    else ok('the task is titled after the page that should own it — the one already ranking')
+    if (gap.url !== '/locations/india/bengaluru') fail(`the task points at ${gap.url}, not the page that ranks`)
+    else ok('and points at that page, so the render and the review attach to the right one')
+
+    if (!/Add one section/.test(steps)) fail('it does not ask for a section on the existing page')
+    else ok('the work is a section on a page that already exists')
+    if (!/anchor text/.test(steps)) fail('internal linking is not offered as a lever')
+    else ok('internal linking is offered — the cheapest lever and the most often skipped')
+    if (!/title and meta/.test(steps)) fail('the title rewrite is not offered as a lever')
+    else ok('and the title rewrite, conditional on already being close')
+
     if (/the same question asked different ways/.test(steps)) fail('a single-keyword gap still uses the cluster wording')
     else ok('a single-keyword gap drops the cluster wording')
     if (/each of the others its own H2/.test(steps)) fail('it still offers an H2 for others that do not exist')
@@ -353,8 +368,8 @@ process.exitCode = bad ? 1 : 0
       keywords: [{ q: 'mall branding', vol: 500, kd: 20 }] } as any] },
   }, 9).find(t => t.kind === 'gap')
   if (!clean) fail('no gap task for the clean fixture')
-  else if (!/competes with nobody of ours/.test(clean.steps.join(' '))) fail('genuinely new ground is not reported as clear')
-  else ok('and where nothing of ours ranks, it says so plainly')
+  else if (clean.url !== '/locations/india') fail('with nothing ranking, it should fall back to the country page')
+  else ok('with nothing ranking yet, the country page is told to own it — still no new page')
 }
 
 console.log(bad ? `\n${bad} failing` : `\nall good — ${plan.length} tasks across ${new Set(plan.map(t => t.market)).size} markets`)
