@@ -201,8 +201,13 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
 /**
  * Re-crawl the blog so a task can name the posts worth linking from.
  *
- * 289 fetches, so it rides the plan day rather than running nightly — posts do
- * not appear or change topic between one morning and the next.
+ * NOT CALLED FROM A REQUEST. 289 page fetches cannot finish inside a
+ * 60-second function — putting this on the plan day took the whole refresh
+ * down with a FUNCTION_INVOCATION_TIMEOUT before anything was written
+ * (13 Oct 2026). It is run by scripts/blog-index.mts in a session, the same
+ * arrangement as the SEO protection doc and the city audit, and for the same
+ * reason. A stale index costs a few link suggestions; a timeout costs the
+ * whole refresh.
  *
  * NAV LINKS ARE NOT EDITORIAL LINKS. Six /locations pages sit in the menu of
  * every post; counting those as "already links there" would tell every task
