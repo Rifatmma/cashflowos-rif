@@ -1,76 +1,122 @@
 ---
 name: mw-content-gap
-description: The monthly Moving Walls content-gap pull — find each market's real competitors from the Google results, export their keywords from Semrush in the browser, and import them into the plan. Use when asked to refresh the content gap, do the monthly SEO pull, or add a market to /mw/gaps.
+description: The monthly Moving Walls content-gap pull — find each market's real competitors from its own Google results in its own language, export their keywords from Semrush in the browser, and import them. Use when asked to refresh the content gap, do the monthly SEO pull, add a market to /mw/gaps, or re-pull a market.
 ---
 
 # The monthly content gap
 
-Run once a month. Takes about five minutes per market.
+**Run this without asking the owner anything.** Every decision below has already
+been made and is written down. Ask only if a market returns something that
+contradicts this file.
 
-## What a gap is
+Roughly four minutes per market. Thirteen markets are already live; the rest
+need a first pull.
+
+---
+
+## 0. Before you start
+
+- Chrome must be **open and visible**. If `innerWidth` reads 0, the window is
+  minimised and every click silently fails — stop and say so.
+- Check which Chrome profile is connected. Semrush is signed in as
+  **dinesh@movingwalls.com**, which is neither of Rif's own accounts.
+- **Never use the Semrush API.** Its unit balance is zero and the browser costs
+  nothing — the web UI spends the plan's daily report allowance, not units.
+  There is no reason to buy a Business plan for this.
+- Downloads: Rif has asked you to do them yourself. Do not make him click.
+
+---
+
+## 1. What a gap is
 
 > "Gap is only for what competitors have and we don't have, or we have but
 > we're not even nearly there yet." — Rif, 13 Oct 2026
 
-Both halves matter. Where we already rank **page one**, it is not a gap — that
-is a strike task on the page that already ranks, and the current positions are
-on the market plan and the SEO tab. `cleanGap()` subtracts page one and keeps
-everything else, so a search we sit at #45 for is still a gap.
-
-## The three sources, and what each is for
+Page one is subtracted. **Off page one is still a gap** — ranking #45 for
+something a rival holds at #2 is the clearest gap there is.
 
 | Source | Answers | Never used for |
 |---|---|---|
 | Search Console | where we rank **now** | which searches to look at |
 | Google results | **who** competes with us | — |
-| Semrush | what they rank for and we don't | who competes with us |
+| Semrush | what they hold and we do not | who competes with us |
 
-The reason Search Console must not choose the searches: it only holds queries
-we **already appear for**. Seed from it and a term we are invisible for can
-never enter the list meant to find it. That is the same circularity as ranking
-competitors by keywords shared with us.
+Search Console must never choose the searches: it only holds queries we
+**already appear for**, so a term we are invisible for can never enter the list
+meant to find it.
 
-## Step 1 — rivals, from the actual search results
+---
 
-Google, with the country's `gl` code. Free, no Semrush cost, and it finds the
-real players:
+## 2. Rivals — from Google, in the market's own language
+
+**Run two searches per market: one English, one in the local language.** They
+return different companies. In Japan there was **no overlap at all**:
+
+| | English SERP | Local-language SERP |
+|---|---|---|
+| Japan | ooh-ms, japansignage, jsp-inc | tokai-ad, nichemedia, oohmatch |
+| Hong Kong | poad, hypertree, convey | expoking, billboardhk, cody |
 
 ```
-https://www.google.com/search?q=billboard+advertising+<country>&gl=<cc>&num=20
+https://www.google.com/search?q=<TERMS>&gl=<cc>&hl=<lang>&num=20
 ```
 
-Read the organic domains. Run a second query (`outdoor advertising agency
-<country>`) and prefer domains that appear in both. Pick **four** — Semrush
-compares five domains including ours.
+Read the organic domains with:
 
-**Do not use Semrush's own competitor report.** It ranks domains by keywords
-shared with us, so it finds rivals only in proportion to how much we already
-rank. In Malaysia it named `outofhome.com.my`, which the real results put
-fifth, and never once returned `advertising.com.my` — the leader, 1,279
-keywords to our 32.
+```js
+[...document.querySelectorAll('a[href^="http"] h3')]
+  .map(h => new URL(h.closest('a').href).hostname.replace(/^www\./,''))
+```
 
-**Semrush's SERP Analysis needs a paid metrics refresh. Google does not.**
+Pick **four** — Semrush compares five domains including ours. Prefer domains
+appearing in both searches; otherwise take the local-language ones, which are
+the ones usually missing from our picture.
 
-### Pick rivals that sell what we sell
+### Local-language query by market
 
-- Check what the domain actually is before using it. India's first pull used
-  `acmeadvertiser.com` and `khushiadvertising.com`, which place **newspaper
-  classifieds**, so the gap proposed `name change advertisement in newspaper
-  mumbai` (20,040/mo).
-- The right set differs by market. In Asia it is billboard owners. In the
-  **Americas it is adtech** — `broadsign.com`, `vistarmedia.com`,
-  `adquick.com`, `hivestack.com` — because nobody there searches
-  "billboard advertising new york"; they search `dooh ssp` and
-  `ooh audience measurement`.
-- Avoid general platforms. `stackadapt.com` is a programmatic DSP for every
-  channel; including it doubled the US set to 14.1K with CTV and native-ad
-  terms we do not sell.
+| Market | gl | hl | Query |
+|---|---|---|---|
+| Japan | jp | ja | 屋外広告 看板広告 |
+| Hong Kong | hk | zh-TW | 戶外廣告 廣告牌 |
+| Taiwan | tw | zh-TW | 戶外廣告 廣告看板 |
+| China | cn | zh-CN | 户外广告 广告牌 |
+| South Korea | kr | ko | 옥외광고 전광판 광고 |
+| Thailand | th | th | ป้ายโฆษณา สื่อโฆษณานอกบ้าน |
+| Vietnam | vn | vi | quảng cáo ngoài trời biển quảng cáo |
+| Indonesia | id | id | billboard iklan luar ruang |
+| Malaysia | my | ms | papan iklan luar rumah sewa billboard |
+| UAE / Saudi / Qatar / Kuwait / Oman | ae/sa/qa/kw/om | ar | لوحات إعلانية الإعلان الخارجي |
+| Germany / Switzerland | de/ch | de | Außenwerbung Plakatwerbung |
+| France | fr | fr | publicité extérieure affichage |
+| Netherlands | nl | nl | buitenreclame billboard |
+| Brazil | br | pt | mídia exterior outdoor publicidade |
+| Mexico | mx | es | publicidad exterior espectaculares |
 
-## Step 2 — the Keyword Gap, in the browser
+### Rivals must sell what we sell
 
-The web UI spends the plan's **daily report allowance, not API units**. A
-monthly pull needs no Business upgrade. (The Semrush MCP connector is a
-different account and its unit balance is zero.)
+Check what a domain actually is before using it. Mistakes already made:
+
+- **India** — `acmeadvertiser.com`, `khushiadvertising.com` place **newspaper
+  classifieds**. The gap offered `name change advertisement in newspaper
+  mumbai`, 20,040/mo.
+- **Japan** — `signweb.co.jp` is the **sign-making** trade. 看板 means both
+  "billboard" and "shop sign", so it dragged in A-frames and cafe signage.
+- **Singapore** — `sph.com.sg` looks like a newspaper but SPH Media **does** run
+  outdoor; dropping it lost half the relevant rows. Kept.
+- **United States** — `stackadapt.com` is a DSP for every channel; it doubled
+  the set to 14.1K with CTV and native-ads terms.
+
+### Some markets want adtech, not media owners
+
+The insight panel on `/mw/gaps` says which. If it reads **"a product and
+measurement market"**, compare against `broadsign.com`, `vistarmedia.com`,
+`adquick.com`, `hivestack.com` — that is who ranks for `dooh ssp` and
+`ooh audience measurement`. Applies to the **United States, Canada** and
+partly **Hong Kong**.
+
+---
+
+## 3. The Keyword Gap
 
 ```
 https://www.semrush.com/analytics/keywordgap/?q=movingwalls.com&searchType=domain
@@ -78,52 +124,63 @@ https://www.semrush.com/analytics/keywordgap/?q=movingwalls.com&searchType=domai
   &compareWith=<r1>%3Adomain%3Aorganic%7C<r2>%3Adomain%3Aorganic%7C<r3>%3Adomain%3Aorganic%7C<r4>%3Adomain%3Aorganic
 ```
 
-`%3A` is `:` and `%7C` is `|`. Database codes: `my in ph sg au uk us ae id hk
-jp za ca br mx th vn sa qa`.
+`%3A` is `:`, `%7C` is `|`. Databases: `my in ph sg au uk us ae id hk jp za ca
+br mx th vn sa qa kw om de fr nl ch kr tw cn nz lk ng ke`.
 
-Wait ~15s. The page drops `db` from the URL and re-adds it; confirm the
-"Database:" label before exporting.
+**Wait 15–20 seconds, then read the "Database:" label before trusting
+anything.** The page drops `db` from the URL and re-adds it; reading too early
+shows the previous market's database and the previous market's counts.
 
-## Step 3 — export the right tab
-
-**Take `Untapped`, or `All`. Never `Missing`.**
+### Take `Untapped`. Never `Missing`.
 
 Malaysia against four rivals:
 
 | Tab | Means | Count |
 |---|---|---:|
 | Missing | **all four** rivals rank, we don't | 2 |
-| Untapped | **any one** rival ranks, we don't | 977 |
-| Weak | we rank, worse than all of them | 4 |
+| Untapped | **any one** ranks, we don't | 977 |
+| Weak | we rank, worse than all | 4 |
 | All | | 999 |
 
-`Missing` tightens as you add competitors — the opposite of what more rivals
-is for. `Untapped` + `Weak` is exactly the definition above, and `All` is both.
+`Missing` *tightens* as you add rivals — the opposite of the point. `All` is
+fine too and adds `Weak`.
 
-Then: **Export** (the button above the keyword table, not "Export to PDF" top
-right) → leave `All (n)` selected, not "First 100" → **CSV**.
+### Mechanics that actually matter
 
-Mechanics that matter when driving this:
-- Click the Export button **by ref**, not by coordinate. Coordinate clicks on
-  it silently do nothing.
-- Positions shift after every tab click — re-probe before each click.
-- Find the CSV button with
-  `[...document.querySelectorAll('button')].filter(b => b.offsetParent && /^CSV$/.test(b.textContent.trim()))[0].getBoundingClientRect()`
-- A big set (7K+ rows) freezes the renderer for 10–20s. Screenshots time out;
-  wait rather than retrying.
+```js
+// switch to Untapped
+[...document.querySelectorAll('[role="tab"]')]
+  .filter(t => t.offsetParent && /Untapped/.test(t.innerText))[0].click()
 
-## Step 4 — import
+// find the export button (scroll it into view first)
+[...document.querySelectorAll('button')]
+  .filter(b => b.offsetParent && /Export keyword details/i.test(b.getAttribute('aria-label')||''))[0]
+
+// find CSV — match the aria-label, NOT the text
+[...document.querySelectorAll('button')]
+  .filter(x => x.offsetParent && /^Export to CSV$/.test(x.getAttribute('aria-label')||''))[0]
+```
+
+- Click the export button **by ref** when a coordinate click does nothing.
+  Positions shift after every tab click, so re-probe before each click.
+- The radio must read **All(n)**, not "First 100". If it reads a small number,
+  you are on the wrong tab.
+- A 7K+ row table freezes the renderer for 10–20 seconds. Screenshots time out.
+  Wait; do not retry.
+- Then: **Export → CSV** (middle button; Excel is on the left).
+
+---
+
+## 4. Import
 
 ```bash
 npx -y tsx --conditions=react-server --env-file=.env \
   scripts/gap-import.mts <file.csv> <country-key> --save
 ```
 
-Drop `--save` to see what it would store first. It reads both the web export
-(comma) and an API pull (semicolon), cleans, clusters, and keeps the top 40.
-
-The export carries **our own position column**, which beats the stored keyword
-list — same pull, same day, every row. The script prefers it.
+Drop `--save` to preview. The script reads both the web export (comma) and an
+API pull (semicolon), prefers **our own position column** from the export over
+the stored keyword list, cleans, clusters, and stores the top 40.
 
 Then refresh the plan:
 
@@ -131,47 +188,62 @@ Then refresh the plan:
 npx -y tsx --conditions=react-server --env-file=.env scripts/plan-dry.mts --save
 ```
 
-## Step 5 — read what came out
+---
 
-Scan the top topics before telling anyone it is done. Junk that has shown up:
+## 5. Read what came out
 
-- a competitor's registered name (`mo advertising sdn bhd`) — filtered on
-  legal suffixes
-- newspaper and classified work (`name change advertisement`) — filtered
-- the film and the music chart (`billboards ebbing missouri`, `billboard 200`)
-  — filtered
-- other channels (`youtube advertising`, `social media advertising agency`)
-  — filtered; **cinema is deliberately kept**, same budget, same plan
+Scan the top topics before calling it done. **If a market returns far fewer
+topics than its row count suggests, the cleaner is rejecting the language** —
+that is a bug to fix in `lib/mw-markets.ts`, not a quiet market.
 
-If new junk appears, add it to `NOT_OURS` in `lib/mw-markets.ts` **as a regex
-literal** — `/\bads?\b/`, never `'\bads?\b'`. In a quoted string `\b` is a
-backspace character, which silently matched nothing for months.
+Junk already filtered, in `NOT_OURS`:
 
-## State lives in the database, not in a file
+- competitors' registered names — matched on `sdn bhd`, `pte ltd`, `berhad`
+- press and classifieds — `newspaper`, `classified`, `matrimonial`, `name change`
+- the film and the chart — `three billboards`, `ebbing`, `billboard 200`
+- other channels — YouTube, radio, TV, social; **cinema is deliberately kept**
+- the same in local scripts — テレビ広告, 求人広告, 電視廣告, プライム ビデオ 広告
+
+**New junk goes in as a regex literal**, never a quoted string: `/\bads?\b/`,
+not `'\bads?\b'`. In a quoted string `\b` is a backspace character, which
+matched nothing for months.
+
+**CJK takes no `\b`** — it writes without spaces, so a word boundary never
+fires. Match those as plain substrings.
+
+---
+
+## 6. The traps, in one list
+
+1. `isRelevant` was English-only. Japan returned 2,853 rows and **eleven**
+   survived. Local-language industry terms are in now; if a new market comes
+   back nearly empty, check this first.
+2. Local-language SERPs have **different competitors**. Always run both searches.
+3. `Missing` collapses as rivals are added. Use `Untapped`.
+4. The `db` param is read before the page settles and silently shows the last
+   market. Verify the label.
+5. `display_limit` on the API truncated pulls to 3–7% of the set. Not relevant
+   now the browser is used, but do not go back to the API for this.
+6. The insight panel's language and "asks for" figures come from **our own**
+   Search Console rows — they say what we are *found for*, never what the market
+   searches. A 0% local share means we are invisible, not that demand is absent.
+
+---
+
+## 7. State
 
 `mw_market_gaps` holds, per quarter and country: the rivals used, raw and kept
-counts, the clusters, and `pulled_at`. To see what was done last month, read
-that table rather than a changelog.
+counts, the clusters, `pulled_at`. **Nobody types rivals in any more** — the
+old editor drifted (Japan's list held two Australian domains while its topics
+came from Japanese ones) and has been removed.
 
-## Market notes
+To see what was done last month, read that table.
 
-| Market | Rival type | Notes |
-|---|---|---|
-| Malaysia | billboard owners | `advertising.com.my` leads; rivals also run per-site location pages, which is inventory, not content |
-| India | billboard owners | avoid classified-ad agencies |
-| Philippines | billboard owners | `dooh.ph`, `ooh.ph` |
-| Australia | billboard owners | `oohmedia.com.au`, `billboardsaustralia.com.au` |
-| **Americas** | **adtech** | demand is product, not place — see below |
-| UAE, UK, Indonesia, HK, Japan, South Africa | — | Semrush barely tracks us; rivals must come from Google, and Search Console is the better opportunity source |
+## 8. Markets still on English-only rivals
 
-### The Americas is not a location market
+Re-pull these with a local-language search: **Malaysia** (Chinese and Malay both
+widely searched), Thailand, Vietnam, South Korea, Taiwan, China, Brazil,
+Mexico, Germany, France, Netherlands, Switzerland, Saudi Arabia, Qatar, Kuwait,
+Oman.
 
-96% of the region's demand is the US, and it lands on blog posts, not location
-pages: `/blog/programmatic-dooh-explained` takes 13,153 impressions while
-`/locations/americas` takes 101. The top searches are `dooh ssp`,
-`best ooh audience measurement tool`, `content management systems for dooh`.
-Mexico, Brazil, Argentina and Canada have the same shape.
-
-There is **no `/locations/united-states` page**, and zero Spanish or Portuguese
-searches recorded anywhere in the region despite `/locations/americas-es`
-existing (41 impressions).
+Already done with local-language rivals: Japan, Hong Kong, UAE, Indonesia.
