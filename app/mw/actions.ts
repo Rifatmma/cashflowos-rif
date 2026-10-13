@@ -7,6 +7,7 @@ import { readFile, describe } from '@/lib/mw-import'
 import { COUNTRIES, dbOf } from '@/lib/mw-markets'
 import { decide, undecide } from '@/lib/mw-proposals'
 import { setCityStatus } from '@/lib/mw-board'
+import { actionChoiceFor, cityStatusFor, proposalStatusFor, stagesFor, type Stage } from '@/lib/mw-status'
 import { revalidatePath } from 'next/cache'
 
 // Recording a decision. The ONLY writes /mw makes.
@@ -17,6 +18,7 @@ import { revalidatePath } from 'next/cache'
 //    mw_decisions, because those are the team's answers, not the robot's
 
 const CHOICES = new Set(['accept', 'reject', 'done'])
+const STAGES = new Set<Stage>(['not_started', 'in_progress', 'done', 'declined', 'moot'])
 
 /** Who is deciding — a guest's email, or 'owner' for whoever holds the passcode. */
 async function actor(): Promise<string> {
@@ -182,4 +184,55 @@ export async function setCityStatusAction(formData: FormData) {
   if (!url || !['not_started', 'in_progress', 'done'].includes(status)) return
   await setCityStatus(url, status as any, await actor())
   revalidatePath('/mw/plan')
+}
+
+/**
+ * One control, three stores.
+ *
+ * Tasks, city pages and page proposals each kept their own tracking gesture —
+ * segmented buttons with a reason box, a click-to-cycle button, and
+ * Approve / Reject… / Change my mind. All three sat on a market lead's screen
+ * at once, asking the same question three ways.
+ *
+ *   "unify the three status controls"                  (owner, 13 Oct 2026)
+ *
+ * The Stage vocabulary was already shared for DISPLAY (lib/mw-status.ts); this
+ * is the write side. Each store keeps its own words, because they are not the
+ * same fact — a proposal really can be rejected, which is not a stage of doing
+ * it — and the translation happens here rather than in the database.
+ */
+export async function setStage(formData: FormData) {
+  const kind = String(formData.get('kind') ?? '')
+  const id = String(formData.get('id') ?? '')
+  const stage = String(formData.get('stage') ?? '') as Stage
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 300)
+  if (!id || !STAGES.has(stage)) return
+
+  // Only offer what the store can hold. A city page cannot be "declined", and
+  // a control that writes a state its store cannot keep is a control that
+  // lies about what it did.
+  if (!stagesFor(kind as any).includes(stage)) return
+
+  const who = await actor()
+  if (kind === 'action') {
+    const choice = actionChoiceFor(stage)
+    if (!choice) {
+      await supabase.from('mw_decisions').delete().eq('action_id', id)
+    } else {
+      await supabase.from('mw_decisions').upsert(
+        { action_id: id, choice, reason: reason || null, decided_by: who, updated_at: new Date().toISOString() },
+        { onConflict: 'action_id' },
+      )
+    }
+  } else if (kind === 'city') {
+    await setCityStatus(id, cityStatusFor(stage), who)
+  } else if (kind === 'proposal') {
+    const s = proposalStatusFor(stage)
+    if (s === 'undo') await undecide(id)
+    else await decide(id, s, who, reason)
+  } else {
+    return
+  }
+
+  revalidatePath('/mw'); revalidatePath('/mw/paid'); revalidatePath('/mw/seo'); revalidatePath('/mw/plan')
 }

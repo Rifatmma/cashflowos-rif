@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { decideProposal } from '../actions'
+import { StatusControl } from '../_status-control'
+import { stageOfProposal } from '@/lib/mw-status'
 
 // Approve / reject beside the download, on the plan page.
 //
@@ -40,18 +40,8 @@ const day = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
 
 export function ProposalCard({ p }: { p: ProposalView }) {
-  const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  const send = async (choice: string, reason?: string) => {
-    setBusy(true)
-    const fd = new FormData()
-    fd.set('id', p.id); fd.set('choice', choice)
-    if (reason) fd.set('reason', reason)
-    await decideProposal(fd)
-    setBusy(false); setOpen(false)
-  }
-
+  // The open/busy state and the reject form moved into StatusControl, which
+  // every kind of decision on this screen now shares.
   return (
     <div className={`mw-prop is-${p.status}${p.blocked ? ' is-blocked' : ''}`}>
       <div className="mw-prop-head">
@@ -78,40 +68,21 @@ export function ProposalCard({ p }: { p: ProposalView }) {
         </p>
       )}
 
-      {p.status === 'open' && !open && (
-        <div className="mw-prop-acts">
-          <button type="button" disabled={busy} className="mw-prop-yes" onClick={() => send('approved')}>Approve</button>
-          <button type="button" disabled={busy} className="mw-prop-no" onClick={() => setOpen(true)}>Reject…</button>
-        </div>
-      )}
-
-      {open && (
-        <form
-          className="mw-prop-form"
-          onSubmit={e => { e.preventDefault(); send('rejected', new FormData(e.currentTarget).get('reason') as string) }}
-        >
-          <label htmlFor={`r-${p.id}`}>Why not? This is kept, and used to judge the next one.</label>
-          <textarea id={`r-${p.id}`} name="reason" rows={2} placeholder="e.g. we do not sell transit in this market" />
-          <p className="mw-prop-note">
-            Not a permanent no. If the numbers later move against this reason, it comes back —
-            with the figure that changed.
-          </p>
-          <div className="mw-prop-acts">
-            <button type="submit" disabled={busy} className="mw-prop-no">Reject it</button>
-            <button type="button" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
-          </div>
-        </form>
-      )}
+      {/* ONE CONTROL, the same as a task and a city page. The three-way
+          Approve / Reject… / Change-my-mind gesture is gone: the state it is
+          in and the states it could be in are now the same row of buttons,
+          and "Not doing" asks why, as it did before. The reason still
+          matters — it is what lets a rejected proposal come back when the
+          numbers move against the reason given. */}
+      <StatusControl kind="proposal" id={p.id} stage={stageOfProposal(p.status)} reason={p.reason} />
 
       {p.status !== 'open' && (
-        <div className="mw-prop-done">
+        <p className="mw-prop-done">
           <span className={p.status === 'approved' ? 'ok' : 'no'}>
-            {p.status === 'approved' ? '✓ Approved' : '✕ Rejected'}
-            {p.decidedBy ? ` by ${p.decidedBy}` : ''}{p.decidedAt ? ` · ${day(p.decidedAt)}` : ''}
+            {p.decidedBy ? `${p.decidedBy}` : 'Decided'}{p.decidedAt ? ` · ${day(p.decidedAt)}` : ''}
           </span>
           {p.reason && <span className="mw-prop-reason">“{p.reason}”</span>}
-          <button type="button" disabled={busy} onClick={() => send('undo')}>Change my mind</button>
-        </div>
+        </p>
       )}
     </div>
   )

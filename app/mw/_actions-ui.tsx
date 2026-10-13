@@ -1,5 +1,6 @@
-import { setDecision, clearDecision } from './actions'
-import { STATUS_LABEL, CHOICE_LABEL, type ActionRow, type Tally } from '@/lib/mw-actions'
+import { StatusControl } from './_status-control'
+import { stageOfAction, STAGE_LABEL } from '@/lib/mw-status'
+import { type ActionRow, type Tally } from '@/lib/mw-actions'
 
 // Action list + decision controls. Plain <form> posts to server actions, so this
 // works with no client JavaScript at all — which matters on a phone and on the
@@ -21,7 +22,12 @@ export function ActionList({ rows }: { rows: ActionRow[] }) {
         return (
           <div className={`mw-act${r.status === 'moot' ? ' is-moot' : ''}`} key={r.id}>
             <div className="mw-act-head">
-              <span className={`mw-pill mw-p-${r.status}`}>{STATUS_LABEL[r.status]}</span>
+              {/* The badge speaks the same five words as the control under it. It used
+                  to read from STATUS_LABEL while the buttons said "Will do" and
+                  "Won’t do", so one row could show two names for one state. */}
+              <span className={`mw-pill mw-p-${stageOfAction(r.status, d?.choice)}`}>
+                {STAGE_LABEL[stageOfAction(r.status, d?.choice)]}
+              </span>
               {r.cross_channel && <span className="mw-chip">cross-channel</span>}
               <b>{r.title}</b>
               <span className="mw-chip" style={{ marginLeft: 'auto' }}>{IMPACT_LABEL[r.impact] ?? r.impact}</span>
@@ -50,46 +56,23 @@ export function ActionList({ rows }: { rows: ActionRow[] }) {
             )}
 
             <div className="mw-dec">
-              <form action={setDecision} className="mw-dec-btns">
-                <input type="hidden" name="id" value={r.id} />
-                <input type="hidden" name="reason" value={d?.reason ?? ''} />
-                {(['accept', 'reject', 'done'] as const).map(c => (
-                  <button key={c} name="choice" value={c} data-on={d?.choice === c ? '1' : '0'} type="submit">
-                    {CHOICE_LABEL[c]}
-                  </button>
-                ))}
-              </form>
+              {/* THE SAME CONTROL A CITY PAGE AND A PROPOSAL USE. This was
+                  three submit buttons, a separate "clear" link and a reason
+                  form that only appeared after you had already rejected
+                  something — so the reason was always an afterthought.
+                  StatusControl asks for it as part of declining, which is the
+                  moment the person actually knows why. */}
+              <StatusControl kind="action" id={r.id} stage={stageOfAction(r.status, d?.choice)} reason={d?.reason} />
 
               <span className="state">
                 {d ? (
                   <>
-                    <strong>{CHOICE_LABEL[d.choice]}</strong>
-                    {d.decided_by ? ` · ${d.decided_by}` : ''}{d.updated_at ? ` · ${when(d.updated_at)}` : ''}
+                    {d.decided_by ? `${d.decided_by}` : 'Decided'}
+                    {d.updated_at ? ` · ${when(d.updated_at)}` : ''}
                     {d.reason ? <> · <span className="why">&ldquo;{d.reason}&rdquo;</span></> : ''}
                   </>
                 ) : 'No decision recorded'}
               </span>
-
-              {d && (
-                <form action={clearDecision}>
-                  <input type="hidden" name="id" value={r.id} />
-                  <button type="submit" style={{ font: 'inherit', fontSize: 10.5, letterSpacing: '.07em', textTransform: 'uppercase', background: 'none', border: 0, color: 'var(--mw-ink-3)', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}>
-                    clear
-                  </button>
-                </form>
-              )}
-
-              {/* Reason box. Always available on a "Won't do" — that reason is the
-                  thing worth keeping, so it isn't suggested again next month. */}
-              {d?.choice === 'reject' && (
-                <form action={setDecision} className="mw-reason">
-                  <input type="hidden" name="id" value={r.id} />
-                  <input type="hidden" name="choice" value="reject" />
-                  <input name="reason" defaultValue={d.reason ?? ''} maxLength={300}
-                    placeholder="Why not? Saved so it isn't suggested again." />
-                  <button type="submit">Save reason</button>
-                </form>
-              )}
             </div>
           </div>
         )

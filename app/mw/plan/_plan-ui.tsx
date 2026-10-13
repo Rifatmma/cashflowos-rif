@@ -1,7 +1,9 @@
 import Link from 'next/link'
 import type { ActionRow } from '@/lib/mw-actions'
-import { CHOICE_LABEL, STATUS_LABEL } from '@/lib/mw-actions'
-import { setDecision, clearDecision, setProposedDue } from '../actions'
+
+import { setProposedDue } from '../actions'
+import { StatusControl } from '../_status-control'
+import { stageOfAction, STAGE_LABEL } from '@/lib/mw-status'
 import { COUNTRIES, serpUrl } from '@/lib/mw-markets'
 
 /**
@@ -73,7 +75,7 @@ export function PlanRow({ r, render }: { r: ActionRow; render?: string | null })
     <details className="mw-task" open={false}>
       <summary>
         <span className={`mw-pill ${done ? 'is-done' : d?.choice === 'reject' ? 'is-no' : d ? 'is-yes' : ''}`}>
-          {done ? 'Done' : d ? CHOICE_LABEL[d.choice] : STATUS_LABEL[r.status]}
+          {STAGE_LABEL[stageOfAction(r.status, d?.choice)]}
         </span>
         <span className="mw-task-main">
           <b>{r.title}</b>
@@ -176,13 +178,11 @@ export function PlanRow({ r, render }: { r: ActionRow; render?: string | null })
 
         {/* The two things a lead does: answer, and say when. */}
         <div className="mw-decide">
-          <form action={setDecision}>
-            <input type="hidden" name="id" value={r.id} />
-            <input type="hidden" name="reason" value={d?.reason ?? ''} />
-            <button name="choice" value="accept" data-on={d?.choice === 'accept' || undefined}>Will do</button>
-            <button name="choice" value="done" data-on={d?.choice === 'done' || undefined}>Already done</button>
-            <button name="choice" value="reject" data-on={d?.choice === 'reject' || undefined}>Won&rsquo;t do</button>
-          </form>
+          {/* The same control as a city page and a proposal. This was a
+              fourth set of words for the same question — "Will do",
+              "Already done", "Won't do" — on the screen a market lead
+              actually lives in. */}
+          <StatusControl kind="action" id={r.id} stage={stageOfAction(r.status, d?.choice)} reason={d?.reason} />
 
           <form action={setProposedDue} className="mw-due">
             <input type="hidden" name="id" value={r.id} />
@@ -193,28 +193,10 @@ export function PlanRow({ r, render }: { r: ActionRow; render?: string | null })
           </form>
         </div>
 
-        {d?.choice === 'reject' && (
-          <form action={setDecision} className="mw-reason">
-            <input type="hidden" name="id" value={r.id} />
-            <input type="hidden" name="choice" value="reject" />
-            <label>Why not? This is how the suggestions learn.
-              <input type="text" name="reason" defaultValue={d.reason ?? ''} maxLength={300}
-                placeholder="e.g. no inventory in this market yet" />
-            </label>
-            <button>Save reason</button>
-          </form>
-        )}
-
         <p className="mw-decided">
           {d
-            ? <>{CHOICE_LABEL[d.choice]} by {d.decided_by ?? 'someone'}{d.reason ? ` — “${d.reason}”` : ''}</>
+            ? <>Answered by {d.decided_by ?? 'someone'}{d.reason ? ` — “${d.reason}”` : ''}</>
             : 'No answer yet.'}
-          {d && (
-            <form action={clearDecision} style={{ display: 'inline' }}>
-              <input type="hidden" name="id" value={r.id} />
-              <button className="mw-clear">clear</button>
-            </form>
-          )}
         </p>
       </div>
     </details>

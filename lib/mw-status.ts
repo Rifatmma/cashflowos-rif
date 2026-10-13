@@ -77,3 +77,61 @@ export function rollupLine(r: Rollup, money = 0): string {
   if (money > 0) bits.push(`S$${money.toFixed(2)} a month at stake`)
   return bits.join(' · ') || `${r.total} closed`
 }
+
+// ------------------------------------------------- back the other way
+//
+// Display normalisation was only half of it. The three stores still had three
+// controls: segmented buttons with a reason box for a task, a click-to-cycle
+// button for a city page, and Approve / Reject… / Change my mind for a
+// proposal. Same screen, same question, three different gestures to answer it.
+//
+// So one control writes a Stage, and these turn that Stage back into whatever
+// its own store speaks. The stores keep their own words -- a proposal really
+// is `rejected`, a task decision really is a row in mw_decisions -- and the
+// person sees one way to say "I'm doing this".
+
+/** mw_decisions.choice for a task. `null` means clear the decision. */
+export function actionChoiceFor(s: Stage): string | null {
+  if (s === 'in_progress') return 'accept'
+  if (s === 'done') return 'done'
+  if (s === 'declined') return 'reject'
+  return null                                  // not_started = no decision yet
+}
+
+/** mw_city_audit.status. It has no notion of declining, so that maps to not started. */
+export function cityStatusFor(s: Stage): 'not_started' | 'in_progress' | 'done' {
+  if (s === 'done') return 'done'
+  if (s === 'in_progress') return 'in_progress'
+  return 'not_started'
+}
+
+/** mw_page_proposals.status. `undo` reopens it. */
+export function proposalStatusFor(s: Stage): 'approved' | 'rejected' | 'undo' {
+  if (s === 'declined') return 'rejected'
+  if (s === 'not_started') return 'undo'
+  return 'approved'              // in_progress and done both mean "yes, do it"
+}
+
+/**
+ * Which stages a thing can actually be put into.
+ *
+ * A city page cannot be "declined" — the market either has that page or it
+ * does not, and refusing it is a decision about the market, not a status. A
+ * proposal has no "in progress" of its own: approving it IS the progress, and
+ * what happens next is the page changing. Offering states a store cannot hold
+ * is how a control starts lying about what it did.
+ */
+export function stagesFor(kind: 'action' | 'city' | 'proposal'): Stage[] {
+  if (kind === 'city') return ['not_started', 'in_progress', 'done']
+  if (kind === 'proposal') return ['not_started', 'done', 'declined']
+  return ['not_started', 'in_progress', 'done', 'declined']
+}
+
+/** The verb on the button, which is not always the name of the state. */
+export const STAGE_VERB: Record<Stage, string> = {
+  not_started: 'Not started',
+  in_progress: 'Doing it',
+  done: 'Done',
+  declined: 'Not doing',
+  moot: 'No longer applies',
+}

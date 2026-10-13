@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { setCityStatusAction } from '../actions'
+import { StatusControl } from '../_status-control'
+import { stageOfCity } from '@/lib/mw-status'
 
 // The hyperlocal pages, with the lead's own progress on each.
 //
@@ -19,10 +20,6 @@ export type CityView = {
   owner: string | null
 }
 
-const NEXT: Record<CityView['status'], CityView['status']> = {
-  not_started: 'in_progress', in_progress: 'done', done: 'not_started',
-}
-const LABEL = { not_started: 'Not started', in_progress: 'In progress', done: 'Done' } as const
 const KIND = {
   misrouted: { tag: 'Ads sent elsewhere', cls: 'bad' },
   lowctr: { tag: 'Ranks well, nobody clicks', cls: 'warn' },
@@ -34,19 +31,11 @@ const day = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
 
 export function CityCard({ c }: { c: CityView }) {
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState(c.status)
-
-  const cycle = async () => {
-    const next = NEXT[status]
-    setBusy(true); setStatus(next)
-    const fd = new FormData(); fd.set('url', c.url); fd.set('status', next)
-    await setCityStatusAction(fd)
-    setBusy(false)
-  }
-
+  // The optimistic local copy went with the cycle button. StatusControl posts
+  // through a transition and the server revalidates, so the card re-renders
+  // from the stored status rather than from a guess about it.
   return (
-    <div className={`mw-city is-${status} is-${KIND[c.kind].cls}`}>
+    <div className={`mw-city is-${c.status} is-${KIND[c.kind].cls}`}>
       <div className="mw-city-head">
         <b>{c.city}</b>
         <code>{c.url}</code>
@@ -72,10 +61,11 @@ export function CityCard({ c }: { c: CityView }) {
       )}
 
       <div className="mw-city-foot">
-        <button type="button" disabled={busy} onClick={cycle} className={`mw-city-status is-${status}`}>
-          {LABEL[status]}
-        </button>
-        {status !== 'not_started' && c.statusBy && (
+        <StatusControl kind="city" id={c.url} stage={stageOfCity(c.status)} size="small" />
+        {/* c.status, not `status`: the local went with the cycle button, and
+            the bare name silently resolved to the DOM global `window.status`,
+            so this typechecked and then crashed on render. */}
+        {c.status !== 'not_started' && c.statusBy && (
           <span className="mw-city-by">{c.statusBy}{c.statusAt ? ` · ${day(c.statusAt)}` : ''}</span>
         )}
         <a href={`https://www.movingwalls.com${c.url}`} target="_blank" rel="noreferrer">Open the page ↗</a>
