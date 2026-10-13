@@ -87,6 +87,29 @@ const usCol = head.findIndex((h, i) =>
   i > 0 && /movingwalls\.com/i.test(h) && !/\(pages\)/i.test(h))
 
 if (!rivalCols.length) { console.error('no rival column found in: ' + head.join(' | ')); process.exit(1) }
+
+// THE WRONG FILE IS THE EASIEST MISTAKE TO MAKE AND THE HARDEST TO SEE.
+//
+// Exports all land in Downloads as gap.keywords_<timestamp>.csv, so picking
+// "the newest" gets the previous market whenever a download has not finished.
+// That is not hypothetical: Germany was once saved with Malaysia's keywords,
+// and nothing complained, because the file parsed perfectly well.
+//
+// --expect <domain> fails the import unless that domain is one of the rival
+// columns. One flag, and the whole class of error is gone.
+const expect = process.argv.includes('--expect')
+  ? String(process.argv[process.argv.indexOf('--expect') + 1] ?? '').toLowerCase()
+  : ''
+if (expect && !rivalCols.some(r => r.h.toLowerCase().includes(expect))) {
+  console.error(
+    `
+  WRONG FILE. Expected a column for "${expect}" and this export compares against:
+` +
+    `    ${rivalCols.map(r => r.h).join(', ')}
+` +
+    `  Nothing was written. The download probably had not finished when the file was picked.`)
+  process.exit(1)
+}
 console.log(`${file}\n  ${country.label} (${market.label}) · rivals: ${rivalCols.map(r => r.h).join(', ')}`)
 
 const rows: GapRow[] = []

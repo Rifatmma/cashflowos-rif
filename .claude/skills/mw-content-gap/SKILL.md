@@ -169,6 +169,25 @@ fine too and adds `Weak`.
   Wait; do not retry.
 - Then: **Export → CSV** (middle button; Excel is on the left).
 
+### Two rules that cost a whole market when broken
+
+**A JavaScript `.click()` opens the menu but does NOT download.** Semrush's
+handler needs a trusted event. Open the menu however you like, then click CSV
+with a **real mouse click** at the probed coordinates. If a file does not
+appear within ~10 seconds, it did not download — do not assume it did.
+
+**Always pass `--expect`.** Every export lands as
+`gap.keywords_<timestamp>.csv`, so taking "the newest file" silently gets the
+*previous* market whenever a download has not finished. Germany was once saved
+with Malaysia's keywords and nothing complained, because the file parsed fine.
+
+```bash
+npx -y tsx --conditions=react-server --env-file=.env   scripts/gap-import.mts <file.csv> germany --expect plakat --save
+```
+
+`--expect` takes any fragment of a rival domain and refuses the import unless a
+column matches.
+
 ---
 
 ## 4. Import
