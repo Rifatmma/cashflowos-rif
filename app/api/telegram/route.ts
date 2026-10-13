@@ -2220,7 +2220,8 @@ const esc = (t: unknown) =>
 // lib/telegram.ts splits a long one across messages instead of trimming it. The
 // cap here is only a runaway guard: no real receipt has 200 lines.
 const MAX_SHOWN = 200
-function receiptSummary(v: VisionResult): string {
+/** Exported for tests: this card is what the sender reads, so its wording is worth pinning. */
+export function receiptSummary(v: VisionResult): string {
   const items = v.items ?? []
   const bits: string[] = []
 
@@ -2245,16 +2246,28 @@ function receiptSummary(v: VisionResult): string {
   } else if (v.expense_type) {
     bits.push(`Booked as <b>${esc(TYPE_WORD[v.expense_type] ?? v.expense_type)}</b>`)
   }
-  // THE SHOP'S OWN NUMBER, NOT OURS. Printed as "#PHCJ262750900311" it read
-  // exactly like a record number, so the owner tried to correct a receipt with
-  // it and could not ("what is that random number, how can I use it?",
-  // 2 Oct 2026). Our record number goes on separately and says what it is.
-  if (v.receipt_no) bits.push(`shop ref ${esc(v.receipt_no)}`)
   const head = bits.length ? `\n${bits.join(' · ')}` : ''
+
+  // THE RECEIPT NUMBER, ON ITS OWN LINE.
+  //
+  // It used to be "shop ref 1457256", last in a dot-separated run, and the
+  // owner asked for it to be added to this card — which says plainly enough
+  // that nobody could see it there (14 Oct 2026).
+  //
+  // It earns a line of its own because it is now what decides whether a bill
+  // is a duplicate. On 11 Oct, TH Supermart issued checks 1457255, 1457256 and
+  // 1457257 in ninety seconds, all RM 7.50; the last two were refused as
+  // copies of the first and RM 15 never reached the books. Saying the number
+  // out loud is also how the sender can check the decision without opening
+  // anything. Printed as "#PHCJ262750900311" it reads like a record number, so
+  // it is labelled for what it is and our own record number goes on separately.
+  const ref = v.receipt_no
+    ? `\n🧾 Receipt no. <b>${esc(v.receipt_no)}</b>`
+    : '\n🧾 <i>No receipt number printed on it — so a second bill from this shop today would look like this one.</i>'
 
   if (!items.length) {
     // Say so plainly rather than letting a total stand in for a read receipt.
-    return head + `\n\n<i>I couldn't read the individual lines on this one.</i>` + TYPE_HINT +
+    return head + ref + `\n\n<i>I couldn't read the individual lines on this one.</i>` + TYPE_HINT +
       (v.items_note ? `\n⚠️ ${esc(v.items_note)}` : '')
   }
 
@@ -2289,7 +2302,7 @@ function receiptSummary(v: VisionResult): string {
   }
   const stock = stockBits.length ? `\n📦 Stock: ${esc(stockBits.join(' · '))}` : ''
 
-  return head + `\n\n${shown.join('\n')}${more}${tax}${warn}${stock}`
+  return head + ref + `\n\n${shown.join('\n')}${more}${tax}${warn}${stock}`
 }
 
 // The nudge that turns a read-back into a correction. Without this the owner sees
