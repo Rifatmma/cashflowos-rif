@@ -449,8 +449,23 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     // ranking for that family if there is one, otherwise the country page —
     // and asks for a section on it. Which is work that already has a review
     // path: it becomes a change on that page, with the render beside it.
+    // THE HOST MUST BE THIS COUNTRY'S OWN PAGE.
+    //
+    // rankingElsewhere looks across the whole site, and for Australia's
+    // "billboards" gap the best-ranking page anywhere was
+    // /locations/singapore -- so the task read "Make /locations/singapore
+    // rank for billboards" and landed on the ANZ lead, who does not own that
+    // page and could not act on it if they did. Optimising Singapore's page
+    // for Australian demand would also be the cannibalisation this plan
+    // raises tasks about elsewhere.
+    //
+    // So a country's gap may only be hosted on that country's page or
+    // something beneath it. If nothing of ours ranks there yet, the country
+    // page takes it, which is the honest answer anyway.
+    const mine = pathOf(page)
     const near = rankingElsewhere(g.keywords.map(k => k.q).concat(g.head), '')
-    const host = near[0]?.url ?? pathOf(page)
+      .filter(n => n.url === mine || n.url.startsWith(mine + '/'))
+    const host = near[0]?.url ?? mine
     const hostWhy = near[0]
       ? `${host} already ranks #${Math.round(near[0].pos)} for “${near[0].q}”, so it is the page Google already associates with this`
       : `${host} is the page for this market and has the most authority to lend`
