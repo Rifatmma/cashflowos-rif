@@ -162,7 +162,12 @@ const SEMRUSH_DB: Record<string, string> = {
  * brand search looks like a wonderful opportunity to any rule that only reads
  * position and volume -- and chasing it would be work that changes nothing.
  */
-const BRAND = /mov(?:ing|ng|nig)?\s*-?\s*wall|movingwall/i
+// Our own people count too. With the company name filtered, the first clean
+// run still raised "Two of our pages compete for srikanth ramachandran in
+// India" — our founder. Nobody is competing with us for his name either, and
+// the pages that rank for it are a press release and a profile, which is
+// correct (14 Oct 2026).
+const BRAND = /mov(?:ing|ng|nig)?\s*-?\s*wall|movingwall|srikanth\s*ramachandran|location\s*media\s*xchange|lmx\b/i
 export const isBrand = (q: string) => BRAND.test(String(q || ''))
 
 /**
