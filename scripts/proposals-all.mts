@@ -13,7 +13,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildProposal, type ProtectedTerm } from '../lib/mw-page-proposal'
 import { readPage, type PageFacts, type PaidTerm, type OrganicTerm } from '../lib/mw-page-gaps'
 import { changesFor } from '../lib/mw-page-changes'
-import { saveProposals, reopenStale } from '../lib/mw-proposals'
+import { saveProposals, reopenStale, retireMissing } from '../lib/mw-proposals'
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
 const SITE = 'https://www.movingwalls.com'
@@ -76,6 +76,7 @@ urls.delete(`${SITE}/locations/malaysia`)     // done by hand, and it stands
 
 mkdirSync('docs/proposals', { recursive: true })
 const index: string[] = []
+const liveSlugs: string[] = []
 const redirects: string[] = []
 const done = new Set<string>()
 let made = 0, skipped = 0, blockedTotal = 0
@@ -136,6 +137,7 @@ for (const requested of [...urls].sort()) {
   const p = buildProposal({ url: url + '/', liveHtml: html, changes, terms, generatedOn: new Date().toISOString().slice(0, 10) })
   writeFileSync(`docs/proposals/${p.filename}`, p.html, 'utf8')
   made++; blockedTotal += p.blocked
+  liveSlugs.push(slug)
 
   // Keep them, so a suggestion has a history and a decision survives the next run.
   const reopened = await reopenStale(slug, new Map(changes.map(c => [`${slug}:${c.id}`, c.evidence ?? {}])))
@@ -183,5 +185,13 @@ writeFileSync('docs/proposals/README.md', [
   'Every price in every proposal is an empty bracket. Those come from the rate card,',
   'not from an ad report.',
 ].join('\n'), 'utf8')
+
+// A page that drops out of the run keeps whatever it had, because
+// saveProposals only sees the pages it is called with. Qatar and Singapore
+// were still showing the long stuffed headings after every other market had
+// been fixed, for exactly that reason. Malaysia is written by its own script
+// and must not be retired by this one.
+const retired = await retireMissing([...liveSlugs, 'malaysia'])
+if (retired) console.log(`retired ${retired} proposals for pages that no longer have one`)
 
 console.log(`\n${made} proposals written, ${skipped} pages had no measured gap, ${blockedTotal} changes blocked by the ranking rule`)

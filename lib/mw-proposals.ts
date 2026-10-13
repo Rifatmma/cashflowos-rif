@@ -127,6 +127,30 @@ export async function saveProposals(opts: {
   return { saved: rows.length, path }
 }
 
+/**
+ * Retire proposals for pages this run produced nothing for.
+ *
+ * saveProposals() only ever sees the pages it was called with, so a page that
+ * drops out of the run keeps whatever it had. Qatar and Singapore were still
+ * showing the long stuffed headings a day after they were replaced everywhere
+ * else, because neither had a measured gap in the new run and so neither was
+ * touched (14 Oct 2026).
+ *
+ * Undecided ones are marked `gone`; a decision anybody made is left alone,
+ * because "where did my answer go" is a worse question than a stale card.
+ */
+export async function retireMissing(liveSlugs: string[]): Promise<number> {
+  if (!supabaseConfigured) return 0
+  const { data } = await supabase.from('mw_page_proposals').select('id, slug').eq('status', 'open')
+  const live = new Set(liveSlugs)
+  const stale = (data ?? []).filter((r: any) => !live.has(String(r.slug))).map((r: any) => r.id)
+  if (!stale.length) return 0
+  await supabase.from('mw_page_proposals')
+    .update({ status: 'gone', updated_at: new Date().toISOString() })
+    .in('id', stale)
+  return stale.length
+}
+
 export async function openProposals(): Promise<ProposalRow[]> {
   if (!supabaseConfigured) return []
   const { data } = await supabase.from('mw_page_proposals').select('*')
