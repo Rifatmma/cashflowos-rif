@@ -15,7 +15,8 @@
 
 import {
   marketKinds, verdictOf, landings, bands, flags, KIND_LABEL,
-  type InsightKeyword,
+  languages, moneyLine, trend,
+  type InsightKeyword, type Money, type Point,
 } from '@/lib/mw-market-insight'
 import { isBrand, type Country } from '@/lib/mw-markets'
 
@@ -38,13 +39,50 @@ function Bar({ value, max, tone }: { value: number; max: number; tone?: string }
   )
 }
 
+/** A line, or a plain statement that there is not enough to draw one. */
+function Spark({ label, t }: { label: string; t: { points: { cycle: string; value: number }[]; enough: boolean } }) {
+  if (!t.enough) {
+    return (
+      <p className="mw-spark-none">
+        <b>{label}</b> — {t.points.length === 1
+          ? `first cycle stored (${n(t.points[0].value)}). A line appears next month.`
+          : 'nothing stored yet.'}
+      </p>
+    )
+  }
+  const vals = t.points.map(p => p.value)
+  const max = Math.max(...vals, 1)
+  const last = vals[vals.length - 1]
+  const first = vals[0]
+  const w = 100, h = 22
+  const d = t.points.map((p, i) => {
+    const x = (i / (t.points.length - 1)) * w
+    const y = h - (p.value / max) * h
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  return (
+    <p className="mw-spark">
+      <b>{label}</b>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img"
+        aria-label={`${label}: ${t.points.map(p => `${p.cycle} ${n(p.value)}`).join(', ')}`}>
+        <path d={d} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span data-dir={last >= first ? 'up' : 'down'}>
+        {n(first)} → {n(last)}
+      </span>
+    </p>
+  )
+}
+
 export function MarketInsight({
-  country, keywords, pages, gap,
+  country, keywords, pages, gap, money, history = [],
 }: {
   country: Country
   keywords: InsightKeyword[]
   pages: string[]
   gap?: { raw: number; kept: number; topics: number } | null
+  money?: Money | null
+  history?: Point[]
 }) {
   if (!keywords.length) {
     return (
@@ -68,6 +106,8 @@ export function MarketInsight({
   const nonBrand = keywords.filter(k => !isBrand(k.q))
   const impressions = nonBrand.reduce((t, k) => t + (k.impr ?? 0), 0)
   const clicks = nonBrand.reduce((t, k) => t + (k.clicks ?? 0), 0)
+  const langs = languages(keywords)
+  const gMax = Math.max(...langs.map(l => l.impressions), 1)
   const kMax = Math.max(...splits.map(s => s.impressions), 1)
   const lMax = Math.max(...land.map(l => l.impressions), 1)
   const bMax = Math.max(...bs.map(b => b.impressions), 1)
@@ -149,6 +189,66 @@ export function MarketInsight({
               ))}
             </tbody>
           </table>
+        </section>
+      </div>
+
+      <div className="mw-insight-grid">
+        <section>
+          <h4>What language they search in</h4>
+          {/* Indonesia is why: Google Ads buys `sewa billboard` and sends it
+              to an English page, so we pay for demand we do not earn. The
+              opposite shows here too — /locations/americas-es exists and the
+              Americas records no Spanish at all. */}
+          <table className="mw-ib">
+            <tbody>
+              {langs.slice(0, 4).map(l => (
+                <tr key={l.language}>
+                  <th scope="row">{l.language}</th>
+                  <td className="w"><Bar value={l.impressions} max={gMax} tone={l.language === 'English' ? undefined : 'place'} /></td>
+                  <td className="num">{pct(l.share)}</td>
+                  <td className="eg">{l.sample[0] ? `“${l.sample[0]}”` : `${l.queries} searches`}</td>
+                </tr>
+              ))}
+              {langs.length === 1 && (
+                <tr><td colSpan={4} className="eg">Every search recorded here is in English.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </section>
+
+        <section>
+          <h4>What it turns into</h4>
+          {money ? (
+            <>
+              <p className="mw-insight-money">{moneyLine(money, country)}</p>
+              <table className="mw-ib">
+                <tbody>
+                  <tr>
+                    <th scope="row">Sessions</th>
+                    <td className="num">{n(money.sessions)}</td>
+                    <td className="eg">{money.prevSessions !== null ? `was ${n(money.prevSessions)}` : 'first cycle'}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Enquiries</th>
+                    <td className="num">{n(money.leads)}</td>
+                    <td className="eg">{money.prevLeads !== null ? `was ${n(money.prevLeads)}` : 'first cycle'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </>
+          ) : (
+            <p className="eg">No analytics stored for {country.label} this cycle.</p>
+          )}
+        </section>
+
+        <section>
+          <h4>Over time</h4>
+          {/* Two points is the minimum that means anything. Search Console has
+              been stored for one cycle, so drawing impressions today would be
+              a single dot pretending to be a line. */}
+          <Spark label="Sessions" t={trend(history, 'sessions')} />
+          <Spark label="Enquiries" t={trend(history, 'leads')} />
+          <Spark label="Times shown" t={trend(history, 'impressions')} />
         </section>
       </div>
 

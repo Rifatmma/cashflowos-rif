@@ -270,3 +270,124 @@ export function flags(input: {
 
   return out
 }
+
+// ------------------------------------------------------------- language
+//
+// Indonesia is why this is here. Google Ads spends on `sewa billboard` and
+// `harga sewa billboard` and sends the clicks to /locations/indonesia, which
+// is written entirely in English — so we buy the Bahasa demand because we earn
+// none of it. Four Bahasa searches reach us organically, worth 20 impressions
+// out of 1,152.
+//
+// The opposite case is just as useful: /locations/americas-es exists, and the
+// Americas records ZERO Spanish or Portuguese searches. A market lead should
+// be able to see both without anybody running a query by hand.
+
+const SCRIPTS: [string, RegExp][] = [
+  ['Arabic', /[\u0600-\u06FF]/],
+  ['Chinese', /[\u4E00-\u9FFF]/],
+  ['Japanese', /[\u3040-\u30FF]/],
+  ['Korean', /[\uAC00-\uD7AF]/],
+  ['Thai', /[\u0E00-\u0E7F]/],
+  ['Hindi', /[\u0900-\u097F]/],
+  ['Cyrillic', /[\u0400-\u04FF]/],
+  ['Greek', /[\u0370-\u03FF]/],
+  ['Hebrew', /[\u0590-\u05FF]/],
+]
+
+/**
+ * Latin-script languages, by words that only appear in them.
+ *
+ * Only the ones our markets actually speak, and only words with no English
+ * meaning — "media" and "digital" are the same in five of these and would
+ * mark every English search as Spanish.
+ */
+const LATIN: [string, RegExp][] = [
+  ['Malay or Indonesian', /\b(?:sewa|harga|iklan|papan|periklanan|reklame|luar ruang|biaya|jasa|pasang|perusahaan|tempat)\b/i],
+  ['Spanish', /\b(?:publicidad|vallas|anuncios|espectacular|cuanto|cuesta|empresa|precios?|exterior)\b/i],
+  ['Portuguese', /\b(?:publicidade|midia|outdoor em|quanto custa|empresa de|preco|precos)\b/i],
+  ['German', /\b(?:werbung|aussenwerbung|plakat|kosten|preise|anbieter)\b/i],
+  ['French', /\b(?:publicite|affichage|panneau|prix|tarif|exterieure)\b/i],
+  ['Dutch', /\b(?:reclame|buitenreclame|billboardreclame|kosten|prijzen)\b/i],
+  ['Vietnamese', /\b(?:quang cao|bang hieu|gia|ngoai troi)\b|[\u1EA0-\u1EF9]/i],
+  ['Turkish', /\b(?:reklam|bilboard|fiyat|aciklama)\b/i],
+]
+
+export function languageOf(q: string): string {
+  for (const [name, rx] of SCRIPTS) if (rx.test(q)) return name
+  for (const [name, rx] of LATIN) if (rx.test(q)) return name
+  return 'English'
+}
+
+export type LangSplit = { language: string; impressions: number; queries: number; share: number; sample: string[] }
+
+export function languages(keywords: InsightKeyword[]): LangSplit[] {
+  const acc = new Map<string, { impressions: number; queries: number; sample: { q: string; n: number }[] }>()
+  let total = 0
+  for (const k of keywords) {
+    if (!k.q || isBrand(k.q)) continue
+    const lang = languageOf(k.q)
+    const at = acc.get(lang) ?? { impressions: 0, queries: 0, sample: [] }
+    at.impressions += k.impr ?? 0
+    at.queries += 1
+    at.sample.push({ q: k.q, n: k.impr ?? 0 })
+    acc.set(lang, at)
+    total += k.impr ?? 0
+  }
+  return [...acc.entries()]
+    .map(([language, a]) => ({
+      language, impressions: a.impressions, queries: a.queries,
+      share: total > 0 ? a.impressions / total : 0,
+      sample: a.sample.sort((x, y) => y.n - x.n).slice(0, 2).map(s => s.q),
+    }))
+    .sort((a, b) => b.impressions - a.impressions)
+}
+
+// ---------------------------------------------------------------- money
+export type Money = {
+  sessions: number
+  leads: number
+  prevSessions: number | null
+  prevLeads: number | null
+}
+
+/**
+ * Traffic against outcome, in a sentence.
+ *
+ * Impressions and sessions are not the same funnel step and must not be
+ * divided into one another — Search Console counts being shown, GA4 counts
+ * arriving, and a page can be arrived at from anywhere. So they sit beside
+ * each other and the sentence says which is which.
+ */
+export function moneyLine(m: Money, country: Country): string {
+  if (!m.sessions) return `GA4 recorded no sessions from ${country.label} this cycle.`
+  const cvr = m.sessions > 0 ? m.leads / m.sessions : 0
+  const move = m.prevSessions !== null && m.prevSessions > 0
+    ? ` Sessions ${m.sessions >= m.prevSessions ? 'up' : 'down'} from ${Math.round(m.prevSessions).toLocaleString('en-US')} last cycle.`
+    : ''
+  if (!m.leads) {
+    return `${Math.round(m.sessions).toLocaleString('en-US')} sessions and no enquiries. ` +
+      `The traffic is arriving and nothing is being asked of it.${move}`
+  }
+  return `${Math.round(m.sessions).toLocaleString('en-US')} sessions, ${m.leads} ${m.leads === 1 ? 'enquiry' : 'enquiries'} ` +
+    `(${(cvr * 100).toFixed(1)}%).${move}`
+}
+
+// ---------------------------------------------------------------- trend
+export type Point = { cycle: string; impressions: number | null; sessions: number | null; leads: number | null }
+
+/**
+ * Enough history to draw, or an honest refusal.
+ *
+ * Search Console has been stored for one cycle only, so a sparkline of
+ * impressions today is a single dot pretending to be a line. Two points is
+ * the minimum that means anything, and below it the panel says so rather than
+ * drawing something.
+ */
+export function trend(points: Point[], key: 'impressions' | 'sessions' | 'leads'): { points: { cycle: string; value: number }[]; enough: boolean } {
+  const got = points
+    .filter(p => p[key] !== null && p[key] !== undefined)
+    .map(p => ({ cycle: p.cycle, value: Number(p[key]) || 0 }))
+    .sort((a, b) => a.cycle.localeCompare(b.cycle))
+  return { points: got, enough: got.length >= 2 }
+}

@@ -32,7 +32,7 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
     // The market's own Search Console rows, which is what every number in the
     // insight panel is computed from.
     supabaseConfigured
-      ? supabase.from('mw_market_seo').select('country, gsc_keywords, cycle')
+      ? supabase.from('mw_market_seo').select('country, gsc_keywords, cycle, gsc_impressions, ga4_sessions, ga4_leads')
           .order('cycle', { ascending: false }).then(r => r.data ?? [])
       : Promise.resolve([] as any[]),
     fetchPages().catch(() => [] as string[]),
@@ -43,6 +43,30 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
   const kwOf = (key: string) =>
     ((seo as any[]).find(r => r.country === key && Array.isArray(r.gsc_keywords) && r.gsc_keywords.length)
       ?.gsc_keywords ?? []) as any[]
+
+  // Every cycle we hold for a country, oldest first, so the panel can draw a
+  // line where there is one and say so where there is not.
+  const historyOf = (key: string) =>
+    (seo as any[]).filter(r => r.country === key)
+      .map(r => ({
+        cycle: String(r.cycle),
+        impressions: r.gsc_impressions ?? null,
+        sessions: r.ga4_sessions ?? null,
+        leads: r.ga4_leads ?? null,
+      }))
+      .sort((a, b) => a.cycle.localeCompare(b.cycle))
+
+  const moneyOf = (key: string) => {
+    const h = historyOf(key)
+    const now = h[h.length - 1]
+    const prev = h.length > 1 ? h[h.length - 2] : null
+    if (!now) return null
+    return {
+      sessions: Number(now.sessions ?? 0), leads: Number(now.leads ?? 0),
+      prevSessions: prev ? Number(prev.sessions ?? 0) : null,
+      prevLeads: prev ? Number(prev.leads ?? 0) : null,
+    }
+  }
   const quarter = gaps[0]?.quarter ?? quarterOf()
 
   const withGap = COUNTRIES
@@ -51,7 +75,14 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
       gap: gaps.find(g => g.country === country.key) ?? null,
       rivals: rivals[country.key] ?? [],
     }))
-    .filter(x => x.gap || x.rivals.length)
+    // A MARKET WITH NO GAP PULL STILL HAS SOMETHING TO SAY.
+    //
+    // This listed only markets with a gap or named rivals, which left
+    // Indonesia off the page entirely -- the market where we pay for Bahasa
+    // clicks and earn none, which is precisely what the insight panel is for.
+    // Any market Search Console has rows for is worth opening; the gap
+    // section says "not pulled yet" on its own.
+    .filter(x => x.gap || x.rivals.length || kwOf(x.country.key).length)
     .sort((a, b) => (b.gap?.clusters.length ?? 0) - (a.gap?.clusters.length ?? 0))
 
   const active = withGap.find(x => x.country.key === c) ?? withGap[0] ?? null
@@ -106,6 +137,8 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                   keywords={kwOf(active.country.key)}
                   pages={pages}
                   gap={active.gap ? { raw: active.gap.rawCount, kept: active.gap.keptCount, topics: topics.length } : null}
+                  money={moneyOf(active.country.key)}
+                  history={historyOf(active.country.key)}
                 />
               </Section>
 
