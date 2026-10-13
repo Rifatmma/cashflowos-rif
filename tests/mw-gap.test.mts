@@ -1,7 +1,7 @@
 // The gap is only useful if the noise is gone and what is left groups into
 // pages somebody can write. Both halves are tested against the real India
 // rows Semrush returned, junk included.
-import { cleanGap, cluster, worthWriting, effortOf, type GapRow } from '../lib/mw-gap'
+import { cleanGap, cluster, worthWriting, effortOf, ourPositions, type GapRow } from '../lib/mw-gap'
 
 let bad = 0
 const ok = (m: string) => console.log('ok  ', m)
@@ -101,3 +101,45 @@ else ok(`effort reads as a sentence: "${e.says}"`)
 
 console.log(bad ? `\n${bad} failing` : `\nall good — the India gap reduces to ${cs.filter(worthWriting).length} writable topics`)
 if (bad) process.exit(1)
+
+// ── what counts as a gap ───────────────────────────────────────────────────
+// Corrected 13 Oct 2026. The old rule dropped anything we ranked for at all,
+// so ranking #45 for a term a rival holds at #2 counted as "covered" and was
+// deleted. In Malaysia, where we sit between #8 and #24 across the market,
+// that threw away almost everything worth chasing.
+//
+//   "Gap is only for what competitors have and we don't have, or we have but
+//    we're not even nearly there yet."                            (owner)
+{
+  const g = (q: string, theirBest: number) =>
+    ({ q, vol: 300, kd: 20, cpc: 1, theirBest, rival: 'advertising.com.my' })
+  const rows = [
+    g('billboard ads', 2),              // we are nowhere
+    g('digital billboard malaysia', 3), // we are at #45
+    g('billboard price malaysia', 4),   // we are at #8, page one
+    g('led billboard', 5),              // we are at #11, just off
+  ]
+  const ours = ourPositions([
+    { q: 'digital billboard malaysia', pos: 45 },
+    { q: 'billboard price malaysia', pos: 8 },
+    { q: 'led billboard', pos: 11 },
+  ])
+  const kept = cleanGap(rows, ours).map(r => r.q)
+
+  if (!kept.includes('billboard ads')) fail('a search we do not rank for at all is a gap')
+  else ok('not ranking at all is a gap')
+
+  if (!kept.includes('digital billboard malaysia')) fail('#45 against their #3 is a gap')
+  else ok('ranking #45 against their #3 is a gap — the old rule deleted this')
+
+  if (!kept.includes('led billboard')) fail('#11 is still off page one, so still a gap')
+  else ok('#11 is off page one, so still a gap')
+
+  if (kept.includes('billboard price malaysia')) fail('#8 is page one — a position job, not a gap')
+  else ok('#8 is page one, so it is a strike task rather than a gap')
+
+  // The old call shape still behaves: a bare list reads as "page one".
+  const legacy = cleanGap(rows, ['billboard ads']).map(r => r.q)
+  if (legacy.includes('billboard ads')) fail('a bare list still subtracts')
+  else ok('a plain list of phrases still subtracts, so old callers are unchanged')
+}

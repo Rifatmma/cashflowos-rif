@@ -25,7 +25,7 @@
 // Without --save it prints what it would write and touches nothing.
 
 import { readFileSync } from 'fs'
-import { cleanGap, cluster, worthWriting, effortOf, type GapRow } from '../lib/mw-gap'
+import { cleanGap, cluster, worthWriting, effortOf, ourPositions, gapVerdict, type GapRow } from '../lib/mw-gap'
 import { COUNTRIES, dbOf } from '../lib/mw-markets'
 import { supabase, supabaseConfigured } from '../lib/supabase'
 
@@ -102,22 +102,26 @@ for (const line of lines.slice(1)) {
   })
 }
 
-// What we already hold, so a gap we have already closed is not re-proposed.
-let ours: string[] = []
+// WHERE we rank, not merely whether. A gap is something a competitor holds
+// and we do not — or hold so distantly it may as well be nothing. Only page
+// one is subtracted; at #11 or #45 the search is still a gap, and pretending
+// otherwise is what made Malaysia look finished.
+let ours = new Map<string, number>()
 if (supabaseConfigured) {
   const { data } = await supabase.from('mw_market_seo')
     .select('keywords, gsc_keywords').eq('country', country.key)
     .order('cycle', { ascending: false }).limit(1).maybeSingle()
-  ours = [
-    ...((data?.keywords ?? []) as { q?: string }[]),
-    ...((data?.gsc_keywords ?? []) as { q?: string }[]),
-  ].map(k => String(k.q ?? '')).filter(Boolean)
+  ours = ourPositions([
+    ...((data?.keywords ?? []) as any[]),
+    ...((data?.gsc_keywords ?? []) as any[]),
+  ])
 }
 
 const kept = cleanGap(rows, ours)
 const clusters = cluster(kept).filter(worthWriting)
 
-console.log(`  ${rows.length} rows read · ${ours.length} of our own keywords to subtract · ${kept.length} survive the clean · ${clusters.length} writable topics\n`)
+const onPageOne = [...ours.values()].filter(p => p >= 1 && p <= 10).length
+console.log(`  ${rows.length} rows read · we rank for ${ours.size}, ${onPageOne} of them on page one · ${kept.length} survive the clean · ${clusters.length} writable topics\n`)
 for (const c of clusters) {
   const e = effortOf(c)
   console.log(`  "${c.head}" — ${c.keywords.length} searches, ${c.vol.toLocaleString('en-US')}/mo, KD ${c.kd}, ${e.size}`)

@@ -59,25 +59,74 @@ const tokens = (q: string) =>
 /**
  * Drop everything that is not a search for something we sell.
  *
- * Three filters, in order of how much they remove:
- *   1. not our industry — kills the flyovers, bus stops and shopping malls
+ * WHAT COUNTS AS A GAP, corrected 13 Oct 2026. This used to drop any search we
+ * ranked for at all, which is too strict by a mile:
+ *
+ *   "Gap is only for what competitors have and we don't have, or we have but
+ *    we're not even nearly there yet."                           (owner)
+ *
+ * Ranking #45 for something a competitor holds at #2 is not "we have that
+ * covered" -- it is the clearest kind of gap there is, and the old rule threw
+ * every one of them away. Malaysia is the case in point: we sit between #8 and
+ * #24 across that market, so almost everything worth chasing was being deleted
+ * for the crime of appearing somewhere in the top 100.
+ *
+ * Where we already rank well, the gap is the wrong tool and the plan already
+ * has a better one: a strike task on the page that ranks, and the Search
+ * Console positions on the market plan and the SEO tab. So `weAreFineAt` is
+ * the only thing subtracted now -- page one, where the work is improving what
+ * exists rather than answering something we never answered.
+ *
+ * Filters, in order of how much they remove:
+ *   1. not our industry — kills the flyovers, toll plazas and shopping malls
  *   2. our own name — a gap on our own brand is a nonsense
- *   3. we already rank — the gap report disagrees with our own keyword pull
- *      on some rows, and our own pull is the one to believe about us
+ *   3. the rival is not actually winning it
+ *   4. we are already on page one for it — that is a position job, not a gap
  */
-export function cleanGap(rows: GapRow[], weAlreadyRank: Iterable<string>, theyMustBeatPos = 20): GapRow[] {
-  const mine = new Set([...weAlreadyRank].map(q => q.toLowerCase().trim()))
-  return rows.filter(r =>
-    r.q &&
-    isRelevant(r.q) &&
-    !isBrand(r.q) &&
-    !mine.has(r.q.toLowerCase().trim()) &&
-    // 4. the rival has to actually be winning it. Semrush counts anything in
-    //    the top 100 as "they rank", so a competitor sitting at #48 turns up
-    //    as a gap -- but nobody is losing business to page five. Without this
-    //    India produced nineteen "topics", half of them rivals ranking in
-    //    the thirties and forties for terms nobody clicks.
-    r.theirBest > 0 && r.theirBest <= theyMustBeatPos)
+export function cleanGap(
+  rows: GapRow[],
+  /**
+   * Where WE rank. A Map gives the position and is what the caller should
+   * pass; a bare list of phrases is still accepted and read as "on page one",
+   * which keeps the old callers behaving as they did.
+   */
+  ours: Iterable<string> | Map<string, number>,
+  opts: { theyMustBeatPos?: number; weAreFineAt?: number } = {},
+): GapRow[] {
+  const { theyMustBeatPos = 20, weAreFineAt = 10 } = opts
+  const mine = new Map<string, number>()
+  if (ours instanceof Map) {
+    for (const [q, pos] of ours) mine.set(String(q).toLowerCase().trim(), pos)
+  } else {
+    for (const q of ours) mine.set(String(q).toLowerCase().trim(), 1)
+  }
+
+  return rows.filter(r => {
+    if (!r.q || !isRelevant(r.q) || isBrand(r.q)) return false
+    // The rival has to actually be winning it. Semrush counts anything in the
+    // top 100 as "they rank", so a competitor sitting at #48 turns up as a gap
+    // -- but nobody is losing business to page five. Without this India
+    // produced nineteen "topics", half of them rivals in the thirties and
+    // forties for terms nobody clicks.
+    if (!(r.theirBest > 0 && r.theirBest <= theyMustBeatPos)) return false
+
+    const at = mine.get(r.q.toLowerCase().trim())
+    // Not ranked at all, or ranked and nowhere near: both are gaps.
+    if (at === undefined || !(at > 0)) return true
+    return at > weAreFineAt
+  })
+}
+
+/** Where we rank, for every search, so the gap can tell "nowhere near" from "nearly there". */
+export function ourPositions(keywords: { q?: string; pos?: number }[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const k of keywords) {
+    const q = String(k?.q ?? '').toLowerCase().trim()
+    const pos = Number(k?.pos) || 0
+    if (!q || !(pos > 0)) continue
+    out.set(q, Math.min(out.get(q) ?? 9999, pos))
+  }
+  return out
 }
 
 /**
