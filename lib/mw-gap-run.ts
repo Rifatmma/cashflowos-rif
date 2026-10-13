@@ -230,7 +230,18 @@ export async function storeImport(f: {
     row.brand_pct = split.brand
     row.nonbrand_pct = split.nonBrand
   }
-  if (f.kind === 'competitors') row.competitors = f.competitors ?? []
+  // THE SHARED-KEYWORD COMPETITOR IMPORT IS GONE.
+  //
+  // It ranked domains by how many keywords they shared with us, which finds
+  // rivals only in proportion to how much we already rank. Keeping it beside
+  // the SERP list would invite comparing the two, and there is nothing to
+  // compare: in Malaysia it named a domain the real results put fifth and
+  // never returned the leader at all.
+  if (f.kind === 'competitors') {
+    throw new Error(
+      'Competitors are read from the search results now, not from a shared-keyword export. ' +
+      'Run scripts/serp-rivals.mts for this market instead.')
+  }
 
   const { error } = await supabase.from('mw_market_seo').upsert(row as any, { onConflict: 'cycle,country' })
   if (error) throw new Error(error.message)

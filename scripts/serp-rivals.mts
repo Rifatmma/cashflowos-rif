@@ -36,27 +36,55 @@ if (!found) { console.error('usage: serp-rivals.mts <country-key> --queries | --
 const { country, market } = found
 
 if (wantQueries) {
-  if (!supabaseConfigured) { console.error('no database configured'); process.exit(1) }
-  const { data } = await supabase.from('mw_market_seo')
-    .select('keywords, gsc_keywords').eq('country', country.key)
-    .order('cycle', { ascending: false }).limit(1).maybeSingle()
-
-  // Our own searches, biggest first. Brand is excluded because nobody
-  // competes with us for our own name, so a SERP for it names no rivals.
-  const rows = [
-    ...((data?.gsc_keywords ?? []) as any[]).map(k => ({ q: String(k.q ?? ''), n: Number(k.impr) || 0 })),
-    ...((data?.keywords ?? []) as any[]).map(k => ({ q: String(k.q ?? ''), n: Number(k.vol) || 0 })),
-  ]
-  const best = new Map<string, number>()
-  for (const r of rows) {
-    const q = r.q.trim().toLowerCase()
-    if (!q || isBrand(q) || !isRelevant(q)) continue
-    best.set(q, Math.max(best.get(q) ?? 0, r.n))
+  // WHICH SEARCHES TO READ THE RESULTS FOR MUST COME FROM THE MARKET, NOT US.
+  //
+  // The first version took them from our own Search Console impressions. That
+  // is the same circularity the shared-keyword competitor report had, one step
+  // earlier: Search Console only holds searches we ALREADY appear for, so a
+  // term we are invisible on never enters the list, and the market's biggest
+  // commercial search can be missing from the very list meant to find it.
+  //
+  //   "getting demand from the search console is wrong. The search console
+  //    should act as an identifier of where we are ranked as of now."
+  //                                                 (owner, 13 Oct 2026)
+  //
+  // So demand comes from Semrush keyword research for that country -- what
+  // people search there, whether or not we rank -- and Search Console is used
+  // below for the one thing it actually knows: where we sit today.
+  const at = args[args.indexOf('--queries') + 1]
+  if (!at || at.startsWith('--')) {
+    console.error('usage: --queries <market-keywords.tsv>   (keyword<TAB>volume, from Semrush keyword research for this country)')
+    process.exit(1)
   }
-  const picked = [...best.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
+  const picked = readFileSync(at, 'utf8').split(/\r?\n/)
+    .map(l => l.split('\t'))
+    .map(([q, v]) => ({ q: String(q ?? '').trim().toLowerCase(), vol: Number(String(v ?? '').replace(/[^0-9.]/g, '')) || 0 }))
+    .filter(r => r.q && !isBrand(r.q) && isRelevant(r.q))
+    .sort((a, b) => b.vol - a.vol)
+    .slice(0, 12)
+
+  // Where we rank today, so the SERP read can be checked against it rather
+  // than guessed at from how deep the pull happened to go.
+  const mine = new Map<string, number>()
+  if (supabaseConfigured) {
+    const { data } = await supabase.from('mw_market_seo')
+      .select('keywords, gsc_keywords').eq('country', country.key)
+      .order('cycle', { ascending: false }).limit(1).maybeSingle()
+    for (const k of [...((data?.gsc_keywords ?? []) as any[]), ...((data?.keywords ?? []) as any[])]) {
+      const q = String(k.q ?? '').trim().toLowerCase()
+      const pos = Number(k.pos) || 0
+      if (q && pos > 0) mine.set(q, Math.min(mine.get(q) ?? 999, pos))
+    }
+  }
+
   console.log(`# ${country.label} — Semrush database "${dbOf(country) ?? '?'}"`)
-  console.log(`# Read the organic results for each of these, in that database.\n`)
-  for (const [q, n] of picked) console.log(`${q}\t${n}`)
+  console.log(`# Read the organic results for each, in that database.`)
+  console.log(`# "we" is where Search Console says we sit today — read at least that deep.
+`)
+  for (const r of picked) {
+    const p = mine.get(r.q)
+    console.log(`${r.q}\t${r.vol}\twe ${p ? '#' + Math.round(p) : '—'}`)
+  }
   process.exit(0)
 }
 

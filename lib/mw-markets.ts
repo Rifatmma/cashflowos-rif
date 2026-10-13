@@ -183,13 +183,33 @@ export const isBrand = (q: string) => BRAND.test(String(q || ''))
  * our industry rather than a list of junk: new nonsense appears constantly,
  * new ways to say "billboard" do not (owner, 29 Sep 2026).
  */
-const INDUSTRY = new RegExp([
-  'billboard', 'hoarding', 'bigboard', 'unipole', 'signage', 'banner',
-  'ooh', 'dooh', 'pdooh', 'out.?of.?home', 'outdoor advert', 'outdoor ads?\b',
-  'advertis', '\bads?\b', '\bad (?:space|board|network)', 'media (?:owner|buying|planning)',
-  'programmatic', 'digital screen', 'led screen', 'audience measurement',
-  'campaign', 'bus shelter', 'transit media', 'mrt ads', 'retail media',
-].join('|'), 'i')
+// WRITTEN AS REGEXES, NOT STRINGS, AND THAT IS THE WHOLE POINT.
+//
+// These were quoted strings, and three of them contained `\b` — which inside a
+// JavaScript string literal is a BACKSPACE character, not a word boundary. So
+// `'\bads?\b'` compiled to <BS>ads?<BS> and matched nothing, ever. Silently:
+// the regex was valid, it just could not fire.
+//
+// What that cost, measured on Malaysian market demand 13 Oct 2026:
+//
+//   malaysia ads     1,000 searches a month   dropped as "not our industry"
+//   outdoor ads                               dropped
+//   ad space                                  dropped
+//
+// Every relevance decision in every market ran through this — the gap cleaner,
+// the city audit, the opportunity list, the SERP seeds. scripts/fix-control-chars.mjs
+// could not catch it either: the file holds a backslash and a `b`, two ordinary
+// characters, and only becomes a control character when the string is parsed.
+//
+// Regex literals cannot have this bug. `/\bads?\b/` means what it looks like.
+const INDUSTRY_PARTS = [
+  /billboard/, /hoarding/, /bigboard/, /unipole/, /signage/, /banner/,
+  /ooh/, /dooh/, /pdooh/, /out.?of.?home/, /outdoor advert/, /outdoor ads?\b/,
+  /advertis/, /\bads?\b/, /\bad (?:space|board|network)/, /media (?:owner|buying|planning)/,
+  /programmatic/, /digital screen/, /led screen/, /audience measurement/,
+  /campaign/, /bus shelter/, /transit media/, /mrt ads/, /retail media/,
+]
+const INDUSTRY = new RegExp(INDUSTRY_PARTS.map(r => r.source).join('|'), 'i')
 
 /**
  * Things that carry an industry word and are not our industry.

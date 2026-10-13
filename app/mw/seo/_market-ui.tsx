@@ -129,33 +129,49 @@ export function CompetitorsByMarket({ m }: { m: MarketSeo }) {
   if (!m.competitors.length) {
     return (
       <p className="lede">
-        No competitor pull stored for {m.market.label} yet. It is one extra Semrush call per market and runs
-        with the weekly pull once it is switched on.
+        No search results read for {m.market.label} yet. Competitors come from who actually ranks for
+        this market’s searches, not from who happens to share keywords with us — so this stays empty
+        until those results are pulled.
       </p>
     )
   }
-  const max = Math.max(...m.competitors.map(c => c.traffic), 1)
+  const max = Math.max(...m.competitors.map(c => c.appearances), 1)
   return (
-    <table className="mw-kw wide">
-      <thead><tr><th>Domain</th><th className="num">Shared searches</th><th className="num">Their keywords</th><th>Their traffic</th></tr></thead>
-      <tbody>
-        {m.competitors.map(c => (
-          <tr key={c.domain}>
-            <td>{c.domain}</td>
-            <td className="num">{num(c.common)}</td>
-            <td className="num">{num(c.keywords)}</td>
-            <td>
-              <span className="mw-minibar"><i style={{ width: `${(c.traffic / max) * 100}%` }} /></span>
-              <span className="mw-minibar-n">{num(c.traffic)}</span>
-            </td>
+    <>
+      <table className="mw-kw wide">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th className="num">Best</th>
+            <th className="num">Typical</th>
+            <th>Searches they rank for</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {m.competitors.map(c => (
+            <tr key={c.domain}>
+              <td>
+                {c.domain}
+                {c.pages[0] ? <><br /><span className="mw-sub">{c.pages[0].replace(/^https?:\/\/[^/]+/, '') || '/'}</span></> : null}
+              </td>
+              <td className="num">#{c.best}</td>
+              <td className="num">#{Math.round(c.median)}</td>
+              <td>
+                <span className="mw-minibar"><i style={{ width: `${(c.appearances / max) * 100}%` }} /></span>
+                <span className="mw-minibar-n">{num(c.appearances)}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="lede">
+        Read off the search results in this market. “Typical” is the median position, so one lucky
+        first place does not hide nine results on page four.
+      </p>
+    </>
   )
 }
 
-/** Dinesh's board: what is wrong with the pages that are already live. */
 export function PageHealthBoard({ all }: { all: MarketSeo[] }) {
   const rows = all.flatMap(m => m.health.map(h => ({ ...h, market: m.market.label })))
     .sort((a, b) => a.score - b.score)
