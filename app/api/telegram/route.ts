@@ -25,6 +25,7 @@ import { mytDate, dayLabel } from '@/lib/period'
 import { parseDishReport, ReportError } from '@/lib/easyeat'
 import { readReportRows, isReportFile } from '@/lib/report-file'
 import { hasOpenQuestion, applyAnswer } from '@/lib/email-payments'
+import { findTwinAmong, shopKey } from '@/lib/twin-receipt'
 import { readMeal } from '@/lib/meal-vision'
 import { logMeal, correctMeal, latestMeal, costFromMenu, costTyped, dayLine, getBudget } from '@/lib/meals'
 import { taughtAliases } from '@/lib/stock-data'
@@ -445,11 +446,6 @@ async function findDuplicate(receiptNo: string | undefined, amount: number | und
 }
 
 /** "RAHMAN GAS ENTERPRISE" and "rahman gas enterprise" are the same shop. */
-const shopKey = (s: string) =>
-  String(s || '').toLowerCase().replace(/\(.*$/, '')
-    .replace(/(sdn\.?\s*bhd\.?|berhad|enterprise|trading|holdings?)/g, '')
-    .replace(/[^a-z0-9]+/g, ' ').trim()
-
 /**
  * The same purchase, already filed today by someone else.
  *
@@ -457,8 +453,20 @@ const shopKey = (s: string) =>
  * The photo went in as a second RM 52 record, because the "waiting for a photo"
  * note belongs to the person who typed it and Tina is a different person
  * (owner, 24 Sep 2026). Same shop, same money, same day is one purchase.
+ *
+ * EXCEPT WHEN THE SHOP SAYS OTHERWISE. Same shop, same money, same day is a
+ * guess — and on 11 Oct 2026 it was wrong twice in ninety seconds. TH Supermart
+ * issued checks 1457255, 1457256 and 1457257, each RM 7.50 for the same cooking
+ * oil. The first was filed as #493 and the other two were refused as duplicates
+ * of it, so RM 15 never reached the books and both photos ended up stacked on
+ * somebody else's record.
+ *
+ * A printed receipt number is the shop's own transaction id. When both sides
+ * have one and they differ, these are two purchases and nothing else matters.
+ * When either side has none — a typed record, a bank alert — the heuristic is
+ * still the best available and still catches the gas bill.
  */
-async function findTwin(v: VisionResult): Promise<{ id: number; meta: any; title: string } | null> {
+async function findTwin(v: VisionResult): Promise<{ id: number; meta: any; title: string; why?: string } | null> {
   if (!supabaseConfigured || typeof v.amount !== 'number' || !v.amount || !v.merchant) return null
   const key = shopKey(v.merchant)
   if (key.length < 3) return null
@@ -470,12 +478,19 @@ async function findTwin(v: VisionResult): Promise<{ id: number; meta: any; title
       .eq('amount', v.amount)
       .eq('due_date', v.date ?? mytDate())
       .limit(20)
-    for (const r of data ?? []) {
-      const theirs = shopKey(String((r.meta as any)?.merchant || r.title))
-      if (!theirs) continue
-      if (theirs === key || theirs.includes(key) || key.includes(theirs)) {
-        return { id: r.id, meta: (r.meta as any) ?? {}, title: r.title as string }
-      }
+    // The judgement itself is in lib/twin-receipt.ts, pure and tested against
+    // the three TH Supermart bills that exposed the old rule.
+    const hit = findTwinAmong(
+      { merchant: v.merchant, receipt_no: v.receipt_no },
+      (data ?? []).map((r: any) => ({
+        id: r.id, title: r.title,
+        merchant: (r.meta as any)?.merchant ?? null,
+        receipt_no: (r.meta as any)?.receipt_no ?? null,
+      })),
+    )
+    if (hit) {
+      const r = (data ?? []).find((x: any) => x.id === hit.id)
+      if (r) return { id: r.id, meta: (r.meta as any) ?? {}, title: r.title as string, why: hit.why }
     }
   } catch (e) {
     console.error('[CFO] twin check failed, continuing:', e)

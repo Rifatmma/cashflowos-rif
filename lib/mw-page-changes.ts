@@ -21,6 +21,8 @@ const titleCase = (s: string) =>
    .replace(/\bUk\b/g, 'UK').replace(/\bUae\b/g, 'UAE').replace(/\bLrt\b/g, 'LRT').replace(/\bMrt\b/g, 'MRT')
 
 const money = (n: number) => `S$${n.toFixed(2)}`
+const esc = (x: string) =>
+  String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const topPaid = (g: Gap, n = 4): PaidTerm[] => [...g.paid].sort((a, b) => b.cost - a.cost).slice(0, n)
 
 // The gap modules speak in `q`; the proposal's evidence block speaks in `term`.
@@ -145,24 +147,73 @@ ${drafted}`,
   }
 }
 
-/** A heading that names a slide in a deck rather than anything a reader wants. */
+/**
+ * A HEADING IS A SIGNPOST, NOT A PLACE TO PUT KEYWORDS.
+ *
+ * The first version of this turned "Media Types Available" into "Indonesia
+ * Advertising Formats: Jakarta, Graha VIVERE, Alam Sutera" — three venue names
+ * bolted onto a section title. The owner rejected it and was right:
+ *
+ *   "I think it is not a smart decision to make the header of the section very
+ *    long. There could be another H2 within that section we can add the H2
+ *    there right?... You're trying to optimize too much and overlooking proper
+ *    design."                                          (owner, 14 Oct 2026)
+ *
+ * So a rename only ever makes a heading SHORTER and clearer. The search phrase
+ * gets its own heading inside the section instead — see sectionHeading() below,
+ * which is where the optimising belongs because it comes with copy under it.
+ */
+const HEADING_MAX = 42
+
 export function headingChange(v: PageVerdict, vague: string, place: string, formats: string[]): Change | null {
   if (!vague) return null
-  const list = formats.slice(0, 3).filter(Boolean)
   const now = /market landscape/i.test(vague)
     ? `Outdoor Advertising Across ${place}`
-    : list.length
-      ? `${place} Advertising Formats: ${list.map(titleCase).join(', ')}`
-      : `Outdoor Advertising Formats in ${place}`
+    : `Advertising Formats in ${place}`
+  // Never longer than what it replaces by much, and never a list.
+  if (now.length > HEADING_MAX || now.toLowerCase() === vague.toLowerCase()) return null
   return {
     id: 'heading', kind: 'heading',
     where: `The H2 currently reading “${vague}”`,
     anchor: vague, mode: 'replace', was: vague, now,
     why: `“${vague}” is a label from an internal deck — nobody searches it and it tells a reader nothing. ` +
-      (list.length
-        ? `The section underneath already lists ${list.join(', ')}, so this names what is there. No body copy moves.`
-        : `Renaming it puts the market and the subject into a heading that currently carries neither. No body copy moves.`),
+      `This says what the section is, in ${now.length} characters, and no body copy moves. ` +
+      `The search phrase is not forced in here; it gets its own heading inside the section.`,
     evidence: { organic: asOrganic(v.gaps.flatMap(g => g.organic).slice(0, 2)) },
+  }
+}
+
+/**
+ * A new heading INSIDE a section, carrying the search and some copy under it.
+ *
+ * This is where a phrase we want to rank for belongs: a heading of its own,
+ * answering one question, rather than appended to a heading that was already
+ * doing a job. It reads as something a person wrote, which is the whole point.
+ */
+export function sectionHeading(v: PageVerdict, anchor: string | null, place: string): Change | null {
+  if (!anchor) return null
+  const g = v.gaps.find(x => x.kind === 'format' || x.kind === 'place') ?? v.gaps[0]
+  if (!g) return null
+  const term = [...g.paid].sort((a, b) => b.cost - a.cost)[0]?.q ?? g.organic[0]?.q
+  if (!term) return null
+  const heading = titleCase(term.length > HEADING_MAX ? term.slice(0, HEADING_MAX).trim() : term)
+
+  return {
+    id: 'subheading', kind: 'section',
+    where: `A NEW H2 directly BELOW the “${anchor}” heading, inside the same section`,
+    anchor, mode: 'after', was: null,
+    now: `
+  <h2>${esc(heading)}</h2>
+  <p>Two or three sentences answering this directly — what is available, where, and what a
+     buyer does next. Written for somebody who searched those words, not as a restatement
+     of the section above.</p>
+  <div class="mwp-todo"><b>The copy is a placeholder.</b> The heading is the proposal; the
+     paragraphs under it need somebody who knows what we actually sell in ${esc(place)}.</div>`,
+    why: `The search needs a heading of its own, with an answer under it — not to be appended to a ` +
+      `heading that was already doing a job. A long heading stuffed with terms reads as written for a ` +
+      `machine, and a reader skips it.` +
+      (g.cost > 0 ? ` ${money(g.cost)} a month of clicks searches this and lands on a page that never says it.` : ''),
+    evidence: { paid: asPaid(topPaid(g, 3)), organic: asOrganic(g.organic.slice(0, 2)), placeholders: ['the copy under the new heading'] },
   }
 }
 
@@ -175,6 +226,7 @@ export function changesFor(opts: {
   return [
     titleChange(v, title, place),
     vague ? headingChange(v, vague, place, formats) : null,
+    vague ? sectionHeading(v, vague, place) : null,
     priceSection(v, place, ctaAnchor, currency),
     languageFaq(v, slug, faqAnchor),
   ].filter(Boolean) as Change[]

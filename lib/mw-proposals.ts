@@ -81,21 +81,33 @@ export async function saveProposals(opts: {
   if (upErr) console.warn('[MW] proposal upload failed:', upErr.message)
 
   const ids = opts.changes.map(c => `${opts.slug}:${c.change.id}`)
-  const { data: existing } = await supabase.from('mw_page_proposals').select('id, status, reason, decided_at, decided_by').in('id', ids)
+  const { data: existing } = await supabase.from('mw_page_proposals').select('id, status, reason, decided_at, decided_by, now_').in('id', ids)
   const keep = new Map((existing ?? []).map((r: any) => [r.id, r]))
 
   const rows = opts.changes.map(({ change: c, blocked }) => {
     const id = `${opts.slug}:${c.id}`
     const was = keep.get(id)
+    // A REJECTION BELONGS TO THE WORDING IT REJECTED. He turned down
+    // "Indonesia Advertising Formats: Jakarta, Graha VIVERE, Alam Sutera"
+    // because it made the heading too long; the replacement is 32 characters
+    // and puts the search in its own heading instead. Carrying the old "no"
+    // onto new text would bury the answer to his own objection (14 Oct 2026).
+    const reworded = was?.status === 'rejected' && was.now_ !== undefined && was.now_ !== c.now
     return {
       id, url: opts.url, slug: opts.slug, change_id: c.id, kind: c.kind,
       where_: c.where, was: c.was, now_: c.now, why: c.why,
       evidence: c.evidence ?? {}, cycle: opts.cycle, blocked,
-      // Decisions survive a regeneration. Everything else is refreshed.
-      status: was?.status ?? 'open',
+      // Decisions survive a regeneration — unless the thing decided on has
+      // been rewritten, in which case it is a new proposal and goes back on
+      // the list carrying what he said about the old one.
+      status: reworded ? 'open' : (was?.status ?? 'open'),
       reason: was?.reason ?? null,
-      decided_at: was?.decided_at ?? null,
-      decided_by: was?.decided_by ?? null,
+      decided_at: reworded ? null : (was?.decided_at ?? null),
+      decided_by: reworded ? null : (was?.decided_by ?? null),
+      reopened_at: reworded ? new Date().toISOString() : undefined,
+      reopen_why: reworded
+        ? `You turned this down${was?.reason ? ` — “${String(was.reason).slice(0, 180)}”` : ''}. Rewritten since: this is not the wording you saw.`
+        : undefined,
       html_path: upErr ? null : path,
       updated_at: new Date().toISOString(),
     }
