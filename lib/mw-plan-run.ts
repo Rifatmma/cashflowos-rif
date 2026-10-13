@@ -749,6 +749,12 @@ export async function saveMarketSeo(
     if (!e && !g && !h && !old && !anyGsc) return null
 
     const row: Record<string, unknown> = {
+      // ga4_sessions and ga4_leads are NOT NULL with no default, so a row for a
+      // country GA4 has never reported -- which is most of them, now that
+      // Search Console brings in countries GA4 and Semrush both miss -- failed
+      // the whole upsert and took every other country's evidence with it.
+      // Zero is the honest value here: GA4 answered, and said nothing came.
+      ga4_sessions: 0, ga4_leads: 0,
       ...(old ?? {}),
       cycle, country: country.key, market: market.key,
       pulled_at: new Date().toISOString(),
