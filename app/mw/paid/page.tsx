@@ -2,7 +2,7 @@ import { currentGuest } from '@/lib/guest'
 import { getMwData, getMwMonths, getTargets, money, money0, num } from '@/lib/mw-data'
 import { MwHero, Tiles, Section, Bars, SpendLeadChart } from '../_ui'
 import { getActions } from '@/lib/mw-actions'
-import { ActionList } from '../_actions-ui'
+
 import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
 import { MonthPicker, MonthOverMonth } from '../_month-picker'
 import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
@@ -22,6 +22,10 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
   const [snap, rows, targets, months] = await Promise.all([
     getMwData(month), getActions('paid'), getTargets(), getMwMonths(),
   ])
+  // The rows are still read, but only to say how many are waiting. The
+  // answering happens in the plan.
+  const open = rows.filter(r => r.status !== 'done' && r.status !== 'moot'
+    && r.decision?.choice !== 'done' && r.decision?.choice !== 'reject').length
   if (!snap) {
     return (
       <div className="mw-wrap">
@@ -273,10 +277,21 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         </Section>
       ) : null}
 
-      <Section title="Paid search actions"
-        sub="Status is read from the Google Ads account each morning. Your call is yours to set — and a reason for declining is saved so it isn't suggested again.">
-        <ActionList rows={rows} />
-      </Section>
+      {/* THE TASK LIST LIVES IN THE MARKET PLAN, NOT HERE.
+          It was on this page AND inside the plan, which meant two places to
+          answer the same thing and two places to check whether it had been
+          answered. The market plan is where a lead owns their whole market --
+          tasks, city pages and page changes together -- so the paid tasks
+          belong there with the rest of Rifat's, and this page goes back to
+          being what the money is doing. */}
+      {open > 0 && (
+        <Section title={`${open} paid search ${open === 1 ? 'task' : 'tasks'} still open`}
+          sub="Answered in the market plan, alongside everything else in the market.">
+          <p className="lede">
+            <a href="/mw/plan/paid">Open the paid search plan →</a>
+          </p>
+        </Section>
+      )}
     </div>
   )
 }
