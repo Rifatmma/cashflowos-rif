@@ -704,3 +704,46 @@
   .mw-stage-btns { width: 100%; }
   .mw-stage-btns button { flex: 1 1 0; text-align: center; padding: 7px 4px; }
 }
+
+/* ---- Market insight, above the gap list ---------------------------------- */
+/* The answer before the list: what kind of market this is, computed from its
+   own Search Console rows rather than written per country. */
+.mw-insight { display: flex; flex-direction: column; gap: 18px; }
+.mw-insight-verdict h3 { font-size: 19px; margin: 0 0 4px; letter-spacing: -.01em; }
+.mw-insight-verdict p { margin: 0; max-width: 72ch; color: var(--mw-ink-2); line-height: 1.5; }
+
+.mw-insight-nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.mw-insight-nums div {
+  flex: 1 1 140px; border: 1px solid var(--mw-rule); border-radius: 9px;
+  padding: 10px 12px; background: var(--mw-paper);
+}
+.mw-insight-nums b { display: block; font-size: 21px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.mw-insight-nums span { font-size: 11.5px; color: var(--mw-ink-3); line-height: 1.3; display: block; margin-top: 2px; }
+
+.mw-insight-grid { display: grid; gap: 18px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .mw-insight-grid { grid-template-columns: repeat(3, 1fr); } }
+.mw-insight-grid h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--mw-ink-3); margin: 0 0 8px; }
+
+table.mw-ib { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.mw-ib th { text-align: left; font-weight: 500; padding: 4px 8px 4px 0; white-space: nowrap; }
+table.mw-ib td { padding: 4px 0; vertical-align: middle; }
+table.mw-ib td.w { width: 38%; }
+table.mw-ib td.num { text-align: right; font-variant-numeric: tabular-nums; padding-left: 8px; white-space: nowrap; }
+table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5px; }
+
+.mw-ibar { display: block; height: 7px; border-radius: 4px; background: var(--mw-tint); overflow: hidden; }
+.mw-ibar i { display: block; height: 100%; background: var(--mw-ink-3); border-radius: 4px; }
+.mw-ibar i[data-tone="product"] { background: #6b4fd8; }
+.mw-ibar i[data-tone="place"]   { background: #2f7fd1; }
+.mw-ibar i[data-tone="trade"]   { background: var(--mw-ink-3); }
+.mw-ibar i[data-tone="good"]    { background: var(--mw-good, #2e7d32); }
+.mw-ibar i[data-tone="bad"]     { background: #b23b3b; }
+
+.mw-insight-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mw-insight-flags li {
+  font-size: 13px; line-height: 1.45; padding: 8px 11px; border-radius: 8px;
+  border: 1px solid var(--mw-rule); background: var(--mw-paper);
+}
+.mw-insight-flags li[data-level="warn"] { border-left: 3px solid #b23b3b; }
+.mw-insight-flags li[data-level="note"] { border-left: 3px solid var(--mw-ink-3); }
+.mw-insight-basis { margin: -8px 0 0; font-size: 11.5px; color: var(--mw-ink-3); }

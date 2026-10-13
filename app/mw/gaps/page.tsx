@@ -8,6 +8,9 @@ import { MARKETS, COUNTRIES, serpUrl } from '@/lib/mw-markets'
 import { num } from '@/lib/mw-data'
 import { MwHero, Section } from '../_ui'
 import { RivalEditor } from './_gap-ui'
+import { MarketInsight } from './_insight-ui'
+import { supabase, supabaseConfigured } from '@/lib/supabase'
+import { fetchPages } from '@/lib/mw-plan-run'
 
 // 👉 Moving Walls → Content gap. What competitors win and we do not.
 //
@@ -24,7 +27,22 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
   const { c } = await searchParams
-  const [gaps, rivals] = await Promise.all([getGaps(), getRivals()])
+  const [gaps, rivals, seo, pages] = await Promise.all([
+    getGaps(), getRivals(),
+    // The market's own Search Console rows, which is what every number in the
+    // insight panel is computed from.
+    supabaseConfigured
+      ? supabase.from('mw_market_seo').select('country, gsc_keywords, cycle')
+          .order('cycle', { ascending: false }).then(r => r.data ?? [])
+      : Promise.resolve([] as any[]),
+    fetchPages().catch(() => [] as string[]),
+  ])
+
+  // Newest cycle that actually has keywords for a country wins; an empty newer
+  // row must not hide a full older one.
+  const kwOf = (key: string) =>
+    ((seo as any[]).find(r => r.country === key && Array.isArray(r.gsc_keywords) && r.gsc_keywords.length)
+      ?.gsc_keywords ?? []) as any[]
   const quarter = gaps[0]?.quarter ?? quarterOf()
 
   const withGap = COUNTRIES
@@ -77,6 +95,20 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
 
           {active && (
             <>
+              {/* THE ANSWER BEFORE THE LIST. A lead opening their market needs
+                  to know what kind of market it is before reading forty things
+                  to write — the Americas looks like a location market and is
+                  not one. */}
+              <Section title={`What ${active.country.label} actually is`}
+                sub="Read from this market's own Search Console rows. Nothing here is written by hand.">
+                <MarketInsight
+                  country={active.country}
+                  keywords={kwOf(active.country.key)}
+                  pages={pages}
+                  gap={active.gap ? { raw: active.gap.rawCount, kept: active.gap.keptCount, topics: topics.length } : null}
+                />
+              </Section>
+
               <Section title={`Who we are measured against in ${active.country.label}`}
                 sub="Your list, not Semrush's. Change it and the next quarterly pull uses the new one.">
                 <RivalEditor country={active.country.key} label={active.country.label} rivals={active.rivals} />
