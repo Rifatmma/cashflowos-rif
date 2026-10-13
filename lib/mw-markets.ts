@@ -224,11 +224,31 @@ const INDUSTRY = new RegExp(INDUSTRY_PARTS.map(r => r.source).join('|'), 'i')
  * searches, and a gap topic wrongly deleted is invisible, where a junk one
  * merely wastes a reading.
  */
-const NOT_OURS = new RegExp([
-  'ebbing',                        // Three Billboards Outside Ebbing, Missouri
-  'billboard (?:200|hot ?100|chart|music|magazine|awards)',
-  '\bbillboard (?:top|charts)\b',
-].join('|'), 'i')
+// Regex literals, for the reason given above INDUSTRY: the third entry here
+// was `'\bbillboard (?:top|charts)\b'`, whose \b were backspace characters, so
+// it had never matched anything. It only looked like it worked because the
+// line above it catches "billboard charts" on the word "chart".
+const NOT_OURS_PARTS = [
+  /ebbing/,                        // Three Billboards Outside Ebbing, Missouri
+  /billboard (?:200|hot ?100|chart|music|magazine|awards)/,
+  /\bbillboard (?:top|charts)\b/,
+
+  // OTHER PEOPLE'S CHANNELS.
+  //
+  // Reading competitors off the search results brings in full-service
+  // agencies, because they rank for the same searches we do. Comparing against
+  // advertising.com.my — Malaysia's leader, and an agency — put "youtube
+  // advertising" (590/mo) and "social media advertising agency malaysia" into
+  // the content gap as things we should write about. We sell out of home. A
+  // task telling a market lead to go after YouTube is worse than no task.
+  //
+  // Cinema is deliberately NOT here: it is bought out of the same budget and
+  // sits in the same plan, and UAE already earns impressions for it.
+  /\b(?:youtube|radio|television|\btv\b|newspaper|print|podcast|email|sms|whatsapp)\s+(?:advertis|ads?\b|marketing)/,
+  /social media (?:advertis|marketing|agency)/,
+  /(?:facebook|instagram|tiktok|google|linkedin|twitter)\s+ads?\b/,
+]
+const NOT_OURS = new RegExp(NOT_OURS_PARTS.map(r => r.source).join('|'), 'i')
 
 export const isRelevant = (q: string) =>
   INDUSTRY.test(String(q || '')) && !NOT_OURS.test(String(q || ''))

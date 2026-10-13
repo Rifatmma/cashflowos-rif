@@ -65,3 +65,29 @@ else ok('a plain industry search is not brand')
 
 console.log(bad ? `\n${bad} failing` : '\nall good — the word boundaries fire, and still refuse nomads')
 if (bad) process.exit(1)
+
+// Other people's channels. Reading competitors off the search results brings in
+// full-service agencies, which rank for the same searches we do — so the gap
+// started proposing YouTube and social media as things to write about.
+// We sell out of home.
+drop('youtube advertising')
+drop('radio advertising')
+drop('television advertising')
+drop('social media advertising agency malaysia')
+drop('facebook ads')
+drop('google ads')
+drop('newspaper advertising')
+
+// Cinema stays ours: bought from the same budget, sits in the same plan, and
+// UAE already earns impressions for it.
+keep('benefits of cinema advertising')
+keep('cinema advertising rates')
+
+// And none of that may touch the actual business.
+keep('billboard ads')
+keep('outdoor advertising')
+keep('digital ooh')
+keep('highway billboard')
+
+console.log(bad ? `\n${bad} failing after the channel rules` : 'channel rules hold too')
+if (bad) process.exit(1)
