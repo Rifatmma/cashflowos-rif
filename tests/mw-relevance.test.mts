@@ -91,3 +91,23 @@ keep('highway billboard')
 
 console.log(bad ? `\n${bad} failing after the channel rules` : 'channel rules hold too')
 if (bad) process.exit(1)
+
+// Someone else's registered company name. Pulling the gap against four rivals
+// surfaces THEIR rivals, and Malaysia's biggest topic came back carrying
+// `mo advertising sdn bhd`. A person typing a company's legal name wants that
+// company, not a billboard.
+drop('mo advertising sdn bhd')
+drop('out of home media sdn bhd')
+drop('big tree outdoor sdn bhd')
+drop('wow media sdn bhd')
+drop('classic billboards m sdn bhd')
+
+// Matched on the legal suffix only. A bare trading name is indistinguishable
+// from a service search without a company list, so it is left alone rather
+// than guessed at.
+keep('wan advertising')
+keep('billboard advertising malaysia')
+keep('outdoor advertising')
+
+console.log(bad ? `\n${bad} failing after the company-name rule` : 'company-name rule holds too')
+if (bad) process.exit(1)

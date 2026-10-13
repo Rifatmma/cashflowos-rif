@@ -75,10 +75,22 @@ const pageCols = new Map(
   head.map((h, i) => [h.replace(/\s*\(pages\)\s*$/i, '').trim(), i] as const)
     .filter(([h, i]) => /\(pages\)/i.test(head[i])))
 
+// OUR OWN COLUMN, when the export carries one.
+//
+// A Keyword Gap export has a position column for every domain compared,
+// including ours — measured in the same pull, on the same day, for all of
+// these searches. That is better evidence about us than the stored keyword
+// list, which for Malaysia holds 84 searches against the export's 999. Using
+// the database alone, a term we rank #3 for would be treated as "we do not
+// rank" simply because nothing had recorded it yet, and proposed as a gap.
+const usCol = head.findIndex((h, i) =>
+  i > 0 && /movingwalls\.com/i.test(h) && !/\(pages\)/i.test(h))
+
 if (!rivalCols.length) { console.error('no rival column found in: ' + head.join(' | ')); process.exit(1) }
 console.log(`${file}\n  ${country.label} (${market.label}) · rivals: ${rivalCols.map(r => r.h).join(', ')}`)
 
 const rows: GapRow[] = []
+const fromFile = new Map<string, number>()
 for (const line of lines.slice(1)) {
   const c = cells(line)
   const q = (c[0] ?? '').trim()
@@ -91,6 +103,10 @@ for (const line of lines.slice(1)) {
   for (const rc of rivalCols) {
     const p = num(c[rc.i])
     if (p > 0 && (theirBest === 0 || p < theirBest)) { theirBest = p; rival = rc.h }
+  }
+  if (usCol >= 0) {
+    const mine = num(c[usCol])
+    if (mine > 0) fromFile.set(q.toLowerCase().trim(), mine)
   }
   if (!theirBest) continue
 
@@ -116,6 +132,9 @@ if (supabaseConfigured) {
     ...((data?.gsc_keywords ?? []) as any[]),
   ])
 }
+// The export's own reading of us wins where it has one: same pull, same day,
+// and it covers every row rather than only what has been stored.
+for (const [q, pos] of fromFile) ours.set(q, pos)
 
 const kept = cleanGap(rows, ours)
 const clusters = cluster(kept).filter(worthWriting)

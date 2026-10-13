@@ -247,6 +247,20 @@ const NOT_OURS_PARTS = [
   /\b(?:youtube|radio|television|\btv\b|newspaper|print|podcast|email|sms|whatsapp)\s+(?:advertis|ads?\b|marketing)/,
   /social media (?:advertis|marketing|agency)/,
   /(?:facebook|instagram|tiktok|google|linkedin|twitter)\s+ads?\b/,
+
+  // SOMEONE ELSE'S COMPANY NAME.
+  //
+  // Pulling the gap against four rivals surfaced their rivals in turn, and
+  // Malaysia's biggest "topic" came back worth 4,080 searches a month with
+  // `mo advertising sdn bhd` (260) and `oyes advertising` inside it. A person
+  // typing a company's registered name is looking for that company, not for a
+  // billboard — the click cannot be won and would not convert if it were.
+  //
+  // Matched on the legal suffix only, which is a fact rather than a guess. A
+  // bare trading name like "wan advertising" is indistinguishable from a real
+  // service search without a company list, so those still get through; the
+  // suffix catches the clearest cases without inventing a rule.
+  /\b(?:sdn\.?\s*bhd|pte\.?\s*ltd|pvt\.?\s*ltd|co\.?\s*ltd|berhad)\b/,
 ]
 const NOT_OURS = new RegExp(NOT_OURS_PARTS.map(r => r.source).join('|'), 'i')
 
