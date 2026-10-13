@@ -141,6 +141,83 @@ const changes: Change[] = [
     },
   },
   {
+    id: 'procedure',
+    kind: 'section',
+    where: 'A NEW section, below the pricing block and still ABOVE the blue “Looking for a Billboard in Malaysia?” call-to-action band',
+    anchor: 'Looking for a Billboard in Malaysia?',
+    mode: 'before-section',
+    was: null,
+    now: `
+  <h2>How to Book a Billboard in Malaysia</h2>
+  <p>Four stages take a campaign from choosing a site to going live. Nothing here is
+     unusual, but nobody publishes it, so buyers ask the same four questions on every
+     first call.</p>
+  <ol>
+    <li><b>Pick the site.</b> Location, format and duration, against audience and route.</li>
+    <li><b>Artwork specifications.</b> Exact dimensions, file format and deadline for the
+        site chosen — static and digital differ.</li>
+    <li><b>Permit and approval.</b> Submitted on your behalf. See the timeline below.</li>
+    <li><b>Installation or upload, then live.</b> Printing and mounting for static sites,
+        content upload for digital.</li>
+  </ol>
+  <p><b>Typical lead time from booking to live: [ ] working days.</b></p>`,
+    why: 'This is the single clearest difference between our page and the one that ' +
+      'outranks it. <b>advertising.com.my/billboard-advertising</b> sits at <b>#2</b> for both ' +
+      '“billboard advertising malaysia” and “digital billboard advertising malaysia”, and it is ' +
+      'not a better-written version of our page — it is a buying guide. It answers what it costs, ' +
+      'how you book it and how long approval takes. Our page explains what out of home advertising ' +
+      '<i>is</i>. The searches are from people who have already decided and want to know the ' +
+      'process. <b>No new URL:</b> this is a section on the page we already have.',
+    evidence: {
+      organic: [
+        { term: 'billboard advertising malaysia', pos: 13, vol: 260 },
+        { term: 'digital billboard advertising malaysia', pos: 14, vol: 320 },
+      ],
+      placeholders: [
+        'the real lead time from booking to live, from the Malaysia team',
+        'confirmation that we submit permits on the advertiser’s behalf — if we do not, this section says so instead',
+      ],
+    },
+  },
+  {
+    id: 'approvals',
+    kind: 'section',
+    where: 'A NEW section, directly below “How to Book a Billboard in Malaysia” and still above the call-to-action band',
+    anchor: 'Looking for a Billboard in Malaysia?',
+    mode: 'before-section',
+    was: null,
+    now: `
+  <h2>Permits and Approval Timelines</h2>
+  <p>Approval is the stage that moves a go-live date, so it is worth planning around
+     rather than discovering. Build buffer time in and the date holds.</p>
+  <ul>
+    <li><b>Artwork clearance:</b> [ ] to [ ] working days.</li>
+    <li><b>Local council permits</b> are the site owner’s responsibility, not the
+        advertiser’s, and are not charged to you.</li>
+    <li><b>Airport sites</b> are submitted to the airport authority separately and run on
+        their own schedule.</li>
+  </ul>
+  <p>We handle submission for every site we sell. [ ] — confirm what we do and do not
+     charge for.</p>`,
+    why: 'The competitor page publishes its approval timeline in working days, names the ' +
+      'authority and states who pays for permits. That is the detail a media buyer screenshots ' +
+      'and sends to their client, and it is why that page earns the link and the return visit. ' +
+      '<b>The specifics here are deliberately left blank.</b> A competitor’s published ' +
+      'timeline is their process, not ours, and publishing their numbers as ours would be ' +
+      'wrong twice over — inaccurate, and visibly copied.',
+    evidence: {
+      organic: [
+        { term: 'out of home advertising malaysia', pos: 11, vol: 260 },
+        { term: 'billboard price malaysia', pos: 8, vol: 90 },
+      ],
+      placeholders: [
+        'the real artwork-clearance window, in working days',
+        'which authority receives the submission, confirmed by the Malaysia team',
+        'whether permit costs ever reach the advertiser',
+      ],
+    },
+  },
+  {
     id: 'faq',
     kind: 'section',
     where: 'Four NEW questions for the existing FAQ, shown as a block directly BELOW it',
