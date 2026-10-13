@@ -360,10 +360,20 @@ export default function CorrectForm({
               <span>Date on the bill</span>
               <input name="due_date" type="date" value={day} onChange={e => setDay(e.target.value)} />
             </label>
+            {/* RECEIPT NUMBER, NAMED AS ONE. This was labelled "Shop's own
+                reference" and the owner did not recognise it as the receipt
+                number when he asked for the field to be added (14 Oct 2026).
+                It is also no longer cosmetic: it is what stops two bills from
+                the same shop, for the same money, on the same day being taken
+                for one — which cost RM 15 on 11 Oct. */}
             <label className="cr-field">
-              <span>Shop&rsquo;s own reference</span>
+              <span>Receipt number</span>
               <input name="receipt_no" value={ref} maxLength={40}
-                placeholder="optional" onChange={e => setRef(e.target.value)} />
+                placeholder="the check or invoice no." onChange={e => setRef(e.target.value)} />
+              <small>
+                Printed on the bill as Check&nbsp;# or Invoice&nbsp;No. This is how a second bill from
+                the same shop on the same day is told apart from a reprint &mdash; worth filling in.
+              </small>
             </label>
           </div>
         </div>

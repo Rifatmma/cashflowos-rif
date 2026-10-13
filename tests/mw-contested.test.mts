@@ -96,5 +96,17 @@ const row = (page: string, country: string, position: number, impressions = 30, 
   is(countryName('XYZ') === 'XYZ', 'and an unknown code is passed through rather than guessed')
 }
 
+// clashes() is pure and does not know whose site this is, so brand filtering
+// is the caller's job and happens in mw-plan. Noted here because dropping that
+// filter in the rewrite produced eight findings and every one of them was our
+// own company name.
+{
+  const brandish = clashes([
+    row('/locations/india', 'IND', 4, 200, 'moving walls'),
+    row('/locations/india/delhi', 'IND', 9, 200, 'moving walls'),
+  ])
+  is(brandish.length === 1, 'clashes() does not judge the query — the caller filters brand terms first')
+}
+
 console.log(bad ? `\n${bad} failed` : '\nall passed')
 process.exit(bad ? 1 : 0)

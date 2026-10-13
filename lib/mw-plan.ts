@@ -746,10 +746,18 @@ export function buildPlan(input: PlanInput, perMarket = 3): PlanTask[] {
   // Indonesia, the Philippines #23 in the Philippines, Dubai #24 in the UAE is
   // three pages each serving their own searchers, and the task was telling the
   // pages specialist to dismantle it. The country was in the data all along.
-  const geo = input.rows.map(r => ({
-    query: r.query, page: r.page, country: String(r.country || ''),
-    position: r.position, impressions: r.volume,
-  }))
+  //
+  // OUR OWN NAME IS NOT A SEARCH TO FIGHT OVER. The rewrite dropped the brand
+  // filter the old version had, and the first run produced eight findings, all
+  // of them "moving walls", "moving walls india", "moving walls sdn bhd".
+  // Several of our pages ranking for our own company name is what is supposed
+  // to happen (14 Oct 2026).
+  const geo = input.rows
+    .filter(r => !isBrand(r.query))
+    .map(r => ({
+      query: r.query, page: r.page, country: String(r.country || ''),
+      position: r.position, impressions: r.volume,
+    }))
   const found = clashes(geo).slice(0, 8)
   // Only the phrases actually being consolidated are held back from the link
   // tasks; everything else stays available to push.
