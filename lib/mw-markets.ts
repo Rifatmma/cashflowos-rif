@@ -261,6 +261,22 @@ const NOT_OURS_PARTS = [
   // service search without a company list, so those still get through; the
   // suffix catches the clearest cases without inventing a rule.
   /\b(?:sdn\.?\s*bhd|pte\.?\s*ltd|pvt\.?\s*ltd|co\.?\s*ltd|berhad)\b/,
+
+  // PRESS AND CLASSIFIED ADVERTISING.
+  //
+  // Several of the agencies that rank for outdoor terms in India also place
+  // newspaper classifieds, so the gap came back offering `name change
+  // advertisement in newspaper mumbai` (20,040 a month) and `advertisement in
+  // marathi`. These are real, large searches and they are somebody else's
+  // business entirely — a legal notice in a newspaper is not out of home.
+  //
+  // Caught by the medium wherever it appears, rather than only before the word
+  // "advertising", because Indian phrasing puts it after.
+  /\bnewspaper\b/,
+  /\bclassified(?:s|\s+ad)/,
+  /\b(?:matrimonial|obituary)\b/,
+  /\bname change\b/,
+  /\btender notice\b/,
 ]
 const NOT_OURS = new RegExp(NOT_OURS_PARTS.map(r => r.source).join('|'), 'i')
 

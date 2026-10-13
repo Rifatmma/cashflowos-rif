@@ -155,12 +155,29 @@ if (dropped.length) {
 
 if (!save) { console.log('\n  dry run — nothing written. Add --save.'); process.exit(0) }
 
+// A BROWSABLE NUMBER, NOT EVERY ONE.
+//
+// The United States, compared against four DOOH platforms, produces 4,566
+// relevant searches we do not hold and 740 page-sized topics. That is an
+// honest count and a useless list: nobody reads 740 of anything. The plan
+// takes the strongest one per country anyway, so what the rest are for is a
+// lead browsing /mw/gaps when they have capacity, and forty is as many as
+// that ever needs. The full figure is kept beside it so the cap never reads
+// as "this is all there is".
+const CAP = 40
+const TOP = clusters.slice(0, CAP)
+if (clusters.length > CAP) {
+  console.log(`
+  storing the top ${CAP} of ${clusters.length} topics — the planner takes one, the rest are for browsing`)
+}
+
 const quarter = `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`
 const { error } = await supabase.from('mw_market_gaps').upsert({
   quarter, country: country.key, market: market.key, db: dbOf(country),
-  rivals: rivalCols.map(r => r.h), clusters,
+  rivals: rivalCols.map(r => r.h), clusters: TOP,
   raw_count: rows.length, kept_count: kept.length,
   pulled_at: new Date().toISOString(),
 }, { onConflict: 'quarter,country' })
 if (error) { console.error('\n  save failed: ' + error.message); process.exit(1) }
-console.log(`\n  saved ${clusters.length} topics for ${country.label} into ${quarter}`)
+console.log(`\n  saved ${TOP.length} topics for ${country.label} into ${quarter}`
+  + (clusters.length > TOP.length ? ` — the strongest of ${clusters.length} found` : ''))
