@@ -13,6 +13,7 @@
 import { writeFileSync, mkdirSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import { protectionDoc, type PageRanks, type RankedTerm } from '../lib/mw-seo-protect'
+import { isBrand } from '../lib/mw-markets'
 
 const url = process.env.SUPABASE_URL
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -33,6 +34,15 @@ for (const r of (rows ?? []) as any[]) {
     const u = String(k?.url ?? '').trim()
     const q = String(k?.q ?? '').trim()
     if (!u || !q) continue
+    // NOT OUR OWN NAME. The doc was listing "moving walls" at #1 as a phrase
+    // that "must survive any edit", which is advice nobody needs: nothing is
+    // going to outrank us for our own company name, and a protection list full
+    // of brand terms hides the non-brand ones that are the actual constraint.
+    //
+    //   "I don't think we should do anything on the brand terms part... what I
+    //    want to focus more on is non-brand terms I actually mentioned this
+    //    already since we started creating this page."   (owner, 14 Oct 2026)
+    if (isBrand(q)) continue
     const list = byUrl.get(u) ?? []
     // The same term can arrive from several country pulls. Keep the best
     // position: that is the one with traffic to lose.

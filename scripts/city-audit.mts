@@ -8,6 +8,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { readCity, citySummary, type CityFacts } from '../lib/mw-city'
+import { isBrand } from '../lib/mw-markets'
 
 const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
 const SITE = 'https://www.movingwalls.com'
@@ -27,6 +28,10 @@ for (const r of (seo ?? []) as any[]) {
   if (String(r.cycle) !== cycle) continue
   for (const k of r.keywords ?? []) {
     const u = String(k?.url ?? '').replace(/\/$/, ''); if (!u) continue
+    // Brand terms are not a finding. Chennai's whole card read "ranks #49 for
+    // moving walls india private limited", which tells a market lead nothing
+    // they can act on (owner, 14 Oct 2026).
+    if (isBrand(String(k.q))) continue
     const list = ranked.get(u) ?? []
     if (!list.some(x => x.q === k.q)) list.push({ q: String(k.q), pos: Number(k.pos) || 0, vol: Number(k.vol) || 0 })
     ranked.set(u, list)
