@@ -20,18 +20,25 @@ import { rankLinkers, linkStep, type BlogPost } from './mw-linkers'
 import { targetsFor, linkJobs, linkTaskSteps, editCount } from './mw-internal-links'
 import { clashes, clashTitle, clashWhy, clashSteps, countryName, type Clash } from './mw-contested'
 import { effortOf, type GapCluster } from './mw-gap'
+import { sizeOf, sizeShort, demandOf } from './mw-gsc-market'
 
 // ---------------------------------------------------------------- the inputs
 /** One Search Console row: query x page x country, last 28 days. */
 /**
- * One ranking row for one country.
+ * One ranking row for one country, from either source.
  *
- * The numbers come from Semrush, not Search Console, and the names say so.
- * `volume` is how many people search that phrase in that country each month --
- * total market demand, not how often we were shown. `visits` is Semrush's
- * estimate of what our position earns us from it. Calling these "impressions"
- * and "clicks" would be the same shape and a different fact, and the team
- * would end up quoting them at clients (owner, 29 Sep 2026).
+ * The field names say which fact each number is, because the same shape
+ * carrying a different fact is how a team ends up quoting the wrong one at a
+ * client (owner, 29 Sep 2026):
+ *
+ *   volume  Semrush. How many people search that phrase in that country each
+ *           month — total market demand, not how often we were shown.
+ *   impr    Search Console. How often WE were shown. Counted, not modelled.
+ *   visits  clicks where Search Console saw them, otherwise Semrush's estimate
+ *           of what our position earns.
+ *
+ * `volume` and `impr` are never written into one another. Use `weigh()` to
+ * compare rows and `sizeOf()` to put one in a sentence.
  */
 export type MarketRow = {
   query: string; page: string; country: string
@@ -40,7 +47,23 @@ export type MarketRow = {
   kd?: number
   /** Position at the previous pull, 0 when it is new. */
   prev?: number
+  /**
+   * Search Console impressions. Separate from `volume`, which is Semrush's
+   * estimate of total searches — we were shown this many times, which is not
+   * the same fact and must not be written into the same field.
+   */
+  impr?: number
+  src?: 'gsc' | 'semrush' | 'both'
 }
+
+/**
+ * How much a row is worth, in whichever unit its source measured.
+ *
+ * Impressions and volume cannot be added, so this picks rather than sums, and
+ * prefers the counted figure. Used for every threshold and sort, so that a
+ * market Semrush has never heard of is weighed on the same scale as one it has.
+ */
+export const weigh = (r: { volume: number; impr?: number }) => (r.impr ?? 0) || r.volume
 
 /** @deprecated the old Search Console shape; kept so existing callers compile. */
 export type GscRow = MarketRow
@@ -82,6 +105,17 @@ export type PlanKeyword = {
   q: string; pos: number; vol: number; visits: number; kd?: number; prev?: number
   /** The page that holds this position. Only set where the page is the point. */
   url?: string
+  /**
+   * Search Console's two counted figures. Kept apart from `vol` on purpose:
+   * `vol` is Semrush's estimate of how often a phrase is searched anywhere,
+   * `impr` is how often WE were shown. Writing one into the other would make
+   * every task quote a number that means something else — see sizeOf() in
+   * lib/mw-gsc-market.ts, which is how copy asks for the right units.
+   */
+  impr?: number
+  clicks?: number
+  /** Which source this row came from. `both` is the strongest evidence. */
+  src?: 'gsc' | 'semrush' | 'both'
 }
 export type PlanTask = {
   id: string
@@ -140,7 +174,7 @@ export function ctrAt(pos: number): number {
 
 /** Clicks a query would gain if it reached the top three, from where it is now. */
 export const upside = (r: { volume: number; position: number; ctr: number }) =>
-  Math.max(0, r.volume * (ctrAt(3) - Math.max(r.ctr, ctrAt(r.position))))
+  Math.max(0, weigh(r) * (ctrAt(3) - Math.max(r.ctr, ctrAt(r.position))))
 
 const slug = (s: string) =>
   String(s || '').toLowerCase().replace(/^https?:\/\/[^/]+/, '')
@@ -149,7 +183,20 @@ const pathOf = (url: string) => String(url || '').replace(/^https?:\/\/[^/]+/, '
 // Numbers land in sentences a person reads aloud, so 12198 is written 12,198.
 const round = (n: number) => Math.round(n).toLocaleString('en-US')
 const list = (ks: PlanKeyword[], n = 6) =>
-  ks.slice(0, n).map(k => `"${k.q}" (#${k.pos.toFixed(0)}, ${round(k.vol)} searches a month)`).join(', ')
+  ks.slice(0, n).map(k => `"${k.q}" (#${k.pos.toFixed(0)}, ${sizeOf(k)})`).join(', ')
+
+/**
+ * A row, as the keyword shape tasks carry.
+ *
+ * This was written out by hand in eight places. Once rows gained `impr` and
+ * `src` that became eight chances to drop them, and a task whose keywords
+ * silently lost their impressions would quote "no volume recorded" for a
+ * market with thousands. One helper, so there is one place to be wrong.
+ */
+const kwOf = (r: MarketRow): PlanKeyword => ({
+  q: r.query, pos: r.position, vol: r.volume, visits: r.visits,
+  kd: r.kd, prev: r.prev, impr: r.impr, src: r.src,
+})
 
 const MIN_VOL = 20         // below this a search is noise, not an opportunity
 const STRIKE_FROM = 4      // already top three? nothing to win here
@@ -180,13 +227,13 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   // September plan says their pages are done, and the sitemap has only
   // /locations/africa.
   if (!has(page)) {
-    const impr = rows.reduce((t, r) => t + r.volume, 0)
+    const impr = rows.reduce((t, r) => t + weigh(r), 0)
     const sessions = ga4?.sessions ?? 0
     if (impr >= 50 || sessions >= 25) {
-      const top = [...rows].sort((a, b) => b.volume - a.volume).slice(0, 8)
-        .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+      const top = [...rows].sort((a, b) => weigh(b) - weigh(a)).slice(0, 8)
+        .map(r => (kwOf(r)))
       const why = impr >= 50
-        ? `${co.label} runs ${round(impr)} searches a month that we already show up for, and there is no ${co.label} page — Google is sending them to whatever page it can find.`
+        ? `${co.label} is worth ${demandOf(rows)} that we already show up for, and there is no ${co.label} page — Google is sending them to whatever page it can find.`
         : `GA4 recorded ${round(sessions)} sessions from ${co.label} this month and there is no ${co.label} page for them to land on.`
       const group = `mkt-${co.key}-page`
       const score = impr * 0.02 + sessions * 0.05
@@ -315,7 +362,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       if (!seen) out.push({ url: pathOf(url), q, pos, vol })
       else if (pos < seen.pos) seen.pos = pos
     }
-    for (const r of earned) add(r.page, r.query, r.position, r.volume)
+    for (const r of earned) add(r.page, r.query, r.position, weigh(r))
     for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) add(url, k.q, k.pos, k.vol)
     return out.sort((a, b) => a.pos - b.pos).slice(0, 5)
   }
@@ -365,7 +412,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
     }
     for (const r of earned) {
       if (pathOf(r.page) !== onPage || !(r.position >= 1 && r.position <= 10)) continue
-      add({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev })
+      add(kwOf(r))
     }
     for (const k of input.ranked?.[onPage] ?? []) {
       if (!(k.pos >= 1 && k.pos <= 10)) continue
@@ -451,29 +498,29 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   // two people.
   const citiesWanted = co.cities.filter(city =>
     !has(cityPageFor(co, city)) &&
-    earned.some(r => r.query.toLowerCase().includes(city.toLowerCase()) && r.volume >= MIN_VOL))
+    earned.some(r => r.query.toLowerCase().includes(city.toLowerCase()) && weigh(r) >= MIN_VOL))
   const claimedByCity = (q: string) => citiesWanted.some(city => q.toLowerCase().includes(city.toLowerCase()))
 
   // ── striking distance, grouped by the page Google already shows ─────────
   const near = earned.filter(r =>
-    r.position >= STRIKE_FROM && r.position <= STRIKE_TO && r.volume >= MIN_VOL && !claimedByCity(r.query))
+    r.position >= STRIKE_FROM && r.position <= STRIKE_TO && weigh(r) >= MIN_VOL && !claimedByCity(r.query))
   const byPage = new Map<string, GscRow[]>()
   for (const r of near) byPage.set(pathOf(r.page), [...(byPage.get(pathOf(r.page)) ?? []), r])
 
   for (const [onPage, group] of byPage) {
     const kws = [...group].sort((a, b) => upside(b) - upside(a))
-      .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+      .map(r => (kwOf(r)))
     const gain = group.reduce((t, r) => t + upside(r), 0)
     // One small keyword is not a project. Either several searches point at the
     // page, or the single one that does is big enough to matter on its own.
-    const groupVol = group.reduce((t, r) => t + r.volume, 0)
+    const groupVol = group.reduce((t, r) => t + weigh(r), 0)
     if (group.length < 2 && groupVol < 200) continue
     if (gain < 3) continue
     const holds = holdsOn(onPage)
     out.push({
       ...base, holds, id: `mkt-${co.key}-strike-${slug(onPage)}`, kind: 'strike',
       title: `Push ${onPage} onto page one for ${kws.length} ${co.label} ${kws.length === 1 ? 'search' : 'searches'}`,
-      why: `${kws.length} ${co.label} ${kws.length === 1 ? 'search ranks' : 'searches rank'} between #${Math.min(...kws.map(k => k.pos)).toFixed(0)} and #${Math.max(...kws.map(k => k.pos)).toFixed(0)} on ${onPage}. They are searched ${round(group.reduce((t, r) => t + r.volume, 0))} times a month between them and bring us about ${round(group.reduce((t, r) => t + r.visits, 0))} visits — on the board, off the first screen. Reaching the top three is worth roughly ${round(gain)} more visits a month.`,
+      why: `${kws.length} ${co.label} ${kws.length === 1 ? 'search ranks' : 'searches rank'} between #${Math.min(...kws.map(k => k.pos)).toFixed(0)} and #${Math.max(...kws.map(k => k.pos)).toFixed(0)} on ${onPage}. They are worth ${demandOf(group)} between them and bring us about ${round(group.reduce((t, r) => t + r.visits, 0))} visits — on the board, off the first screen. Reaching the top three is worth roughly ${round(gain)} more visits a month.`,
       steps: [
         `Open ${onPage} and work these into it, biggest opportunity first: ${list(kws)}.`,
         'Put the strongest in the H1 and the page title; give each of the others its own H2 with two or three real paragraphs underneath — an answer, not a keyword drop.',
@@ -501,15 +548,15 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   for (const r of earned) {
     const p = pathOf(r.page)
     const at = totals.get(p) ?? { vol: 0, visits: 0, pos: 0, n: 0 }
-    at.vol += r.volume; at.visits += r.visits; at.pos += r.position; at.n++
+    at.vol += weigh(r); at.visits += r.visits; at.pos += r.position; at.n++
     totals.set(p, at)
   }
   for (const [onPage, t] of totals) {
     const ctr = t.vol > 0 ? t.visits / t.vol : 0
     const avgPos = t.n ? t.pos / t.n : 99
     if (t.vol < 400 || ctr >= 0.01 || avgPos > 20) continue
-    const kws = earned.filter(r => pathOf(r.page) === onPage).sort((a, b) => b.volume - a.volume).slice(0, 6)
-      .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+    const kws = earned.filter(r => pathOf(r.page) === onPage).sort((a, b) => weigh(b) - weigh(a)).slice(0, 6)
+      .map(r => (kwOf(r)))
     const ctrHolds = holdsOn(onPage)
     out.push({
       ...base, owner: builder, holds: ctrHolds, id: `mkt-${co.key}-ctr-${slug(onPage)}`, kind: 'no-clicks',
@@ -549,7 +596,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
       else if (pos < seen.pos) seen.pos = pos
       termsOf.set(path, list)
     }
-    for (const r of earned) push(r.page, r.query, r.position, r.volume)
+    for (const r of earned) push(r.page, r.query, r.position, weigh(r))
     for (const [url, ks] of Object.entries(input.ranked ?? {})) for (const k of ks) push(url, k.q, k.pos, k.vol)
 
     const targets = targetsFor([...termsOf.entries()].map(([url, terms]) => ({ url, terms })))
@@ -581,11 +628,11 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
 
   // ── a city people search for, with nowhere to send them ─────────────────
   for (const city of citiesWanted) {
-    const hits = earned.filter(r => r.query.toLowerCase().includes(city.toLowerCase()) && r.volume >= MIN_VOL)
-    const kws = [...hits].sort((a, b) => b.volume - a.volume).slice(0, 6)
-      .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+    const hits = earned.filter(r => r.query.toLowerCase().includes(city.toLowerCase()) && weigh(r) >= MIN_VOL)
+    const kws = [...hits].sort((a, b) => weigh(b) - weigh(a)).slice(0, 6)
+      .map(r => (kwOf(r)))
     const url = cityPageFor(co, city)
-    const cwhy = `${city} ${hits.length === 1 ? 'is searched for' : 'searches are run'} ${round(hits.reduce((t, r) => t + r.volume, 0))} times a month across ${hits.length} ${hits.length === 1 ? 'phrase' : 'phrases'}, and we have no ${city} page — the best we manage is #${Math.min(...hits.map(h => h.position)).toFixed(0)} on a general page.`
+    const cwhy = `${city} is worth ${demandOf(hits)} across ${hits.length} ${hits.length === 1 ? 'phrase' : 'phrases'}, and we have no ${city} page — the best we manage is #${Math.min(...hits.map(h => h.position)).toFixed(0)} on a general page.`
     const cgroup = `mkt-${co.key}-city-${slug(city)}`
     const cscore = hits.reduce((t, r) => t + upside(r), 0)
     const ccopy = `${cgroup}-copy`
@@ -628,8 +675,8 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   if (has(page)) {
     for (const [onPage, t] of totals) {
       if (!/\/(blog|insights|resources|press-news)\//.test(onPage) || t.vol < 200) continue
-      const kws = earned.filter(r => pathOf(r.page) === onPage).sort((a, b) => b.volume - a.volume).slice(0, 4)
-        .map(r => ({ q: r.query, pos: r.position, vol: r.volume, visits: r.visits, kd: r.kd, prev: r.prev }))
+      const kws = earned.filter(r => pathOf(r.page) === onPage).sort((a, b) => weigh(b) - weigh(a)).slice(0, 4)
+        .map(r => (kwOf(r)))
       out.push({
         ...base, id: `mkt-${co.key}-orphan-${slug(onPage)}`, kind: 'orphan',
         title: `Link ${onPage} to ${page}`,
@@ -661,14 +708,14 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   for (const [q, hits] of perQuery) {
     const pages = [...new Set(hits.map(h => pathOf(h.page)))]
     if (pages.length < 3) continue
-    const vol = Math.max(...hits.map(h => h.volume))
+    const vol = Math.max(...hits.map(weigh))
     if (vol < MIN_VOL) continue
     const best = [...hits].sort((a, b) => a.position - b.position)[0]
     const bestPage = pathOf(best.page)
     out.push({
       ...base, owner: builder, id: `mkt-${co.key}-cannibal-${slug(q)}`, kind: 'cannibal',
       title: `Pick one page to own “${q}” — ${pages.length} of ours are competing`,
-      why: `“${q}” is searched ${round(vol)} times a month in ${co.label}, and ${pages.length} different pages of ours turn up for it, the best at #${best.position.toFixed(0)}. Google is choosing between them rather than ranking one properly, so the signal we have earned is being split ${pages.length} ways.`,
+      why: `“${q}” is worth ${demandOf(hits)} in ${co.label}, and ${pages.length} different pages of ours turn up for it, the best at #${best.position.toFixed(0)}. Google is choosing between them rather than ranking one properly, so the signal we have earned is being split ${pages.length} ways.`,
       steps: [
         `Decide which page should own this search. On the evidence it is ${bestPage}, which already ranks highest.`,
         `Make that page unambiguously about it: the phrase in the title, the H1 and the opening paragraph.`,
@@ -677,7 +724,7 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
         'Re-check the position in four weeks — consolidation usually shows within two.',
       ],
       keywords: [...hits].sort((a, b) => a.position - b.position).slice(0, 8)
-        .map(h => ({ q: h.query, pos: h.position, vol: h.volume, visits: h.visits, kd: h.kd, prev: h.prev, url: pathOf(h.page) })),
+        .map(h => (({ ...kwOf(h), url: pathOf(h.page) }))),
       url: bestPage, size: pages.length > 6 ? 'M' : 'S',
       doneWhen: `One page owns “${q}” and the others link to it instead of competing.`,
       score: vol * 0.03 * Math.min(pages.length, 10),
@@ -759,7 +806,7 @@ export function buildPlan(input: PlanInput, perMarket = 3): PlanTask[] {
     .filter(r => !isBrand(r.query))
     .map(r => ({
       query: r.query, page: r.page, country: String(r.country || ''),
-      position: r.position, impressions: r.volume,
+      position: r.position, impressions: weigh(r),
     }))
   const found = clashes(geo).slice(0, 8)
   // Only the phrases actually being consolidated are held back from the link

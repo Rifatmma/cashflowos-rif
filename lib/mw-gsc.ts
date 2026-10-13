@@ -25,8 +25,17 @@ import 'server-only'
 import { gunzipSync } from 'zlib'
 import { runWorkbench } from './composio-mcp'
 
-/** Comfortably inside the stdout cap, with room for the JSON wrapper. */
-const CHUNK = 6000
+/**
+ * Inside the ~10,000 character stdout cap, with room for the JSON wrapper and
+ * the two markers — about 9,000 would still fit and leaves nothing spare.
+ *
+ * Raised from 6,000 on 13 Oct 2026 when the market pull went from a truncated
+ * 5,000 rows to Search Console's full 25,000. Every chunk is a separate
+ * sandbox round-trip inside a function with a 60-second ceiling, so the
+ * payload growing from ~78k to ~134k would have cost seven more calls at the
+ * old size. At 8,500 it costs three.
+ */
+const CHUNK = 8500
 /** A runaway would be a loop; 40 slices is 240k, far more than any real pull. */
 const MAX_CHUNKS = 40
 

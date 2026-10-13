@@ -159,7 +159,20 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
     // large (parked in Composio's sandbox)" and the rows never arrive.
     const got = await gscQuery({
       property, start: ymd(start), end: ymd(end),
-      dimensions: ['query', 'page', 'country'], rowLimit: 5000,
+      // 5,000 WAS A SILENT TRUNCATION, AND IT FELL ON THE SMALL MARKETS.
+      //
+      // The property returns 9,105 rows for this window, so a 5,000 cap threw
+      // away 42% of them -- and Search Console sorts by clicks, so what went
+      // over the side was every market with impressions and no clicks yet.
+      // Measured 13 Oct 2026, rows kept at impr>=3, 5,000 vs 25,000:
+      //
+      //   Indonesia 42 -> 85    Hong Kong 11 -> 25    UK  93 -> 183
+      //   UAE       61 -> 86    Australia 131 -> 202  SGP 137 -> 210
+      //
+      // Half of Indonesia and more than half of Hong Kong were missing from
+      // every plan, which is most of why those markets looked quiet. 25,000
+      // is Search Console's own maximum; the chunked transport carries it.
+      dimensions: ['query', 'page', 'country'], rowLimit: 25_000,
       // Filtered in the sandbox: it is the difference between 78k and 30k of
       // payload, and a query seen twice in a month is noise in every
       // calculation downstream.
@@ -170,7 +183,14 @@ export async function fetchGsc(notes?: string[]): Promise<{ rows: MarketRow[]; n
       page: String(r.keys[1] ?? ''),
       country: String(r.keys[2] ?? '').toUpperCase(),
       visits: r.clicks,
-      volume: r.impressions,
+      // IMPRESSIONS ARE NOT VOLUME. This line used to read
+      // `volume: r.impressions`, which quietly made every task built from a
+      // Search Console row say "searched N times a month" about a count of
+      // how often we were SHOWN -- the exact confusion the comment on
+      // MarketRow warns against, committed in the code the comment sits above.
+      volume: 0,
+      impr: r.impressions,
+      src: 'gsc' as const,
       ctr: r.ctr,
       position: r.position,
     })).filter(r => r.query && r.country)
@@ -452,18 +472,47 @@ export async function fetchSemrush(
  * for", unfiltered — a brand term at #3 is still a ranking a rewrite can
  * break.
  */
-export function rankedByPage(ev: MarketEvidence[]): Record<string, PlanKeyword[]> {
+export function rankedByPage(ev: MarketEvidence[], gsc: MarketRow[] = []): Record<string, PlanKeyword[]> {
   const out: Record<string, PlanKeyword[]> = {}
+  const push = (path: string, k: PlanKeyword) => {
+    const list = out[path] ?? (out[path] = [])
+    const seen = list.find(x => x.q.toLowerCase() === k.q.toLowerCase())
+    if (!seen) { list.push(k); return }
+    // Two sources describing the same ranking. Keep the better position and
+    // let each field come from whichever source actually measures it --
+    // impressions only exist in Search Console, volume only in Semrush.
+    if (k.pos < seen.pos) seen.pos = k.pos
+    seen.vol = Math.max(seen.vol, k.vol)
+    if ((k.impr ?? 0) > 0) seen.impr = Math.max(seen.impr ?? 0, k.impr as number)
+    if ((k.visits ?? 0) > seen.visits) seen.visits = k.visits
+    seen.src = seen.src && k.src && seen.src !== k.src ? 'both' : (seen.src ?? k.src)
+  }
+
   for (const e of ev) {
     for (const k of e.keywords) {
-      const path = String(k.url ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/'
       if (!k.q || !(k.pos > 0)) continue
-      const list = out[path] ?? (out[path] = [])
-      const seen = list.find(x => x.q.toLowerCase() === k.q.toLowerCase())
-      if (seen) { if (k.pos < seen.pos) { seen.pos = k.pos; seen.vol = Math.max(seen.vol, k.vol) } continue }
-      list.push({ q: k.q, pos: k.pos, vol: k.vol, visits: k.traffic, kd: k.kd, prev: k.prev, url: path })
+      const path = String(k.url ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/'
+      push(path, { q: k.q, pos: k.pos, vol: k.vol, visits: k.traffic, kd: k.kd, prev: k.prev, url: path, src: 'semrush' })
     }
   }
+
+  // SEARCH CONSOLE BELONGS HERE TOO, AND USED NOT TO BE.
+  //
+  // This fed the do-not-remove list and `holdsOn()`, and it read Semrush
+  // alone -- so for the 22 countries Semrush has no database for, every page
+  // had an EMPTY protection list. A proposal could rewrite a heading carrying
+  // a term that page ranks #4 for and nothing would object, because as far as
+  // the checker knew the page ranked for nothing at all.
+  for (const r of gsc) {
+    if (!r.query || !(r.position > 0)) continue
+    const path = String(r.page ?? '').replace(/^https?:\/\/[^/]+/, '').replace(/\/$/, '') || '/'
+    push(path, {
+      q: r.query, pos: r.position, vol: 0, visits: r.visits,
+      impr: r.impr, url: path, src: 'gsc',
+    })
+  }
+
+  for (const list of Object.values(out)) list.sort((a, b) => a.pos - b.pos)
   return out
 }
 
@@ -619,7 +668,7 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
       }
     }
 
-    const ranked = rankedByPage(semrush)
+    const ranked = rankedByPage(semrush, gsc.rows)
     const posts = await blogPosts()
     if (posts.length) notes.push(`blog index: ${posts.length} posts available to link from`)
     const input: PlanInput = { rows, ga4, pages, markets, specialists, health, gaps, ranked, posts, cycle }
@@ -645,7 +694,7 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
     if (blind.length) notes.push(`held back: ${blind.join(', ')} did not answer, so their tasks were left alone`)
 
     const saved = opts.save === false ? { written: 0, retired: 0 } : await saveTasks(tasks, cycle, canRetire)
-    if (opts.save !== false) await saveMarketSeo(semrush, ga4, health, cycle).catch(e =>
+    if (opts.save !== false) await saveMarketSeo(semrush, ga4, health, cycle, gsc.rows).catch(e =>
       notes.push(`market evidence not saved: ${String(e?.message ?? e).slice(0, 80)}`))
 
     return {
@@ -667,6 +716,7 @@ export async function saveMarketSeo(
   ga4: Ga4Country[],
   health: Record<string, PageHealth>,
   cycle: string,
+  gsc: MarketRow[] = [],
 ): Promise<number> {
   if (!supabaseConfigured) return 0
 
@@ -684,12 +734,19 @@ export async function saveMarketSeo(
     .select('*').eq('cycle', cycle)
   const before = new Map((existing ?? []).map((r: any) => [r.country as string, r]))
 
+  const byCountry = new Map<string, MarketRow[]>()
+  for (const r of gsc) {
+    const k = String(r.country || '').toUpperCase()
+    byCountry.set(k, [...(byCountry.get(k) ?? []), r])
+  }
+
   const rows = COUNTRIES.map(({ country, market }) => {
     const e = ev.find(x => x.country.key === country.key)
     const g = ga4.find(x => x.country.toLowerCase() === country.ga4.toLowerCase())
     const h = health[`/locations/${country.key}`] ?? null
     const old = before.get(country.key)
-    if (!e && !g && !h && !old) return null
+    const anyGsc = (byCountry.get(country.iso3.toUpperCase()) ?? []).length > 0
+    if (!e && !g && !h && !old && !anyGsc) return null
 
     const row: Record<string, unknown> = {
       ...(old ?? {}),
@@ -709,6 +766,22 @@ export async function saveMarketSeo(
       row.keywords = e.keywords
       // An empty competitor list means "not pulled", not "no competitors".
       if (e.competitors.length) row.competitors = e.competitors
+    }
+
+    // Search Console columns. Its own, for the same reason Semrush has its
+    // own: a failure in one source must not blank what the other found. For
+    // the 22 countries Semrush has no database for, these are the only
+    // keywords the market will ever show.
+    const mine = byCountry.get(country.iso3.toUpperCase())
+    if (mine && mine.length) {
+      row.gsc_keywords = mine
+        .slice()
+        .sort((x, y) => (y.impr ?? 0) - (x.impr ?? 0))
+        .slice(0, 200)
+        .map(r => ({ q: r.query, pos: r.position, impr: r.impr ?? 0, clicks: r.visits, url: r.page }))
+      row.gsc_impressions = mine.reduce((t, r) => t + (r.impr ?? 0), 0)
+      row.gsc_clicks = mine.reduce((t, r) => t + r.visits, 0)
+      row.gsc_queries = new Set(mine.map(r => r.query.toLowerCase())).size
     }
 
     // Analytics columns.
