@@ -111,3 +111,15 @@ keep('outdoor advertising')
 
 console.log(bad ? `\n${bad} failing after the company-name rule` : 'company-name rule holds too')
 if (bad) process.exit(1)
+
+// The film again. The UK searches it 8,100 times a month under names with no
+// "ebbing" in them, so matching only the town missed it.
+drop('three billboards film')
+drop('three billboards')
+drop('billboards movie')
+drop('billboard movie cast')
+keep('digital billboards uk')
+keep('billboard advertising cost')
+
+console.log(bad ? `\n${bad} failing after the film rule` : 'film rule holds too')
+if (bad) process.exit(1)

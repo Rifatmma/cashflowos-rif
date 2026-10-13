@@ -229,7 +229,11 @@ const INDUSTRY = new RegExp(INDUSTRY_PARTS.map(r => r.source).join('|'), 'i')
 // it had never matched anything. It only looked like it worked because the
 // line above it catches "billboard charts" on the word "chart".
 const NOT_OURS_PARTS = [
-  /ebbing/,                        // Three Billboards Outside Ebbing, Missouri
+  // The film, which the UK searches 8,100 times a month under names that do
+  // not contain "ebbing". Caught on the title and on the medium.
+  /ebbing/,
+  /three billboards/i,
+  /billboards? (?:film|movie|poster|cast|trailer|ending|streaming)/i,
   /billboard (?:200|hot ?100|chart|music|magazine|awards)/,
   /\bbillboard (?:top|charts)\b/,
 
