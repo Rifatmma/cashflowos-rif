@@ -133,6 +133,7 @@ export function MarketInsight({
           192 searches we are shown for most" — a weaker claim, and the true
           one. */}
       <p className="mw-insight-basis">
+        Counted from searches <b>we are shown for</b>, not from everything the market searches.{' '}
         From the {n(nonBrand.length)} most-shown non-brand {nonBrand.length === 1 ? 'search' : 'searches'} stored
         for {country.label}. Clicks on rarer searches are not counted here.
       </p>
@@ -194,11 +195,17 @@ export function MarketInsight({
 
       <div className="mw-insight-grid">
         <section>
-          <h4>What language they search in</h4>
-          {/* Indonesia is why: Google Ads buys `sewa billboard` and sends it
-              to an English page, so we pay for demand we do not earn. The
-              opposite shows here too — /locations/americas-es exists and the
-              Americas records no Spanish at all. */}
+          <h4>What language we are found in</h4>
+          {/* NOT WHAT THE MARKET SEARCHES. WHAT WE ARE FOUND FOR.
+              This was headed "what language they search in", which the data
+              cannot answer: it is built from our own Search Console rows,
+              which only contain searches we ALREADY appear for. Our site is in
+              English, so of course they are English. Hong Kong read 93%
+              English and Japan 100% -- and when Japan was pulled against
+              Japanese-language competitors instead, 9,163 keywords came back
+              and 921 were ours to chase.
+              A low local share here is a sign we are invisible in that
+              language, not evidence the language is not searched. */}
           <table className="mw-ib">
             <tbody>
               {langs.slice(0, 4).map(l => (
@@ -210,7 +217,10 @@ export function MarketInsight({
                 </tr>
               ))}
               {langs.length === 1 && (
-                <tr><td colSpan={4} className="eg">Every search recorded here is in English.</td></tr>
+                <tr><td colSpan={4} className="eg">
+                  Every search we are found for here is in English. That may mean the market
+                  searches in English — or that we are invisible in the language it does use.
+                </td></tr>
               )}
             </tbody>
           </table>

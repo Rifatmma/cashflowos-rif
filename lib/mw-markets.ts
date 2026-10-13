@@ -208,6 +208,32 @@ const INDUSTRY_PARTS = [
   /advertis/, /\bads?\b/, /\bad (?:space|board|network)/, /media (?:owner|buying|planning)/,
   /programmatic/, /digital screen/, /led screen/, /audience measurement/,
   /campaign/, /bus shelter/, /transit media/, /mrt ads/, /retail media/,
+
+  // THE REST OF THE WORLD, which this list did not contain until 14 Oct 2026.
+  //
+  // Every word above is English, so `isRelevant` answered "not our industry"
+  // for every search in every other language. Japan showed it starkly: pulled
+  // against Japanese-language competitors the gap returned 2,853 rows, and
+  // ELEVEN survived the clean. The other 2,842 were 屋外広告 and 看板 — the
+  // Japanese for the exact thing we sell.
+  //
+  // That is why Japan, Hong Kong, UAE and Indonesia all looked finished. They
+  // were not; they were unreadable.
+  //
+  // CJK has no spaces, so no \b here — these match as substrings, which is
+  // correct for languages that do not separate words.
+  /広告/, /看板/, /屋外広告/, /サイネージ/, /野立/,            // Japanese
+  /廣告/, /广告/, /廣告牌/, /广告牌/, /戶外/, /户外/, /燈箱/, /灯箱/,  // Chinese
+  /광고/, /옥외/, /전광판/,                                      // Korean
+  /โฆษณา/, /ป้าย/,                                              // Thai
+  /إعلان/, /اعلان/, /لوحات/, /دعاية/,                            // Arabic
+  /\b(?:iklan|reklame|baliho|periklanan|luar ruang)\b/,          // Malay, Indonesian
+  /\b(?:publicidad|vallas|anuncios|espectacular)\b/,             // Spanish
+  /\b(?:publicidade|outdoor|midia)\b/,                           // Portuguese
+  /\b(?:werbung|plakat|aussenwerbung)\b/,                        // German
+  /\b(?:publicite|affichage|panneau)\b/,                         // French
+  /\b(?:reclame|buitenreclame)\b/,                               // Dutch
+  /\b(?:quang cao|bien quang cao)\b/, /quảng cáo/,               // Vietnamese
 ]
 const INDUSTRY = new RegExp(INDUSTRY_PARTS.map(r => r.source).join('|'), 'i')
 
@@ -250,7 +276,9 @@ const NOT_OURS_PARTS = [
   // sits in the same plan, and UAE already earns impressions for it.
   /\b(?:youtube|radio|television|\btv\b|newspaper|print|podcast|email|sms|whatsapp)\s+(?:advertis|ads?\b|marketing)/,
   /social media (?:advertis|marketing|agency)/,
-  /(?:facebook|instagram|tiktok|google|linkedin|twitter)\s+ads?\b/,
+  // "facebook ads" was caught and "facebook advertising" was not, so Hong
+  // Kong's gap offered both that and `ig ads` as things to go after.
+  /(?:facebook|instagram|\big\b|tiktok|snapchat|google|linkedin|twitter|xiaohongshu|wechat)\s*(?:ads?\b|advertis)/,
 
   // SOMEONE ELSE'S COMPANY NAME.
   //
@@ -276,6 +304,23 @@ const NOT_OURS_PARTS = [
   //
   // Caught by the medium wherever it appears, rather than only before the word
   // "advertising", because Indian phrasing puts it after.
+  // The same other-channel rule, in the languages the industry words above
+  // now admit. Without these, Japan's gap fills with テレビ広告 and 求人広告 —
+  // television advertising and job listings, which carry 広告 and are not ours.
+  /(?:youtube|テレビ|ラジオ|新聞|雑誌|求人|折込)広告/,
+  // Streaming and in-game, which Japan surfaces at real volume: プライム
+  // ビデオ 広告 is 4,400 a month and is Amazon's business, not ours.
+  // A short gap allowed between the service and 広告, because Japanese search
+  // phrasing puts a word in the middle: プライム ビデオ 広告.
+  // A short gap allowed between the service and 広告, because Japanese search
+  // phrasing puts a word in the middle: プライム ビデオ 広告. `\w` cannot be
+  // used for that gap — it is ASCII-only and never matches ビデオ.
+  /(?:プライム|ネットフリックス|アマゾン|インスタ|ゲーム|アプリ|ウェブ|web).{0,6}広告/,
+  /広告\s*(?:ゲーム|アプリ|ブロック)/,
+  /(?:電視|電台|報紙|雜誌|招聘)廣告/,
+  /(?:电视|电台|报纸|杂志|招聘)广告/,
+  /(?:유튜브|티비|신문|라디오|구인)\s*광고/,
+
   /\bnewspaper\b/,
   /\bclassified(?:s|\s+ad)/,
   /\b(?:matrimonial|obituary)\b/,

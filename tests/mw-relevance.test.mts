@@ -123,3 +123,41 @@ keep('billboard advertising cost')
 
 console.log(bad ? `\n${bad} failing after the film rule` : 'film rule holds too')
 if (bad) process.exit(1)
+
+// ── the rest of the world ──────────────────────────────────────────────────
+// Every industry word in this list was English, so isRelevant answered "not
+// our industry" for every search in every other language. Japan showed it
+// starkly: pulled against Japanese-language competitors the gap returned 2,853
+// rows and ELEVEN survived. The other 2,842 were 屋外広告 and 看板.
+keep('屋外広告')
+keep('看板広告')
+keep('デジタルサイネージ')
+keep('戶外廣告')
+keep('廣告牌')
+keep('户外广告公司')
+keep('옥외광고')
+keep('ป้ายโฆษณา')
+keep('إعلانات الطرق')
+keep('baliho jakarta')
+keep('publicidad exterior')
+
+// The same other-channel rule has to work in those languages too, or Japan
+// fills with television and job listings.
+drop('テレビ広告')
+drop('求人広告')
+drop('新聞広告')
+drop('プライム ビデオ 広告')
+drop('電視廣告')
+drop('招聘廣告')
+
+// "facebook ads" was caught and "facebook advertising" was not.
+drop('facebook advertising')
+drop('ig ads')
+drop('instagram advertising')
+
+// And none of it may swallow something unrelated.
+drop('ラーメン')
+drop('香港 美食')
+
+console.log(bad ? `\n${bad} failing after the language rules` : 'language rules hold too')
+if (bad) process.exit(1)
