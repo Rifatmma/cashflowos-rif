@@ -650,8 +650,11 @@ export function tasksForCountry(m: Market, co: Country, input: PlanInput): PlanT
   // Google will not rank twelve pages of ours for one phrase; it picks one and
   // usually picks badly. The ranking is already earned, only scattered, so
   // consolidating is the cheapest position gain available anywhere.
+  // `earned`, not `rows`: the latter still carries brand searches, and this
+  // task was raising five of them — "pick one page to own moving walls india".
+  // Nothing is going to outrank us for our own name (owner, 14 Oct 2026).
   const perQuery = new Map<string, MarketRow[]>()
-  for (const r of rows) {
+  for (const r of earned) {
     const q = r.query.toLowerCase()
     perQuery.set(q, [...(perQuery.get(q) ?? []), r])
   }
