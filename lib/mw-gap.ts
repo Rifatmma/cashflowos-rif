@@ -147,3 +147,120 @@ export function effortOf(c: GapCluster): { size: 'S' | 'M' | 'L'; says: string }
   if (c.kd >= 30) return { size: 'M', says: `difficulty ${c.kd} — a proper page will compete` }
   return { size: 'S', says: `difficulty ${c.kd} — low competition, a good page should rank` }
 }
+
+// ---------------------------------------------------------- why it is empty
+//
+// AN EMPTY GAP IS AN ANSWER, AND IT HAS TO SAY WHICH ANSWER.
+//
+// Malaysia returned 66 missing keywords and zero writable topics, and the
+// market simply went quiet — no task, no note, nothing on the board. Read one
+// way that says "Malaysia is finished". Read correctly it says every one of
+// those 66 was a landmark on a rival's inventory pages (taman tun dr ismail,
+// toll plazas, highways) while we already rank 8th to 14th for every
+// commercial term there. Malaysia has a POSITION problem, and writing pages
+// would not have touched it.
+//
+//   "if such a scenario where you detect that any market gap isn't the content
+//    gap then perhaps give a clear explanation"          (owner, 13 Oct 2026)
+//
+// So the gap always produces a verdict, and silence is never one of them.
+
+export type GapVerdictKind = 'content' | 'position' | 'inventory' | 'unseen' | 'none'
+
+export type GapVerdict = {
+  kind: GapVerdictKind
+  /** One line, for a card or a heading. */
+  headline: string
+  /** The evidence, in a sentence or two. */
+  why: string
+  /** What to do instead. Never "write more pages" unless that is truly it. */
+  doThis: string
+}
+
+/** A rival whose ranking pages nearly all sit under one path is running inventory. */
+export function looksLikeInventory(urls: string[]): { yes: boolean; prefix: string; share: number } {
+  const paths = urls.map(u => String(u || '').replace(/^https?:\/\/[^/]+/, '').replace(/^\//, ''))
+    .filter(Boolean)
+  if (paths.length < 5) return { yes: false, prefix: '', share: 0 }
+  const heads = new Map<string, number>()
+  for (const p of paths) {
+    const head = p.split('/')[0]
+    // A one-segment path is a page, not a folder of them.
+    if (!head || !p.includes('/')) continue
+    heads.set(head, (heads.get(head) ?? 0) + 1)
+  }
+  const best = [...heads.entries()].sort((a, b) => b[1] - a[1])[0]
+  if (!best) return { yes: false, prefix: '', share: 0 }
+  const share = best[1] / paths.length
+  return { yes: share >= 0.5, prefix: '/' + best[0], share: Math.round(share * 100) / 100 }
+}
+
+export function gapVerdict(input: {
+  country: string
+  raw: GapRow[]
+  kept: GapRow[]
+  clusters: GapCluster[]
+  /** Our own positions on non-brand, on-topic searches in this country. */
+  ourCommercial: { q: string; pos: number }[]
+  /** The rival pages behind the missing keywords, when the export carried them. */
+  rivalPages?: string[]
+}): GapVerdict {
+  const { country, raw, kept, clusters, ourCommercial, rivalPages = [] } = input
+  const writable = clusters.filter(worthWriting)
+  const onBoard = ourCommercial.filter(k => k.pos >= 1 && k.pos <= 30)
+  const closeIn = ourCommercial.filter(k => k.pos >= 4 && k.pos <= 20)
+
+  if (writable.length) {
+    const vol = writable.reduce((t, c) => t + c.vol, 0)
+    return {
+      kind: 'content',
+      headline: `${writable.length} topic${writable.length === 1 ? '' : 's'} our competitors answer and we do not`,
+      why: `${raw.length} searches came back that rivals rank for and we do not. ${kept.length} survived the clean, ` +
+        `and they group into ${writable.length} page-sized topic${writable.length === 1 ? '' : 's'} worth ${Math.round(vol).toLocaleString('en-US')} searches a month.`,
+      doThis: 'Add a section to the page that should own each topic. No new pages.',
+    }
+  }
+
+  // Nothing to write. Now say why, in order of how often it is the real reason.
+  if (closeIn.length >= 3) {
+    const sample = [...closeIn].sort((a, b) => a.pos - b.pos).slice(0, 3)
+    return {
+      kind: 'position',
+      headline: `Not a content gap — ${country} is a position problem`,
+      why: `There is nothing worth writing: we already rank for the commercial searches in ${country}, just not high enough. ` +
+        `${sample.map(k => `“${k.q}” at #${Math.round(k.pos)}`).join(', ')}. ` +
+        `Of ${ourCommercial.length} on-topic searches we hold, ${closeIn.length} sit between #4 and #20 — on the board, off the first screen.`,
+      doThis: `Improve the pages that already rank rather than writing new ones. Moving one of these onto page one is worth more than any page we could add.`,
+    }
+  }
+
+  const inv = looksLikeInventory(rivalPages)
+  if (inv.yes) {
+    return {
+      kind: 'inventory',
+      headline: `Not a content gap — the rival is ranking on inventory, not writing`,
+      why: `${Math.round(inv.share * 100)}% of the rival pages behind these searches sit under \`${inv.prefix}\` — one page per site or location, ` +
+        `earning landmark searches rather than buying intent. That is a different site structure, not an article we are missing.`,
+      doThis: `Do not copy the page farm. Decide separately whether a location directory is worth building; it is a structural choice with a real cost, ` +
+        `and the traffic it wins is people looking for a place, not a media buyer.`,
+    }
+  }
+
+  if (raw.length < 10 || !onBoard.length) {
+    return {
+      kind: 'unseen',
+      headline: `No usable gap for ${country} — the comparison itself is thin`,
+      why: `Only ${raw.length} missing search${raw.length === 1 ? '' : 'es'} came back${onBoard.length ? '' : ' and we hold no on-topic ranking there'}. ` +
+        `That is too little to conclude anything: it more likely means Semrush does not track this market well than that there is nothing to win.`,
+      doThis: `Use Search Console for this market instead — it records what we are actually shown for, in every language. ` +
+        `Re-run the gap against competitors taken from the search results rather than from shared keywords.`,
+    }
+  }
+
+  return {
+    kind: 'none',
+    headline: `Nothing worth writing for ${country} this quarter`,
+    why: `${raw.length} missing searches came back and ${kept.length} were on-topic, but none group into a topic big enough to justify a page.`,
+    doThis: 'Leave it. Re-check next quarter.',
+  }
+}
