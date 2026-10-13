@@ -2,7 +2,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { currentGuest } from '@/lib/guest'
-import { setRivals, storeImport } from '@/lib/mw-gap-run'
+import { storeImport } from '@/lib/mw-gap-run'
 import { readFile, describe } from '@/lib/mw-import'
 import { COUNTRIES, dbOf } from '@/lib/mw-markets'
 import { decide, undecide } from '@/lib/mw-proposals'
@@ -93,26 +93,15 @@ export async function saveTargets(formData: FormData) {
  * better to say so than to let a lead type a fifth and wonder why it does
  * nothing (owner, 29 Sep 2026).
  */
-export async function saveRivals(formData: FormData) {
-  const country = String(formData.get('country') ?? '').trim()
-  if (!country) return
-  const list = String(formData.get('rivals') ?? '')
-    .split(/[\n,]/)
-    .map(s => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
-    .filter(Boolean)
-    .slice(0, 4)
-  await setRivals(country, list)
-  revalidatePath('/mw/gaps'); revalidatePath('/mw/seo')
-}
+// Rivals are no longer typed in. They come from each market's own search
+// results during the monthly pull and are stored on mw_market_gaps with the
+// topics they produced, so the comparison and the findings can never drift
+// apart — which they had: Japan's typed list held two Australian domains while
+// its topics came from tokai-ad.co.jp and nichemedia.jp.
+//
+// setRivals() stays in lib/mw-gap-run.ts for the importer; nothing in /mw
+// writes it any more.
 
-/**
- * Take a batch of Semrush CSV exports.
- *
- * Every file is reported on individually — imported, or skipped with the
- * reason. Nothing is guessed: a file whose market cannot be read from its
- * name is handed back for a human to place rather than filed somewhere
- * plausible (owner, 30 Sep 2026).
- */
 export async function importSemrush(_prev: unknown, formData: FormData): Promise<{ lines: string[]; ok: number; skipped: number }> {
   const files = formData.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
   const pick = String(formData.get('country') ?? '').trim()

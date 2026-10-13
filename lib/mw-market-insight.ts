@@ -43,10 +43,37 @@ export type Kind = 'place' | 'product' | 'trade'
  * measurement tool, a CMS — not somebody buying a billboard on a particular
  * road.
  */
-const PRODUCT = /\b(?:ssp|dsp|programmatic|pdooh|platform|software|saas|api|cms|content management|measurement|measuring|analytics|attribution|audience|data|impressions?|roi|roas|automation|ad server|adserver|exchange|supply side|demand side|real.?time|dashboard|report(?:ing)?|planning tool|verification)\b/i
+const PRODUCT = new RegExp([
+  /\b(?:ssp|dsp|programmatic|pdooh|platform|software|saas|api|cms|content management|measurement|measuring|analytics|attribution|audience|data|impressions?|roi|roas|automation|ad server|adserver|exchange|supply side|demand side|real.?time|dashboard|report(?:ing)?|planning tool|verification)\b/,
+  // The same vocabulary in the languages the gap can now read. Without these
+  // every Japanese and Chinese product search fell through to "the trade in
+  // general", which is how a market gets described as something it is not.
+  /プログラマティック|効果測定|広告配信|アドサーバー|データ分析|運用型/,
+  /程序化|數據分析|数据分析|效果監測|效果监测|廣告投放|广告投放/,
+  /프로그래매틱|광고플랫폼/,
+].map(r => r.source).join('|'), 'i')
 
 /** Trade language: the industry, without a place or a product in it. */
 const TRADE = /\b(?:billboard|hoarding|ooh|dooh|out.?of.?home|outdoor advert|signage|unipole|bus shelter|transit)\b/i
+
+/**
+ * Place language that is not written in Latin script.
+ *
+ * Country.cities holds English names — Tokyo, Osaka — so a Japanese search for
+ * 東京 matched nothing and was filed under "the trade in general". The generic
+ * markers matter more than the city list: 駅 (station), 空港 (airport), 区
+ * (ward), 路 (road) mark a search as being about somewhere without needing
+ * every place name in every country.
+ */
+const LOCAL_PLACES = new RegExp([
+  /駅|空港|市内|県|丁目|高速道路/,                            // Japanese
+  /東京|大阪|名古屋|福岡|渋谷|新宿|銀座|横浜/,
+  /機場|机场|車站|车站|地鐵|地铁|街道|大道/,                   // Chinese
+  /香港|九龍|旺角|銅鑼灣|中環|尖沙咀|北京|上海|深圳|廣州|广州/,
+  /역세권|공항|지하철|서울|부산|인천/,                         // Korean
+  /สนามบิน|สถานี|กรุงเทพ|เชียงใหม่/,                           // Thai
+  /مطار|شارع|طريق|دبي|أبوظبي|الشارقة|الرياض|جدة/,             // Arabic
+].map(r => r.source).join('|'))
 
 /**
  * Is this search about a place?
@@ -65,7 +92,9 @@ export function placeTest(country: Country): RegExp {
     'mall', 'station', 'airport', 'metro', 'subway', 'city', 'downtown',
   ]
   const parts = [...new Set([...names, ...extra])].map(w => w.replace(/[^a-z0-9 ]/g, ''))
-  return new RegExp('\\b(?:' + parts.join('|') + ')\\b', 'i')
+  // Latin names need word boundaries; the local-script ones must NOT have them,
+  // because CJK writes without spaces and \b would never fire there.
+  return new RegExp('\\b(?:' + parts.join('|') + ')\\b|' + LOCAL_PLACES.source, 'i')
 }
 
 export function kindOf(q: string, place: RegExp): Kind {
@@ -390,4 +419,49 @@ export function trend(points: Point[], key: 'impressions' | 'sessions' | 'leads'
     .map(p => ({ cycle: p.cycle, value: Number(p[key]) || 0 }))
     .sort((a, b) => a.cycle.localeCompare(b.cycle))
   return { points: got, enough: got.length >= 2 }
+}
+
+// ------------------------------------------------- English against the rest
+//
+// The language table listed every language it found, which buries the only
+// question worth asking: are we found in the language this market actually
+// uses, or only in English? One row each, and the local one named.
+export type LangSplit2 = {
+  english: { impressions: number; queries: number; share: number }
+  local: { language: string; impressions: number; queries: number; share: number; sample: string[] }[]
+  localShare: number
+}
+
+export function englishVsLocal(keywords: InsightKeyword[]): LangSplit2 {
+  const all = languages(keywords)
+  const en = all.find(l => l.language === 'English')
+  const rest = all.filter(l => l.language !== 'English')
+  const total = all.reduce((t, l) => t + l.impressions, 0)
+  return {
+    english: {
+      impressions: en?.impressions ?? 0,
+      queries: en?.queries ?? 0,
+      share: total > 0 ? (en?.impressions ?? 0) / total : 0,
+    },
+    local: rest.map(l => ({ language: l.language, impressions: l.impressions, queries: l.queries, share: l.share, sample: l.sample })),
+    localShare: total > 0 ? rest.reduce((t, l) => t + l.impressions, 0) / total : 0,
+  }
+}
+
+/**
+ * The language a market is expected to search in, so the panel can name it
+ * even when we are found in none of it.
+ *
+ * "0% Japanese" is a far more useful line than "100% English", and only this
+ * makes it sayable — otherwise a language we have no rows for cannot be
+ * mentioned, which is exactly the blind spot that hid Japan.
+ */
+export const EXPECTED_LANGUAGE: Record<string, string> = {
+  japan: 'Japanese', 'hong-kong': 'Chinese', china: 'Chinese', taiwan: 'Chinese',
+  'south-korea': 'Korean', thailand: 'Thai', vietnam: 'Vietnamese',
+  indonesia: 'Malay or Indonesian', malaysia: 'Malay or Indonesian',
+  uae: 'Arabic', 'saudi-arabia': 'Arabic', qatar: 'Arabic', kuwait: 'Arabic', oman: 'Arabic',
+  germany: 'German', france: 'French', netherlands: 'Dutch', switzerland: 'German',
+  brazil: 'Portuguese', mexico: 'Spanish', americas: 'Spanish',
+  'czech-republic': 'Czech', japan_regional: 'Japanese',
 }

@@ -7,7 +7,7 @@ import { effortOf, worthWriting } from '@/lib/mw-gap'
 import { MARKETS, COUNTRIES, serpUrl } from '@/lib/mw-markets'
 import { num } from '@/lib/mw-data'
 import { MwHero, Section } from '../_ui'
-import { RivalEditor } from './_gap-ui'
+import { RivalsPanel } from './_rivals-ui'
 import { MarketInsight } from './_insight-ui'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { fetchPages } from '@/lib/mw-plan-run'
@@ -85,7 +85,12 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
     .filter(x => x.gap || x.rivals.length || kwOf(x.country.key).length)
     .sort((a, b) => (b.gap?.clusters.length ?? 0) - (a.gap?.clusters.length ?? 0))
 
-  const active = withGap.find(x => x.country.key === c) ?? withGap[0] ?? null
+  const pulled = withGap.filter(x => x.gap && x.gap.clusters.filter(worthWriting).length > 0)
+    .sort((a, b) => b.gap!.clusters.filter(worthWriting).length - a.gap!.clusters.filter(worthWriting).length)
+  const unpulled = withGap.filter(x => !pulled.includes(x))
+    .sort((a, b) => a.country.label.localeCompare(b.country.label))
+
+  const active = withGap.find(x => x.country.key === c) ?? pulled[0] ?? withGap[0] ?? null
   const topics = active?.gap?.clusters.filter(worthWriting) ?? []
   const totalTopics = gaps.reduce((t, g) => t + g.clusters.filter(worthWriting).length, 0)
 
@@ -110,18 +115,34 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
         </Section>
       ) : (
         <>
+          {/* THIRTY-SEVEN BUTTONS IS A WALL, NOT A CHOICE.
+              Every market with Search Console rows belongs on this page, but
+              most of them have no gap pulled and were taking the same visual
+              weight as the ones that do. The pulled markets lead, biggest
+              first; the rest fold away behind a count and open when wanted. */}
           <Section title="Market">
             <div className="mw-mtabs">
-              {withGap.map(x => (
+              {pulled.map(x => (
                 <Link key={x.country.key} href={`/mw/gaps?c=${x.country.key}`}
                   aria-current={active?.country.key === x.country.key ? 'page' : undefined}>
                   {x.country.label}
-                  <small>
-                    {x.gap ? `${x.gap.clusters.filter(worthWriting).length} topics` : 'not pulled yet'}
-                  </small>
+                  <small>{x.gap!.clusters.filter(worthWriting).length} topics</small>
                 </Link>
               ))}
             </div>
+            {unpulled.length > 0 && (
+              <details className="mw-mtabs-more" open={!!active && !active.gap}>
+                <summary>{unpulled.length} markets not pulled yet</summary>
+                <div className="mw-mtabs is-quiet">
+                  {unpulled.map(x => (
+                    <Link key={x.country.key} href={`/mw/gaps?c=${x.country.key}`}
+                      aria-current={active?.country.key === x.country.key ? 'page' : undefined}>
+                      {x.country.label}
+                    </Link>
+                  ))}
+                </div>
+              </details>
+            )}
           </Section>
 
           {active && (
@@ -143,8 +164,13 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
               </Section>
 
               <Section title={`Who we are measured against in ${active.country.label}`}
-                sub="Your list, not Semrush's. Change it and the next quarterly pull uses the new one.">
-                <RivalEditor country={active.country.key} label={active.country.label} rivals={active.rivals} />
+                sub="Taken from this market's own search results during the pull. Nobody types these in.">
+                <RivalsPanel
+                  label={active.country.label}
+                  rivals={active.gap?.rivals ?? []}
+                  clusters={active.gap?.clusters ?? []}
+                  ourRanked={kwOf(active.country.key).filter((k: any) => (Number(k.pos) || 0) > 0).length}
+                />
               </Section>
 
               {!active.gap ? (

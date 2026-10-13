@@ -15,7 +15,7 @@
 
 import {
   marketKinds, verdictOf, landings, bands, flags, KIND_LABEL,
-  languages, moneyLine, trend,
+  englishVsLocal, EXPECTED_LANGUAGE, moneyLine, trend,
   type InsightKeyword, type Money, type Point,
 } from '@/lib/mw-market-insight'
 import { isBrand, type Country } from '@/lib/mw-markets'
@@ -106,8 +106,9 @@ export function MarketInsight({
   const nonBrand = keywords.filter(k => !isBrand(k.q))
   const impressions = nonBrand.reduce((t, k) => t + (k.impr ?? 0), 0)
   const clicks = nonBrand.reduce((t, k) => t + (k.clicks ?? 0), 0)
-  const langs = languages(keywords)
-  const gMax = Math.max(...langs.map(l => l.impressions), 1)
+  const ev = englishVsLocal(keywords)
+  const expected = EXPECTED_LANGUAGE[country.key] ?? null
+  const evMax = Math.max(ev.english.impressions, ...ev.local.map(l => l.impressions), 1)
   const kMax = Math.max(...splits.map(s => s.impressions), 1)
   const lMax = Math.max(...land.map(l => l.impressions), 1)
   const bMax = Math.max(...bs.map(b => b.impressions), 1)
@@ -180,12 +181,17 @@ export function MarketInsight({
               problems with opposite fixes. */}
           <table className="mw-ib">
             <tbody>
+              {/* THE BARE NUMBER WAS UNREADABLE. It showed "32" beside
+                  "2 searches · 0 clicked", and nothing said 32 was impressions
+                  — so it looked like a count that contradicted the 2. Every
+                  figure is now named where it sits. */}
               {bs.map(b => (
                 <tr key={b.label}>
                   <th scope="row">{b.label}</th>
                   <td className="w"><Bar value={b.impressions} max={bMax} tone={b.from <= 10 ? 'good' : b.from >= 31 ? 'bad' : undefined} /></td>
-                  <td className="num">{n(b.impressions)}</td>
-                  <td className="eg">{b.queries} {b.queries === 1 ? 'search' : 'searches'} · {n(b.clicks)} clicked</td>
+                  <td className="eg">
+                    <b>{n(b.impressions)}</b> times shown · {b.queries} {b.queries === 1 ? 'search' : 'searches'} · {n(b.clicks)} clicked
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -195,35 +201,47 @@ export function MarketInsight({
 
       <div className="mw-insight-grid">
         <section>
-          <h4>What language we are found in</h4>
+          <h4>English, or the local language</h4>
           {/* NOT WHAT THE MARKET SEARCHES. WHAT WE ARE FOUND FOR.
-              This was headed "what language they search in", which the data
-              cannot answer: it is built from our own Search Console rows,
-              which only contain searches we ALREADY appear for. Our site is in
-              English, so of course they are English. Hong Kong read 93%
-              English and Japan 100% -- and when Japan was pulled against
-              Japanese-language competitors instead, 9,163 keywords came back
-              and 921 were ours to chase.
-              A low local share here is a sign we are invisible in that
-              language, not evidence the language is not searched. */}
+              Built from our own Search Console rows, which only contain
+              searches we ALREADY appear for — our site is in English, so they
+              are English. Japan read 100% English here, and when it was pulled
+              against Japanese-language competitors 9,163 keywords came back.
+              A low local share means we are invisible in that language, not
+              that nobody searches it. */}
           <table className="mw-ib">
             <tbody>
-              {langs.slice(0, 4).map(l => (
+              <tr>
+                <th scope="row">English</th>
+                <td className="w"><Bar value={ev.english.impressions} max={evMax} /></td>
+                <td className="num">{pct(ev.english.share)}</td>
+                <td className="eg">{n(ev.english.impressions)} shown</td>
+              </tr>
+              {ev.local.map(l => (
                 <tr key={l.language}>
                   <th scope="row">{l.language}</th>
-                  <td className="w"><Bar value={l.impressions} max={gMax} tone={l.language === 'English' ? undefined : 'place'} /></td>
+                  <td className="w"><Bar value={l.impressions} max={evMax} tone="place" /></td>
                   <td className="num">{pct(l.share)}</td>
-                  <td className="eg">{l.sample[0] ? `“${l.sample[0]}”` : `${l.queries} searches`}</td>
+                  <td className="eg">{l.sample[0] ? `“${l.sample[0]}”` : `${n(l.impressions)} shown`}</td>
                 </tr>
               ))}
-              {langs.length === 1 && (
-                <tr><td colSpan={4} className="eg">
-                  Every search we are found for here is in English. That may mean the market
-                  searches in English — or that we are invisible in the language it does use.
-                </td></tr>
+              {ev.local.length === 0 && expected && (
+                <tr>
+                  <th scope="row">{expected}</th>
+                  <td className="w"><Bar value={0} max={evMax} tone="place" /></td>
+                  <td className="num">0%</td>
+                  <td className="eg">we are found for none of it</td>
+                </tr>
               )}
             </tbody>
           </table>
+          {expected && ev.localShare < 0.1 && (
+            <p className="mw-insight-money">
+              We are found almost entirely in English here, while this market also searches
+              in {expected}. That is a blind spot in our own data, not proof the demand is absent —
+              the gap has to be pulled against {expected}-language competitors to see it.
+            </p>
+          )}
         </section>
 
         <section>
