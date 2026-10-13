@@ -191,7 +191,27 @@ const INDUSTRY = new RegExp([
   'campaign', 'bus shelter', 'transit media', 'mrt ads', 'retail media',
 ].join('|'), 'i')
 
-export const isRelevant = (q: string) => INDUSTRY.test(String(q || ''))
+/**
+ * Things that carry an industry word and are not our industry.
+ *
+ * "billboard" is three different famous nouns. Without this, Australia's gap
+ * offered a topic called "billboards" worth 8,320 searches a month, of which
+ * 1,300 was `billboards ebbing missouri` -- the Martin McDonagh film -- and
+ * 1,900 was `billboard 200`, the music chart. A market lead planning against
+ * that number is planning against a fifth fiction.
+ *
+ * Deliberately short and specific. A long exclusion list starts eating real
+ * searches, and a gap topic wrongly deleted is invisible, where a junk one
+ * merely wastes a reading.
+ */
+const NOT_OURS = new RegExp([
+  'ebbing',                        // Three Billboards Outside Ebbing, Missouri
+  'billboard (?:200|hot ?100|chart|music|magazine|awards)',
+  '\bbillboard (?:top|charts)\b',
+].join('|'), 'i')
+
+export const isRelevant = (q: string) =>
+  INDUSTRY.test(String(q || '')) && !NOT_OURS.test(String(q || ''))
 
 /**
  * A Google search for this phrase, as run from that country.

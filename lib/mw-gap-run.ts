@@ -111,9 +111,18 @@ export async function refreshGaps(opts: { only?: string; limit?: number } = {}):
 async function ourKeywords(country: Country): Promise<string[]> {
   if (!supabaseConfigured) return []
   const { data } = await supabase.from('mw_market_seo')
-    .select('keywords').eq('country', country.key).order('cycle', { ascending: false }).limit(1).maybeSingle()
-  const ks = (data?.keywords ?? []) as { q?: string }[]
-  return ks.map(k => String(k.q ?? '')).filter(Boolean)
+    .select('keywords, gsc_keywords').eq('country', country.key)
+    .order('cycle', { ascending: false }).limit(1).maybeSingle()
+  // BOTH sources, because either one alone understates what we hold. Semrush
+  // answers for 13 countries and Search Console for 37, so reading Semrush
+  // alone would wave through gap topics we already rank for in every market
+  // Semrush has no database for -- and send someone off to write a page that
+  // exists.
+  const ks = [
+    ...((data?.keywords ?? []) as { q?: string }[]),
+    ...((data?.gsc_keywords ?? []) as { q?: string }[]),
+  ]
+  return [...new Set(ks.map(k => String(k.q ?? '').trim().toLowerCase()).filter(Boolean))]
 }
 
 async function saveGap(
