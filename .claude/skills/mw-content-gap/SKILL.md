@@ -176,6 +176,21 @@ handler needs a trusted event. Open the menu however you like, then click CSV
 with a **real mouse click** at the probed coordinates. If a file does not
 appear within ~10 seconds, it did not download — do not assume it did.
 
+**Probe the export button's Y every time; never reuse a coordinate.** It sits
+at y=387 for a long table and y=167 for a short one, because `scrollIntoView`
+centres a different amount of page. The CSV button is a fixed **+184px** below
+it, and the menu **auto-closes between tool calls** — so open the menu and
+click CSV in the *same* batch:
+
+```
+probe y -> click (1427, y) -> wait 3 -> click (1257, y + 184)
+```
+
+**Chrome blocks repeated automatic downloads.** After roughly fifteen files it
+stops saving silently: the click lands, the menu is right, no file appears. Fix
+is one-time — Settings -> Privacy and security -> Site settings -> Automatic
+downloads -> Add `[*.]semrush.com`.
+
 **Always pass `--expect`.** Every export lands as
 `gap.keywords_<timestamp>.csv`, so taking "the newest file" silently gets the
 *previous* market whenever a download has not finished. Germany was once saved
