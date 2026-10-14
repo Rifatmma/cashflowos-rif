@@ -92,6 +92,20 @@ the ones usually missing from our picture.
 | Brazil | br | pt | mídia exterior outdoor publicidade |
 | Mexico | mx | es | publicidad exterior espectaculares |
 
+### Vet every candidate before using it
+
+```bash
+npx -y tsx scripts/vet-rivals.mts domain.com other.com ...
+```
+
+Reads each site and counts how much of it is out of home, in English and in the
+market's own language. **Use only the domains it marks USE.** It separates
+three verdicts — use, do not use, and *could not check* (several major
+operators block automated reads; judge those by hand rather than dropping
+them).
+
+Full findings and the per-market record: `docs/markets/RIVALS-BY-MARKET.md`.
+
 ### Check the yield before trusting anything
 
 The import prints how much of the pull was our industry. **A healthy market
