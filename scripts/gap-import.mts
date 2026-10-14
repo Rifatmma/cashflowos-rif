@@ -162,6 +162,18 @@ for (const [q, pos] of fromFile) ours.set(q, pos)
 const kept = cleanGap(rows, ours)
 const clusters = cluster(kept).filter(worthWriting)
 
+// HOW MUCH OF THIS PULL WAS ACTUALLY OUR INDUSTRY.
+//
+// The signal that the rivals are wrong, and it was sitting in the output being
+// ignored. Thailand returned 1,086 rows and 46 survived — 4% — and was
+// reported as "Thailand: 4 topics", as though the market were small. It is
+// not: saranromgroup.com ranks for an OOH phrase, but out of home is a sliver
+// of what they do, so most of their keywords are somebody else's trade.
+// Singapore was worse at 2%, carrying `straits times` and `联合早报`.
+//
+// Healthy markets run 20–60%. Under 8% means the comparison is wrong, not that
+// the market is empty (owner, 14 Oct 2026).
+const yieldPct = rows.length ? kept.length / rows.length : 0
 const onPageOne = [...ours.values()].filter(p => p >= 1 && p <= 10).length
 console.log(`  ${rows.length} rows read · we rank for ${ours.size}, ${onPageOne} of them on page one · ${kept.length} survive the clean · ${clusters.length} writable topics\n`)
 for (const c of clusters) {
@@ -174,6 +186,15 @@ const dropped = rows.filter(r => !kept.some(k => k.q === r.q))
   .sort((a, b) => b.vol - a.vol).slice(0, 6)
 if (dropped.length) {
   console.log(`\n  dropped as not ours to chase: ${dropped.map(d => `${d.q} (${d.vol.toLocaleString('en-US')})`).join(', ')}`)
+}
+
+if (yieldPct < 0.08 && rows.length >= 100) {
+  console.log(
+    `\n  ONLY ${(yieldPct * 100).toFixed(0)}% OF THIS PULL IS OUR INDUSTRY (${kept.length} of ${rows.length}).\n` +
+    `  A healthy market runs 20-60%. This usually means one of the rivals sells\n` +
+    `  something else and most of their keywords are another trade. Check each of:\n` +
+    `    ${rivalCols.map(r => r.h).join(', ')}\n` +
+    `  and re-pull before trusting the topics below.`)
 }
 
 if (!save) { console.log('\n  dry run — nothing written. Add --save.'); process.exit(0) }

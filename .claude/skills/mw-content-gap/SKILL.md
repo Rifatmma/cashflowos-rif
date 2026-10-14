@@ -92,7 +92,26 @@ the ones usually missing from our picture.
 | Brazil | br | pt | mídia exterior outdoor publicidade |
 | Mexico | mx | es | publicidad exterior espectaculares |
 
+### Check the yield before trusting anything
+
+The import prints how much of the pull was our industry. **A healthy market
+runs 20–60%. Under 8% means the rivals are wrong, not that the market is
+empty** — the script now says so itself.
+
+This was missed on three markets: Singapore came back at **2%** carrying
+`straits times` and `联合早报` (sph.com.sg is a newspaper publisher), Thailand
+at **4%** on saranromgroup.com, Malaysia at **5%**. Each was reported as a
+small market when the comparison was simply wrong.
+
 ### Rivals must sell what we sell
+
+**A domain ranking for an OOH phrase is not an OOH business.** Check what the
+company actually does before using it. saranromgroup.com ranks top in Thailand
+for `ป้ายโฆษณา` and out of home is a sliver of what they sell.
+
+Thailand's real operators are **planbmedia.co.th** and **vgi.co.th**; against
+those two the yield went from 4% to 12%.
+
 
 Check what a domain actually is before using it. Mistakes already made:
 
