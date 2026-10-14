@@ -208,20 +208,63 @@ if (!save) { console.log('\n  dry run — nothing written. Add --save.'); proces
 // lead browsing /mw/gaps when they have capacity, and forty is as many as
 // that ever needs. The full figure is kept beside it so the cap never reads
 // as "this is all there is".
-const CAP = 40
-const TOP = clusters.slice(0, CAP)
-if (clusters.length > CAP) {
-  console.log(`
-  storing the top ${CAP} of ${clusters.length} topics — the planner takes one, the rest are for browsing`)
+// MERGING A SECOND PULL INTO THE SAME MARKET.
+//
+// A market has to be compared against BOTH the competitors who rank in English
+// and the ones who rank in the local language, because they are different
+// companies and they hold different searches. Pulling Japan, Hong Kong, Korea
+// and Taiwan against local-language rivals alone replaced the English
+// comparison instead of adding to it, and the boards came back 39 of 40 local
+// -- as though the English opportunity had disappeared. It had not; it was
+// never in the pull.
+//
+//   "we already have landing pages in English let's not lose focus but also we
+//    don't have localized language landing page... let's also focus on what we
+//    have as well."                                     (owner, 14 Oct 2026)
+//
+// So --merge adds this pull's topics to what is already stored for the market
+// rather than replacing them, keyed on the topic head.
+const merge = process.argv.includes('--merge')
+let prior: any[] = []
+let priorRivals: string[] = []
+if (merge && supabaseConfigured) {
+  const { data } = await supabase.from('mw_market_gaps')
+    .select('clusters, rivals').eq('quarter', `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`)
+    .eq('country', country.key).maybeSingle()
+  prior = Array.isArray(data?.clusters) ? data!.clusters : []
+  priorRivals = Array.isArray(data?.rivals) ? data!.rivals : []
+  if (prior.length) console.log(`
+  merging with ${prior.length} topics already stored for ${country.label}`)
 }
+
+const byHead = new Map<string, any>()
+for (const c of [...prior, ...clusters]) {
+  const k = String(c.head || '').toLowerCase().trim()
+  const had = byHead.get(k)
+  // The richer version of a topic wins: more searches behind it means the pull
+  // that found it saw more of the market.
+  if (!had || (c.keywords?.length ?? 0) > (had.keywords?.length ?? 0)) byHead.set(k, c)
+}
+const merged = [...byHead.values()].sort((a, b) => (b.vol ?? 0) - (a.vol ?? 0))
+
+const CAP = 40
+const TOP = merged.slice(0, CAP)
+if (merged.length > CAP) {
+  console.log(`
+  storing the top ${CAP} of ${merged.length} topics — the planner takes one, the rest are for browsing`)
+}
+// Both halves, named, because which one a lead can act on this month differs:
+// English goes on the pages we already have, local would need a new page.
+const en = TOP.filter((c: any) => c.lang !== 'local').length
+console.log(`  ${en} answerable on the English pages we have · ${TOP.length - en} would need a local-language page`)
 
 const quarter = `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`
 const { error } = await supabase.from('mw_market_gaps').upsert({
   quarter, country: country.key, market: market.key, db: dbOf(country),
-  rivals: rivalCols.map(r => r.h), clusters: TOP,
+  rivals: [...new Set([...priorRivals, ...rivalCols.map(r => r.h)])], clusters: TOP,
   raw_count: rows.length, kept_count: kept.length,
   pulled_at: new Date().toISOString(),
 }, { onConflict: 'quarter,country' })
 if (error) { console.error('\n  save failed: ' + error.message); process.exit(1) }
 console.log(`\n  saved ${TOP.length} topics for ${country.label} into ${quarter}`
-  + (clusters.length > TOP.length ? ` — the strongest of ${clusters.length} found` : ''))
+  + (merged.length > TOP.length ? ` — the strongest of ${merged.length} found` : ''))

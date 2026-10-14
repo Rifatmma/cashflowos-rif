@@ -42,6 +42,31 @@ export type GapCluster = {
   /** Best CPC in the cluster — what a click is worth to buy. */
   cpc: number
   rivals: string[]
+  /**
+   * Which kind of page could answer this.
+   *
+   * `english` means the pages we already have can carry it — a section on
+   * /locations/hong-kong, today. `local` means it would need a page in the
+   * market's language, which we do not have anywhere and which is a bigger
+   * decision than a content brief.
+   *
+   * Both are real gaps and the distinction is not a ranking of them; it is
+   * what tells a lead which ones they can act on this month. Pulling Japan,
+   * Hong Kong, Korea and Taiwan against local-language rivals ALONE produced
+   * boards that were 39 of 40 local, which read as though the English
+   * opportunity had vanished (owner, 14 Oct 2026).
+   */
+  lang: 'english' | 'local'
+}
+
+const NON_LATIN = /[一-鿿぀-ヿ가-힯฀-๿؀-ۿऀ-ॿЀ-ӿ]/
+
+/** A topic is local if most of what it is made of is not written in Latin script. */
+export function langOf(keywords: { q: string; vol: number }[]): 'english' | 'local' {
+  const total = keywords.reduce((t, k) => t + (k.vol || 0), 0)
+  const local = keywords.filter(k => NON_LATIN.test(k.q)).reduce((t, k) => t + (k.vol || 0), 0)
+  if (total > 0) return local / total > 0.5 ? 'local' : 'english'
+  return keywords.filter(k => NON_LATIN.test(k.q)).length > keywords.length / 2 ? 'local' : 'english'
 }
 
 // Words that carry no topic. Kept short on purpose: an aggressive stop list
@@ -181,6 +206,7 @@ export function cluster(rows: GapRow[], minShared = 2): GapCluster[] {
       kd: kds.length ? kds[Math.floor(kds.length / 2)] : 0,
       cpc: Math.max(...members.map(m => m.cpc), 0),
       rivals: [...new Set(members.map(m => m.rival).filter(Boolean))],
+      lang: langOf(members),
     })
   }
 
