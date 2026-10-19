@@ -22,7 +22,10 @@ import {
 // approximations and must not be nudged to taste. WHICH surface a slide gets
 // is the template's decision — see mw-studio-templates.ts.
 
-export { TEMPLATES, DEFAULT_TEMPLATE, templateById, wantsPhoto } from './mw-studio-templates'
+export {
+  TEMPLATES, DEFAULT_TEMPLATE, templateById, wantsPhoto,
+  usesPhotoAnywhere, photoTemplatesFor,
+} from './mw-studio-templates'
 export type { Template, SlideKind, Surface } from './mw-studio-templates'
 
 export const INK = {

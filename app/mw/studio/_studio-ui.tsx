@@ -7,6 +7,7 @@ import type { Photo } from '@/lib/mw-photos'
 import {
   drawSlide, drawFilmSurface, drawSegmentText, faults, segmentFaults,
   SIZE, SLIDE_SECONDS, SEGMENT_SECONDS, TEMPLATES, templateById, wantsPhoto,
+  usesPhotoAnywhere, photoTemplatesFor,
   type Deck, type Format, type Slide, type Segment,
 } from '@/lib/mw-studio-design'
 import {
@@ -498,11 +499,25 @@ export function Studio() {
           {/* The cover photo picker. The alt text is shown because Pexels
               returns confident, unrelated pictures rather than admitting it
               found nothing. */}
-          {/* Shown whenever the CHOSEN TEMPLATE uses photography — not only
-              when slide one happens to be a cover. The first version gated
-              on the cover, so on a single image (which is a closer) the
-              picture was selected and then silently never drawn. */}
-          {templateById(template).photo !== 'none' && photos.length > 0 && (
+          {/* Gated on THIS DECK, not on the template in the abstract.
+              Twice now the picker has been offered where nothing would draw
+              the result — see usesPhotoAnywhere for both. And when the
+              current look will not use a photograph, that is said out loud
+              rather than the picker quietly vanishing, which is its own kind
+              of confusing. */}
+          {photos.length > 0 && !usesPhotoAnywhere(templateById(template), deck.slides.map(s => s.kind)) && (
+            <p className="mw-studio-warn">
+              <b>{templateById(template).name}</b>{' '}
+              {templateById(template).photo === 'none'
+                ? 'does not use photography at all.'
+                : `uses a photograph only on a carousel cover, and this is a single image.`}{' '}
+              {photoTemplatesFor(deck.slides.map(s => s.kind)).length > 0
+                ? `For a picture here, switch the look to ${photoTemplatesFor(deck.slides.map(s => s.kind)).join(' or ')}.`
+                : ''}
+            </p>
+          )}
+
+          {usesPhotoAnywhere(templateById(template), deck.slides.map(s => s.kind)) && photos.length > 0 && (
             <div className="mw-studio-photos">
               <h4>Cover photo</h4>
               <div className="mw-studio-strip">

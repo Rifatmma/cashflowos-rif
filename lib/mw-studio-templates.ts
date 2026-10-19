@@ -115,3 +115,29 @@ export function templateById(id: string | undefined): Template {
 export function wantsPhoto(t: Template, kind: SlideKind): boolean {
   return t.photo === 'every' || (t.photo === 'cover' && kind === 'cover')
 }
+
+
+/**
+ * Will this template put the photograph on ANY of these slides?
+ *
+ * The thing to ask before offering a photo picker, and the question the
+ * first two attempts both got wrong by asking something easier instead.
+ *
+ *   v1 showed the picker when slide one was a cover. A single image is a
+ *      closer, so the picker never appeared at all for single images.
+ *   v2 showed it when the template was not 'none'. Editorial — the default —
+ *      is 'cover', and a single image has no cover, so the picker appeared,
+ *      a photo was chosen, and nothing drew it. Same defect, narrower, and
+ *      on the default look.
+ *
+ * Both times the mistake was testing a proxy for the real question. The real
+ * question is about this deck, so it takes the deck.
+ */
+export function usesPhotoAnywhere(t: Template, kinds: SlideKind[]): boolean {
+  return kinds.some(k => wantsPhoto(t, k))
+}
+
+/** The templates that WOULD use a photograph here, by name, for telling someone. */
+export function photoTemplatesFor(kinds: SlideKind[]): string[] {
+  return TEMPLATES.filter(t => usesPhotoAnywhere(t, kinds)).map(t => t.name)
+}
