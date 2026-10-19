@@ -230,7 +230,7 @@ const KINDS: SlideKind[] = ['cover', 'stat', 'point', 'closer']
 
 /** Turn researched facts into slides. */
 export async function compose(
-  r: Research, format: Format, slideCount = 5, template = DEFAULT_TEMPLATE.id,
+  r: Research, format: Format, slideCount = 5, template = '',
 ): Promise<Deck | { error: string }> {
   const a = client()
   if (!a) return { error: 'ANTHROPIC_API_KEY is not set.' }
@@ -294,7 +294,11 @@ JSON only: {"slides":[{"kind":"cover","kicker":"...","headline":"...","body":"..
   })).filter(s => s.headline)
 
   if (!slides.length) return { error: 'Every slide came back empty.' }
-  return { topic: r.topic, format, template, slides }
+  // An empty id means "whatever this format's default look is" — the caller
+  // (the screen) normally supplies one, but a deck must never carry a look
+  // from the wrong family.
+  const family = format === 'carousel' ? 'carousel' : 'single'
+  return { topic: r.topic, format, template: template || DEFAULT_TEMPLATE[family].id, slides }
 }
 
 /**
@@ -308,7 +312,7 @@ JSON only: {"slides":[{"kind":"cover","kicker":"...","headline":"...","body":"..
  * the screen can say what is wrong instead of pretending.
  */
 export async function composeChecked(
-  r: Research, format: Format, slideCount = 5, template = DEFAULT_TEMPLATE.id,
+  r: Research, format: Format, slideCount = 5, template = '',
 ): Promise<{ deck: Deck; faults: string[] } | { error: string }> {
   const first = await compose(r, format, slideCount, template)
   if ('error' in first) return first

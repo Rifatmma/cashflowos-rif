@@ -1,5 +1,5 @@
 import {
-  type Surface, type Template, type SlideKind,
+  type Surface, type Template, type SlideKind, type FormatFamily,
   DEFAULT_TEMPLATE, wantsPhoto,
 } from './mw-studio-templates'
 
@@ -23,10 +23,10 @@ import {
 // is the template's decision — see mw-studio-templates.ts.
 
 export {
-  TEMPLATES, DEFAULT_TEMPLATE, templateById, wantsPhoto,
-  usesPhotoAnywhere, photoTemplatesFor,
+  TEMPLATES, CAROUSEL_TEMPLATES, SINGLE_TEMPLATES, DEFAULT_TEMPLATE,
+  templatesFor, templateById, wantsPhoto, usesPhotoAnywhere, photoTemplatesFor,
 } from './mw-studio-templates'
-export type { Template, SlideKind, Surface } from './mw-studio-templates'
+export type { Template, SlideKind, Surface, FormatFamily } from './mw-studio-templates'
 
 export const INK = {
   navy: '#1B1E2B',
@@ -45,12 +45,21 @@ export const INK = {
 /** Poppins throughout, per the guide. Weight is part of the token. */
 export const FONT = 'Poppins'
 
-export type Format = 'carousel' | 'single'
+// 4:5 for a carousel, 1:1 for a standalone image, 9:16 for a Reel. All
+// 1080 wide. `reel` is a VIDEO size only — it is never an image format, and
+// it borrows the single-image looks because a Reel is one design with the
+// words changing on it.
+export type Format = 'carousel' | 'single' | 'reel'
 
-/** 4:5 for the carousel, 1:1 for the standalone. Both are 1080 wide. */
 export const SIZE: Record<Format, { w: number; h: number }> = {
   carousel: { w: 1080, h: 1350 },
   single: { w: 1080, h: 1080 },
+  reel: { w: 1080, h: 1920 },
+}
+
+/** Which set of looks applies. A Reel is dressed as a single image. */
+export function familyOf(format: Format): FormatFamily {
+  return format === 'carousel' ? 'carousel' : 'single'
 }
 
 export type Slide = {
@@ -418,6 +427,33 @@ function paintSurface(
     return full
   }
 
+  if (s.kind === 'card') {
+    // A photograph with a white panel laid over its lower half. The panel is
+    // what makes this usable over ANY picture: a white headline on a photo
+    // depends on the scrim winning against whatever Pexels returned, and a
+    // panel does not depend on anything.
+    const top = Math.round(h * (s.cardTop ?? 0.5))
+    if (a.photo) {
+      drawPhoto(ctx, a.photo, 0, 0, w, h)
+      const g = ctx.createLinearGradient(0, 0, 0, top)
+      g.addColorStop(0, 'rgba(27,30,43,.30)')
+      g.addColorStop(1, 'rgba(27,30,43,.10)')
+      ctx.fillStyle = g
+      ctx.fillRect(0, 0, w, top)
+    } else {
+      ctx.fillStyle = grad(ctx, 0, 0, w, top, INK.blue, INK.navy)
+      ctx.fillRect(0, 0, w, h)
+    }
+    const m = 48                                  // the card's own margin
+    ctx.fillStyle = INK.paper
+    roundRect(ctx, m, top, w - m * 2, h - top - m, 22)
+    ctx.fill()
+    // The wave rides the card's top edge, which is where the guide puts a
+    // divider: between two things.
+    zigzag(ctx, top, w, INK.sky, 0.9, 18, 40, 7)
+    return { top: top + 74, bottom: h - m - 10 }
+  }
+
   if (s.kind === 'split') {
     const cut = Math.round(h * (s.photoShare ?? 0.46))
     ctx.fillStyle = INK.paper
@@ -583,7 +619,7 @@ export function drawSlide(
   format: Format,
   assets: Assets = {},
   anim?: Anim,
-  template: Template = DEFAULT_TEMPLATE,
+  template: Template = DEFAULT_TEMPLATE[familyOf(format)],
 ) {
   const { w, h } = SIZE[format]
   const surface = template.surfaceFor(s.kind)
@@ -607,7 +643,12 @@ export function drawSlide(
   // the first version ran its description straight through the logo. Rather
   // than special-casing Split, anything that does not fit is re-measured at
   // a smaller size — which is what a designer would do.
-  const floor = Math.min(area.bottom, h - 170)
+  // The footer's reserve depends on where the footer IS. On a card it sits
+  // inside the panel, close under the text, so reserving a full 170px of
+  // frame-bottom squeezed the text area to nothing and the first render
+  // overflowed the panel and ran through the logo.
+  const card = surface.kind === 'card'
+  const floor = Math.min(area.bottom, (card ? h - 48 : h) - (card ? 162 : 170))
   const top0 = Math.max(area.top, h * (surface.band ? surface.band + 0.09 : 0.07))
   const room = floor - top0
 
@@ -620,9 +661,19 @@ export function drawSlide(
     ;({ pieces, anchor } = piecesFor(ctx, s, w, h, surface, k))
     total = pieces.reduce((n, p) => n + p.h, 0)
   }
+  // Centre between the area's own top and its floor, then clamp so a block
+  // can never start past the point where it would overrun.
+  //
+  // The previous version added the frame's safe-top offset to area.top for a
+  // centred block. SAFE_TOP exists because Instagram's profile row covers
+  // the top of the FRAME — it has nothing to say about where a card's panel
+  // begins, and adding it to the card's own top pushed the text 119px below
+  // its floor, straight through the source line and the logo. top0 already
+  // honours the frame.
+  const mid = (top0 + floor - total) / 2
   let y =
-    anchor === 'bottom' ? Math.max(area.top, floor - total)
-    : anchor === 'middle' ? Math.max(area.top + h * SAFE_TOP * 0.5, (area.top + floor - total) / 2)
+    anchor === 'bottom' ? Math.max(top0, floor - total)
+    : anchor === 'middle' ? Math.max(top0, Math.min(mid, floor - total))
     : top0
 
   pieces.forEach((p, i) => {
@@ -631,7 +682,9 @@ export function drawSlide(
     y += p.h
   })
 
-  footer(ctx, w, h, s.source, inkFor(surface).onDark)
+  // On a card the attribution belongs on the panel, not floating on the
+  // photograph below it, so the footer is pulled up by the card's margin.
+  footer(ctx, w, surface.kind === 'card' ? h - 44 : h, s.source, inkFor(surface).onDark)
 }
 
 // --------------------------------------------------------------- video script

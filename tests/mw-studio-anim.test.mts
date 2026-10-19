@@ -21,7 +21,10 @@
 // it supports is still on screen would be worse than no animation at all, so
 // footer() is drawn outside every animated block and these tests pin that.
 
-import { drawSlide, TIMING, TEMPLATES, templateById, type Slide, type Template } from '../lib/mw-studio-design'
+import {
+  drawSlide, TIMING, TEMPLATES, CAROUSEL_TEMPLATES, SINGLE_TEMPLATES, templateById,
+  type Slide, type Template,
+} from '../lib/mw-studio-design'
 
 let bad = 0
 const ok = (m: string) => console.log(`ok   ${m}`)
@@ -255,8 +258,28 @@ for (const t of TEMPLATES) {
   }
 }
 
-is(templateById('nonsense').id === TEMPLATES[0].id,
-  'an unknown template id falls back to the default rather than throwing')
+is(templateById('nonsense', 'carousel').id === CAROUSEL_TEMPLATES[0].id,
+  'an unknown id falls back to that family default rather than throwing')
+is(templateById('nonsense', 'single').id === SINGLE_TEMPLATES[0].id,
+  'and the fallback respects the family it was asked for')
+
+// ── NO TWO LOOKS MAY RENDER THE SAME ──────────────────────────────────────
+//
+// The complaint that produced the split: "Deep, editorial, and air looks the
+// same to me in single image." They did not merely look similar — a single
+// image is one closer slide, and all three resolved a closer to the same
+// primary gradient, so they were byte-identical. A reviewer cannot be
+// expected to catch that; a diff can.
+for (const [fam, set] of [['single', SINGLE_TEMPLATES], ['carousel', CAROUSEL_TEMPLATES]] as const) {
+  const seen = new Map<string, string>()
+  const probe: Slide = fam === 'single' ? { ...stat, kind: 'closer' } : stat
+  for (const t of set) {
+    const key = JSON.stringify(draw(probe, undefined, img, t))
+    const clash = seen.get(key)
+    is(!clash, `${fam}: ${t.id} renders differently from ${clash ?? 'every other look'}`)
+    if (!clash) seen.set(key, t.id)
+  }
+}
 
 console.log(bad ? `\n${bad} failed` : '\nall passed — only the text moves, in every template')
 process.exit(bad ? 1 : 0)

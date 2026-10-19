@@ -6,29 +6,35 @@ import type { Research } from '@/lib/mw-studio'
 import type { Photo } from '@/lib/mw-photos'
 import {
   drawSlide, drawFilmSurface, drawSegmentText, faults, segmentFaults,
-  SIZE, SLIDE_SECONDS, SEGMENT_SECONDS, TEMPLATES, templateById, wantsPhoto,
-  usesPhotoAnywhere, photoTemplatesFor,
-  type Deck, type Format, type Slide, type Segment,
+  SIZE, SLIDE_SECONDS, SEGMENT_SECONDS, templatesFor, templateById,
+  wantsPhoto, usesPhotoAnywhere, photoTemplatesFor, familyOf, DEFAULT_TEMPLATE,
+  type Deck, type Format, type Slide, type Segment, type FormatFamily,
 } from '@/lib/mw-studio-design'
 import {
-  recordDeck, recordFilm, pickMime, estimateSeconds, filmSeconds,
-  type Clip, type VideoKind,
+  recordSlidesVideo, recordFilm, pickMime, filmSeconds, type Clip,
 } from '@/lib/mw-studio-video'
 
-// The Studio screen. Four steps down one column, each appearing only once the
-// one above it has an answer:
+// The Studio screen.
 //
-//   1  topic          2  what is true      3  format      4  the deck
+// THE ORDER OF THE QUESTIONS IS THE DESIGN, and it used to be wrong. It
+// asked for a topic, researched it, offered a look, then a format — so the
+// look was picked before anyone knew whether it was dressing one image or
+// five, and the same five looks were offered either way. Three of them
+// rendered a single image identically and a fourth drew no photograph at
+// all. The owner's fix is the right one: decide what you are making first,
+// and everything else follows from it.
 //
-// Nothing is shown speculatively. The format question in particular waits for
-// the research, because "carousel or single" is not answerable until you know
-// whether there are five facts or one.
+//   1  what are you making      a single image, or a carousel
+//   2  where the words are from research a topic, or write them yourself
+//   3  which look               five, built for that format
+//   4  the picture              stock, your own, or none
+//   5  edit, download, and optionally record one video
+//
+// Each step appears only once the one above it has an answer.
+
+type Mode = 'research' | 'own'
 
 // ---------------------------------------------------------------- the canvas
-//
-// One component, used for both the on-screen preview and the full-size export.
-// It draws at 1080 and is scaled down with CSS, so what is reviewed and what
-// is downloaded are the same pixels.
 
 function SlideCanvas({
   slide, format, photo, template, onReady, onImage,
@@ -49,24 +55,23 @@ function SlideCanvas({
     const ctx = c.getContext('2d')
     if (!ctx) return
     let dead = false
+    const t = templateById(template, familyOf(format))
 
     const paint = (img?: HTMLImageElement) => {
       if (dead) return
-      drawSlide(ctx, slide, format, img ? { photo: img } : {}, undefined, templateById(template))
+      drawSlide(ctx, slide, format, img ? { photo: img } : {}, undefined, t)
       onReady?.(c)
       onImage?.(img ?? null)
     }
 
-    // Poppins must be loaded before the first stroke or the slide is drawn in
-    // the fallback face and silently stays that way — canvas text does not
-    // reflow when a font arrives later, unlike DOM text.
+    // Poppins must be loaded before the first stroke or the slide is drawn
+    // in the fallback face and silently stays that way — canvas text does
+    // not reflow when a font arrives later, unlike DOM text.
     const fonts = (document as any).fonts
     const ready: Promise<unknown> = fonts
       ? Promise.all([
-          fonts.load(`700 92px Poppins`),
-          fonts.load(`600 26px Poppins`),
-          fonts.load(`500 30px Poppins`),
-          fonts.load(`400 32px Poppins`),
+          fonts.load('700 92px Poppins'), fonts.load('600 26px Poppins'),
+          fonts.load('500 30px Poppins'), fonts.load('400 32px Poppins'),
         ]).catch(() => undefined)
       : Promise.resolve()
 
@@ -74,10 +79,10 @@ function SlideCanvas({
       if (dead) return
       if (!photo) return paint()
       const img = new Image()
-      // Proxied through our own origin, so this never taints the canvas and
-      // toBlob() keeps working. See app/api/mw-photo.
+      // Stock photos come through our own proxy and uploads are blob: URLs,
+      // so neither taints the canvas and toBlob keeps working.
       img.onload = () => paint(img)
-      img.onerror = () => paint()      // a missing photo falls back to the blue field
+      img.onerror = () => paint()
       img.src = photo
     })
 
@@ -89,25 +94,27 @@ function SlideCanvas({
 }
 
 /**
- * A tiny picture of what a template looks like.
+ * A tiny picture of what a look is.
  *
- * Drawn in CSS rather than rendered from the real engine: the picker has to
- * appear before a deck exists, so there is nothing to render yet, and five
- * live 1080px canvases on screen at once to choose between would be absurd.
- * The gradients are the same tokens the real surfaces use.
+ * CSS, not the real engine: the picker appears before any deck exists, so
+ * there is nothing to render, and five live 1080px canvases to choose
+ * between would be absurd. The gradients are the same tokens as the real
+ * surfaces.
  */
 const SWATCH: Record<string, React.CSSProperties[]> = {
-  editorial: [
-    { inset: 0, background: '#fff' },
-    { inset: '0 0 72% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' },
-  ],
+  editorial: [{ inset: 0, background: '#fff' }, { inset: '0 0 72% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' }],
   bleed: [{ inset: 0, background: 'linear-gradient(160deg,#5b6b84,#1B1E2B 70%)' }],
-  split: [
-    { inset: 0, background: '#fff' },
-    { inset: '0 0 54% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' },
-  ],
+  split: [{ inset: 0, background: '#fff' }, { inset: '0 0 54% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' }],
   deep: [{ inset: 0, background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' }],
   air: [{ inset: 0, background: 'linear-gradient(135deg,#BFE7FB,#66C9F3)' }],
+  poster: [{ inset: 0, background: 'linear-gradient(160deg,#5b6b84,#1B1E2B 70%)' }],
+  inset: [
+    { inset: 0, background: 'linear-gradient(160deg,#6b7b94,#2a3346 70%)' },
+    { inset: '48% 12% 10% 12%', background: '#fff', borderRadius: 6 },
+  ],
+  statement: [{ inset: 0, background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' }],
+  calm: [{ inset: 0, background: 'linear-gradient(135deg,#BFE7FB,#66C9F3)' }],
+  paper: [{ inset: 0, background: '#fff' }, { inset: '80% 0 0 0', background: 'linear-gradient(135deg,#BFE7FB,#66C9F3)', opacity: 0.55 }],
 }
 
 function Swatch({ id }: { id: string }) {
@@ -135,7 +142,7 @@ function FilmFrame({
     const ctx = c.getContext('2d')
     if (!ctx) return
     let dead = false
-    const t = templateById(template)
+    const t = templateById(template, familyOf(format))
 
     const paint = (img?: HTMLImageElement) => {
       if (dead) return
@@ -176,57 +183,59 @@ function saveBlob(blob: Blob, name: string) {
   a.href = url
   a.download = name
   a.click()
+  // Revoking immediately races the download in Safari; a tick is enough.
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function save(canvas: HTMLCanvasElement, name: string) {
-  canvas.toBlob(blob => {
-    if (!blob) return
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
-    // Revoking immediately races the download in Safari; a tick is enough.
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
-  }, 'image/png')
+  canvas.toBlob(blob => { if (blob) saveBlob(blob, name) }, 'image/png')
+}
+
+/** An empty deck to type into, when the words are already in someone's head. */
+function blankDeck(format: Format, template: string): Deck {
+  const slides: Slide[] = format === 'carousel'
+    ? [
+        { kind: 'cover', kicker: 'OOH Intelligence', headline: '', cta: 'Swipe →' },
+        { kind: 'stat', kicker: 'The number', headline: '', figure: '', body: '' },
+        { kind: 'closer', kicker: 'What we think', headline: '', body: '' },
+      ]
+    : [{ kind: 'closer', kicker: 'OOH Intelligence', headline: '', body: '' }]
+  return { topic: 'post', format, template, slides }
 }
 
 // -------------------------------------------------------------------- screen
 
 export function Studio() {
+  const [format, setFormat] = useState<Format | null>(null)
+  const family: FormatFamily = format ? familyOf(format) : 'carousel'
+  const [mode, setMode] = useState<Mode | null>(null)
+
   const [topic, setTopic] = useState('')
   const [res, setRes] = useState<Research | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [photo, setPhoto] = useState<string | undefined>()
+  /** Per-slide override. Absent means "use the one chosen above". */
+  const [slidePhoto, setSlidePhoto] = useState<Record<number, string>>({})
+
+  const [template, setTemplate] = useState('')
   const [deck, setDeck] = useState<Deck | null>(null)
-  // The look. Changing it never re-asks the model — the copy is the same,
-  // only the surface it sits on changes, so switching is instant.
-  const [template, setTemplate] = useState(TEMPLATES[0].id)
   const [problems, setProblems] = useState<string[]>([])
   const [error, setError] = useState('')
   const [busy, start] = useTransition()
-  const [step, setStep] = useState<'research' | 'compose'>('research')
 
-  // Video. Recording happens in real time, so progress is a real number and
-  // the whole thing is abortable — a thirty-second wait with a spinner and
-  // no way out is not acceptable.
   const [clips, setClips] = useState<Clip[]>([])
   const [recording, setRecording] = useState(false)
   const [recProgress, setRecProgress] = useState(0)
   const [recError, setRecError] = useState('')
   const [seconds, setSeconds] = useState(SLIDE_SECONDS)
+  const [reel, setReel] = useState(false)
+  const abort = useRef<AbortController | null>(null)
 
-  // The film: beats of five seconds, each with its own words.
   const [beats, setBeats] = useState<Segment[]>([])
   const [beatFaults, setBeatFaults] = useState<string[]>([])
-  const [suggesting, setSuggesting] = useState(false)
-  const abort = useRef<AbortController | null>(null)
-  const images = useRef(new Map<number, HTMLImageElement>())
 
-  // Canvases register themselves so "Download all" does not have to go
-  // hunting through the DOM for them.
   const canvases = useRef(new Map<number, HTMLCanvasElement>())
+  const images = useRef(new Map<number, HTMLImageElement>())
   const register = useCallback((i: number) => (c: HTMLCanvasElement) => { canvases.current.set(i, c) }, [])
   const keepImage = useCallback(
     (i: number) => (img: HTMLImageElement | null) => {
@@ -235,89 +244,93 @@ export function Studio() {
     [],
   )
 
+  const tmpl = templateById(template, family)
+  const photoFor = (i: number) => slidePhoto[i] ?? photo
+
+  const pickFormat = (f: Format) => {
+    setFormat(f)
+    setTemplate(DEFAULT_TEMPLATE[familyOf(f)].id)
+    setDeck(null); setClips([]); setBeats([]); setError('')
+  }
+
   const doResearch = () => {
-    setError(''); setDeck(null); setRes(null); setProblems([])
+    setError(''); setDeck(null); setRes(null); setProblems([]); setBeats([])
     start(async () => {
       const r = await researchTopic(topic)
       if (!r.ok) return setError(r.error)
       setRes(r.research)
       setPhotos(r.photos)
-      setPhoto(r.photos[0]?.src)
-      setStep('compose')
+      setPhoto(p => p ?? r.photos[0]?.src)
     })
   }
 
-  const doCompose = (format: Format, count: number) => {
-    if (!res) return
-    setError(''); setDeck(null); setProblems([])
+  const doCompose = () => {
+    if (!res || !format) return
+    setError(''); setDeck(null); setProblems([]); setBeats([])
     start(async () => {
-      const d = await composeDeck(res, format, count, template)
+      const d = await composeDeck(res, format, format === 'carousel' ? 5 : 1, template)
       if (!d.ok) return setError(d.error)
-      canvases.current.clear()
-      images.current.clear()
-      setClips([])
-      setBeats([])
+      canvases.current.clear(); images.current.clear(); setClips([])
       setDeck(d.deck)
       setProblems(d.faults)
     })
   }
 
-  /** Editing re-runs the same checks, so the warnings follow what is on screen. */
+  const startOwn = (f: Format) => {
+    canvases.current.clear(); images.current.clear()
+    setClips([]); setBeats([]); setProblems([]); setError('')
+    setDeck(blankDeck(f, templateById(template, familyOf(f)).id))
+  }
+
   const edit = (i: number, patch: Partial<Slide>) => {
     setDeck(d => {
       if (!d) return d
-      const slides = d.slides.map((s, j) => (j === i ? { ...s, ...patch } : s))
-      const next = { ...d, slides }
+      const next = { ...d, slides: d.slides.map((s, j) => (j === i ? { ...s, ...patch } : s)) }
       setProblems(faults(next))
-      // Any recorded clip now shows copy that is no longer on the slide, so
-      // it is thrown away rather than left there looking current.
-      setClips([])
+      setClips([])          // any clip now shows copy that is no longer there
       return next
     })
   }
 
-  const makeVideo = async (kind: VideoKind) => {
-    if (!deck) return
-    setRecError('')
-    setClips([])
-    setRecProgress(0)
-    setRecording(true)
-    abort.current = new AbortController()
-    try {
-      const out = await recordDeck(deck, images.current, kind, templateById(template), {
-        seconds,
-        onProgress: setRecProgress,
-        signal: abort.current.signal,
-      })
-      setClips(out)
-      if (out[0]?.ext === 'webm') {
-        setRecError(
-          'This browser could only record WebM. Instagram will not accept it — ' +
-          'record in Chrome or Safari to get an MP4.',
-        )
-      }
-    } catch (e: any) {
-      setRecError(String(e?.message ?? e))
-    } finally {
-      setRecording(false)
-      abort.current = null
-    }
-  }
-
-  /** Switching look repaints from the same copy; nothing is re-generated. */
   const pickTemplate = (id: string) => {
     setTemplate(id)
-    setClips([])                         // any clip now shows the old look
+    setClips([])
     setDeck(d => (d ? { ...d, template: id } : d))
+  }
+
+  /**
+   * An uploaded picture.
+   *
+   * Kept as a blob: URL, which is same-origin, so the canvas stays clean and
+   * the download keeps working. Nothing is uploaded anywhere — the file
+   * never leaves the machine, which also means there is no size limit to
+   * police and no privacy question to answer.
+   */
+  const upload = (file: File | undefined, slot: number | 'all') => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) return setError('That file is not an image.')
+    const url = URL.createObjectURL(file)
+    setError('')
+    setClips([])
+    if (slot === 'all') setPhoto(url)
+    else setSlidePhoto(m => ({ ...m, [slot]: url }))
+  }
+
+  const downloadAll = () => {
+    if (!deck) return
+    deck.slides.forEach((_, i) => {
+      const c = canvases.current.get(i)
+      // Staggered: a browser asked for eight downloads in one tick blocks
+      // all but the first and shows a permission prompt nobody expects.
+      if (c) setTimeout(() => save(c, fileName(deck.topic, i + 1, deck.slides.length)), i * 350)
+    })
   }
 
   const suggestBeats = (n: number) => {
     if (!res) return
     setRecError('')
-    setSuggesting(true)
     start(async () => {
       const out = await suggestFilmScript(res, n)
-      setSuggesting(false)
       if (!out.ok) return setRecError(out.error)
       setBeats(out.segments)
       setBeatFaults(out.faults)
@@ -334,19 +347,33 @@ export function Studio() {
     })
   }
 
-  const makeFilm = async () => {
-    if (!deck || !beats.length) return
-    setRecError('')
-    setClips([])
-    setRecProgress(0)
-    setRecording(true)
+  /**
+   * One video. Always.
+   *
+   * "Video should just be video there's no carousel." The old pair of
+   * buttons offered "one video, all slides" and "one video per slide", the
+   * second of which produced N files to be posted as a carousel of videos —
+   * a format nobody asked for. What varies now is only the source: a
+   * carousel dissolves between its slides, anything else changes its words
+   * over a design that holds still.
+   */
+  const record = async () => {
+    if (!deck || !format) return
+    setRecError(''); setClips([]); setRecProgress(0); setRecording(true)
     abort.current = new AbortController()
+    const vFormat: Format = reel ? 'reel' : format
+    const vTemplate = templateById(template, familyOf(vFormat))
     try {
-      const clip = await recordFilm(
-        beats, deck.format, templateById(template),
-        images.current.get(0), deck.slides[0]?.source,
-        { onProgress: setRecProgress, signal: abort.current.signal },
-      )
+      const clip = deck.format === 'carousel' && beats.length === 0
+        ? await recordSlidesVideo(deck, vFormat, vTemplate, images.current,
+            { seconds, onProgress: setRecProgress, signal: abort.current.signal })
+        : await recordFilm(
+            beats.length
+              ? beats
+              : deck.slides.map(s => ({ headline: s.headline, sub: s.kicker, body: s.body })),
+            vFormat, vTemplate, images.current.get(0), deck.slides[0]?.source,
+            { onProgress: setRecProgress, signal: abort.current.signal },
+          )
       setClips([clip])
       if (clip.ext === 'webm') {
         setRecError(
@@ -362,42 +389,80 @@ export function Studio() {
     }
   }
 
-  const downloadAll = () => {
-    if (!deck) return
-    deck.slides.forEach((_, i) => {
-      const c = canvases.current.get(i)
-      // Staggered: a browser asked for eight downloads in one tick blocks all
-      // but the first and shows a permission prompt nobody expects.
-      if (c) setTimeout(() => save(c, fileName(deck.topic, i + 1, deck.slides.length)), i * 350)
-    })
-  }
+  const kinds = deck?.slides.map(s => s.kind) ?? []
+  const photoUsed = deck ? usesPhotoAnywhere(tmpl, kinds) : tmpl.photo !== 'none'
 
   return (
     <div className="mw-studio">
-      {/* 1 ─────────────────────────────────────────────── the topic */}
-      <div className="mw-studio-ask">
-        <label htmlFor="topic">What should this post be about?</label>
-        <textarea
-          id="topic"
-          rows={2}
-          value={topic}
-          placeholder="e.g. programmatic DOOH adoption in Southeast Asia"
-          onChange={e => setTopic(e.target.value)}
-          onKeyDown={e => {
-            // Enter sends, Shift+Enter makes a new line — the convention
-            // everyone already has in their fingers from every chat box.
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (topic.trim()) doResearch() }
-          }}
-        />
-        <button type="button" onClick={doResearch} disabled={busy || !topic.trim()}>
-          {busy && step === 'research' ? 'Researching…' : 'Research this'}
-        </button>
-      </div>
+      {/* 1 ───────────────────────────────────────── what are you making */}
+      <section>
+        <h3>What are you making?</h3>
+        <div className="mw-studio-choice">
+          <button type="button" onClick={() => pickFormat('single')}
+            aria-current={format === 'single' ? 'true' : undefined}>
+            <b>A single image</b>
+            <small>1080 × 1080. One design. Good for LinkedIn and a quick in-feed post.</small>
+          </button>
+          <button type="button" onClick={() => pickFormat('carousel')}
+            aria-current={format === 'carousel' ? 'true' : undefined}>
+            <b>A carousel</b>
+            <small>1080 × 1350, up to 8 slides. Room to lay out an argument.</small>
+          </button>
+        </div>
+        <p className="lede" style={{ marginTop: 10 }}>
+          Either can also become a video at the end. There is one video, not a third format.
+        </p>
+      </section>
+
+      {/* 2 ──────────────────────────────────── where the words come from */}
+      {format && (
+        <section>
+          <h3>Where do the words come from?</h3>
+          <div className="mw-studio-choice">
+            <button type="button" onClick={() => { setMode('research'); setDeck(null) }}
+              aria-current={mode === 'research' ? 'true' : undefined}>
+              <b>Research a topic</b>
+              <small>
+                Type a subject. It finds checkable facts with named sources, shows them to you,
+                then writes the post from those and nothing else.
+              </small>
+            </button>
+            <button type="button" onClick={() => { setMode('own'); setRes(null); startOwn(format) }}
+              aria-current={mode === 'own' ? 'true' : undefined}>
+              <b>Write it myself</b>
+              <small>
+                Empty fields for your headline, subheadline and description — and your own
+                picture if you have one.
+              </small>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* 2a ─────────────────────────────────────────────── the topic box */}
+      {format && mode === 'research' && (
+        <div className="mw-studio-ask">
+          <label htmlFor="topic">What should this post be about?</label>
+          <textarea
+            id="topic" rows={2} value={topic}
+            placeholder="e.g. programmatic DOOH adoption in Southeast Asia"
+            onChange={e => setTopic(e.target.value)}
+            onKeyDown={e => {
+              // Enter sends, Shift+Enter makes a new line — the convention
+              // everyone already has in their fingers from every chat box.
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (topic.trim()) doResearch() }
+            }}
+          />
+          <button type="button" onClick={doResearch} disabled={busy || !topic.trim()}>
+            {busy && !res ? 'Researching…' : 'Research this'}
+          </button>
+        </div>
+      )}
 
       {error && <p className="mw-studio-error">{error}</p>}
 
-      {/* 2 ─────────────────────────────── what is true, before any design */}
-      {res && (
+      {/* 2b ───────────────────────── what is true, before any design */}
+      {mode === 'research' && res && (
         <section className="mw-studio-facts">
           <h3>What I found</h3>
           {res.caveat && <p className="mw-studio-warn">{res.caveat}</p>}
@@ -406,52 +471,43 @@ export function Studio() {
             {res.facts.map((f, i) => (
               <li key={i}>
                 {f.claim}
-                <small>
-                  {f.url
-                    ? <a href={f.url} target="_blank" rel="noreferrer">{f.source} ↗</a>
-                    : f.source}
-                </small>
+                <small>{f.url ? <a href={f.url} target="_blank" rel="noreferrer">{f.source} ↗</a> : f.source}</small>
               </li>
             ))}
           </ol>
           {res.reinforces.length > 0 && (
             <p className="mw-studio-reinforce">
-              {/* Joined with a visible separator, not just a CSS margin: these
-                  render as one unbroken path when the styles have not loaded,
-                  which is exactly how it looked the first time. */}
               This supports {res.reinforces.map((u, i) => (
                 <span key={u}>{i > 0 ? ', ' : ''}<code>{u}</code></span>
               ))} — pages Google already shows. Worth linking from the caption.
             </p>
           )}
           <p className="mw-studio-check">
-            Read these before you generate. Everything on the slides comes from this list and nothing else.
+            Read these before you generate. Everything on the slides comes from this list.
           </p>
         </section>
       )}
 
-      {/* 3 ───────────────────────────────────────────────────── the look */}
-      {res && (
+      {/* 3 ──────────────────────────────────────────────────── the look */}
+      {format && mode && (mode === 'own' || res) && (
         <section className="mw-studio-templates">
           <h3>Which look?</h3>
           <p className="lede">
-            All five are the Moving Walls palette — what changes is the surface the words sit on,
-            and whether the design uses photography. You can switch after generating; the writing
-            stays as it is and only the design is repainted.
+            Five built for {format === 'carousel' ? 'a carousel' : 'a single image'}. They differ
+            in surface, not only colour — photograph, photograph behind a white card, brand
+            gradient, pale blue, plain white. Switching later keeps the writing and repaints only
+            the design.
           </p>
           <div className="mw-studio-looks">
-            {TEMPLATES.map(t => (
-              <button
-                key={t.id} type="button"
-                onClick={() => pickTemplate(t.id)}
-                aria-current={template === t.id ? 'true' : undefined}
-              >
+            {templatesFor(family).map(t => (
+              <button key={t.id} type="button" onClick={() => pickTemplate(t.id)}
+                aria-current={template === t.id ? 'true' : undefined}>
                 <Swatch id={t.id} />
                 <b>{t.name}</b>
                 <small>{t.blurb}</small>
                 <em>
-                  {t.photo === 'every' ? 'photo on every slide'
-                    : t.photo === 'cover' ? 'photo on the cover'
+                  {t.photo === 'every' ? 'uses a photograph'
+                    : t.photo === 'cover' ? 'photograph on the cover'
                     : 'no photography'}
                 </em>
               </button>
@@ -460,25 +516,16 @@ export function Studio() {
         </section>
       )}
 
-      {/* 4 ───────────────────────────────────────────── single or carousel */}
-      {res && (
-        <section className="mw-studio-format">
-          <h3>Which format?</h3>
-          <div className="mw-studio-choice">
-            <button type="button" onClick={() => doCompose('single', 1)} disabled={busy}>
-              <b>Single image</b>
-              <small>1080 × 1080. One slide, the strongest fact. Good for LinkedIn.</small>
-            </button>
-            <button type="button" onClick={() => doCompose('carousel', 5)} disabled={busy}>
-              <b>Carousel</b>
-              <small>1080 × 1350, 5 slides. Cover, the numbers, then what we think.</small>
-            </button>
-          </div>
-          {busy && step === 'compose' && <p className="lede">Writing the slides…</p>}
+      {/* 4 ──────────────────────────────────────────────── generate it */}
+      {format && mode === 'research' && res && (
+        <section>
+          <button type="button" className="mw-dl" onClick={doCompose} disabled={busy}>
+            {busy ? 'Writing…' : `Write the ${format === 'carousel' ? 'carousel' : 'image'}`}
+          </button>
         </section>
       )}
 
-      {/* 4 ──────────────────────────────────────────────────── the deck */}
+      {/* 5 ────────────────────────────────────────────────── the result */}
       {deck && (
         <section className="mw-studio-deck">
           <div className="mw-studio-deck-head">
@@ -496,112 +543,123 @@ export function Studio() {
             </div>
           )}
 
-          {/* The cover photo picker. The alt text is shown because Pexels
-              returns confident, unrelated pictures rather than admitting it
-              found nothing. */}
-          {/* Gated on THIS DECK, not on the template in the abstract.
-              Twice now the picker has been offered where nothing would draw
-              the result — see usesPhotoAnywhere for both. And when the
-              current look will not use a photograph, that is said out loud
-              rather than the picker quietly vanishing, which is its own kind
-              of confusing. */}
-          {photos.length > 0 && !usesPhotoAnywhere(templateById(template), deck.slides.map(s => s.kind)) && (
-            <p className="mw-studio-warn">
-              <b>{templateById(template).name}</b>{' '}
-              {templateById(template).photo === 'none'
-                ? 'does not use photography at all.'
-                : `uses a photograph only on a carousel cover, and this is a single image.`}{' '}
-              {photoTemplatesFor(deck.slides.map(s => s.kind)).length > 0
-                ? `For a picture here, switch the look to ${photoTemplatesFor(deck.slides.map(s => s.kind)).join(' or ')}.`
-                : ''}
-            </p>
-          )}
-
-          {usesPhotoAnywhere(templateById(template), deck.slides.map(s => s.kind)) && photos.length > 0 && (
-            <div className="mw-studio-photos">
-              <h4>Cover photo</h4>
-              <div className="mw-studio-strip">
-                <button
-                  type="button" onClick={() => setPhoto(undefined)}
-                  aria-current={!photo ? 'true' : undefined}
-                  className="mw-studio-nophoto"
-                >No photo<small>blue field</small></button>
-                {photos.map(p => (
-                  <button
-                    key={p.id} type="button" onClick={() => setPhoto(p.src)}
-                    aria-current={photo === p.src ? 'true' : undefined}
-                    title={`${p.alt} — ${p.credit}`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.src} alt={p.alt} />
-                    <small>{p.alt}</small>
-                  </button>
-                ))}
-              </div>
-              <p className="lede">
-                Credit the photographer in the caption:{' '}
-                {photos.find(p => p.src === photo)?.credit ?? '—'} on Pexels.
+          {/* ── the picture ─────────────────────────────────────────────
+              Offered when THIS deck in THIS look will really draw one. It
+              has twice been offered where nothing would, so when the chosen
+              look does not use photography that is said out loud rather
+              than the picker quietly vanishing. */}
+          <div className="mw-studio-photos">
+            <h4>Picture</h4>
+            {!photoUsed ? (
+              <p className="mw-studio-warn">
+                <b>{tmpl.name}</b> does not use photography.{' '}
+                {photoTemplatesFor(kinds, family).length > 0
+                  && `For a picture, switch the look to ${photoTemplatesFor(kinds, family).join(' or ')}.`}
               </p>
-            </div>
-          )}
+            ) : (
+              <>
+                <div className="mw-studio-uploads">
+                  <label className="mw-studio-upload">
+                    ⬆ Upload your own
+                    <input type="file" accept="image/*"
+                      onChange={e => upload(e.target.files?.[0], 'all')} />
+                  </label>
+                  {photo?.startsWith('blob:') && (
+                    <span className="lede">Your own picture. It never leaves this machine.</span>
+                  )}
+                </div>
+
+                {photos.length > 0 && (
+                  <>
+                    <div className="mw-studio-strip">
+                      <button type="button" onClick={() => { setPhoto(undefined); setClips([]) }}
+                        aria-current={!photo ? 'true' : undefined} className="mw-studio-nophoto">
+                        No photo<small>brand gradient</small>
+                      </button>
+                      {photos.map(p => (
+                        <button key={p.id} type="button" onClick={() => { setPhoto(p.src); setClips([]) }}
+                          aria-current={photo === p.src ? 'true' : undefined}
+                          title={`${p.alt} — ${p.credit}`}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={p.src} alt={p.alt} />
+                          <small>{p.alt}</small>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="lede">
+                      Pexels never says “no match” — it returns confident, unrelated pictures, so
+                      read the captions. Credit the photographer:{' '}
+                      {photos.find(p => p.src === photo)?.credit ?? '—'} on Pexels.
+                    </p>
+                  </>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="mw-studio-slides">
             {deck.slides.map((s, i) => (
               <figure key={i} className="mw-studio-slide">
                 <SlideCanvas
-                  slide={s}
-                  format={deck.format}
-                  template={template}
-                  photo={wantsPhoto(templateById(template), s.kind) ? photo : undefined}
-                  onReady={register(i)}
-                  onImage={keepImage(i)}
+                  slide={s} format={deck.format} template={template}
+                  photo={wantsPhoto(tmpl, s.kind) ? photoFor(i) : undefined}
+                  onReady={register(i)} onImage={keepImage(i)}
                 />
                 <figcaption>
                   <span className="mw-studio-n">{i + 1}</span>
-                  <input
-                    value={s.kicker} aria-label={`Slide ${i + 1} kicker`}
-                    onChange={e => edit(i, { kicker: e.target.value })}
-                  />
-                  <textarea
-                    rows={2} value={s.headline} aria-label={`Slide ${i + 1} headline`}
-                    onChange={e => edit(i, { headline: e.target.value })}
-                  />
-                  {s.figure !== undefined && (
-                    <input
-                      value={s.figure} aria-label={`Slide ${i + 1} figure`}
-                      onChange={e => edit(i, { figure: e.target.value })}
-                    />
+                  <label>Subheadline
+                    <input value={s.kicker} onChange={e => edit(i, { kicker: e.target.value })} />
+                  </label>
+                  <label>Headline
+                    <textarea rows={2} value={s.headline} onChange={e => edit(i, { headline: e.target.value })} />
+                  </label>
+                  {(s.figure !== undefined || mode === 'own') && (
+                    <label>Figure <small>(optional)</small>
+                      <input value={s.figure ?? ''} onChange={e => edit(i, { figure: e.target.value })} />
+                    </label>
                   )}
-                  {s.body !== undefined && (
-                    <textarea
-                      rows={3} value={s.body} aria-label={`Slide ${i + 1} body`}
-                      onChange={e => edit(i, { body: e.target.value })}
-                    />
+                  <label>Description
+                    <textarea rows={3} value={s.body ?? ''} onChange={e => edit(i, { body: e.target.value })} />
+                  </label>
+                  {/* Blank by default when the words are his own: it is his
+                      content, so it is his call, and the line simply does
+                      not print when the field is empty. */}
+                  <label>Source line <small>(optional)</small>
+                    <input value={s.source ?? ''} placeholder="e.g. IAB Outlook 2026"
+                      onChange={e => edit(i, { source: e.target.value })} />
+                  </label>
+                  {wantsPhoto(tmpl, s.kind) && (
+                    <label className="mw-studio-upload small">
+                      ⬆ A different picture for this slide
+                      <input type="file" accept="image/*"
+                        onChange={e => upload(e.target.files?.[0], i)} />
+                    </label>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const c = canvases.current.get(i)
-                      if (c) save(c, fileName(deck.topic, i + 1, deck.slides.length))
-                    }}
-                  >Download this one</button>
+                  <button type="button" onClick={() => {
+                    const c = canvases.current.get(i)
+                    if (c) save(c, fileName(deck.topic, i + 1, deck.slides.length))
+                  }}>Download this one</button>
                 </figcaption>
               </figure>
             ))}
           </div>
 
-          {/* ── video ─────────────────────────────────────────────────────
-              Deliberately below the slides. The still is the thing being
-              approved; the video is made FROM it, which is the order he
-              asked for — "the static image needs to be created first then
-              the animation can come after". */}
+          {deck.format === 'carousel' && mode === 'own' && deck.slides.length < 8 && (
+            <button type="button" className="mw-studio-addslide" onClick={() => setDeck(d => d && ({
+              ...d, slides: [...d.slides, { kind: 'point', kicker: '', headline: '', body: '' }],
+            }))}>+ Add a slide</button>
+          )}
+
+          {/* ── video ───────────────────────────────────────────────── */}
           <div className="mw-studio-video">
-            <h4>Make it move</h4>
+            <h4>Make a video</h4>
             <p className="lede">
-              Only the text animates — it rises in, holds, and lifts out. The photo, the wave,
-              the logo and the source line never move, so the video is the same design as the
-              image above it. <b>Keep this tab in front while it records</b> — browsers stop
-              drawing in a background tab, and the clip would come out nearly empty.
+              One video. {deck.format === 'carousel'
+                ? 'The slides dissolve one into the next, and inside each slide only the words move.'
+                : 'The design holds still and the words change.'}{' '}
+              The photograph, the wave, the logo and the source line never move.{' '}
+              <b>Keep this tab in front while it records</b> — browsers stop drawing in a
+              background tab and the clip would come out nearly empty.
             </p>
 
             {!pickMime() ? (
@@ -610,133 +668,117 @@ export function Studio() {
               </p>
             ) : (
               <>
-                <label className="mw-studio-secs">
-                  Seconds per slide
-                  <input
-                    type="range" min={2.5} max={7} step={0.5} value={seconds}
-                    disabled={recording}
-                    onChange={e => { setSeconds(Number(e.target.value)); setClips([]) }}
-                  />
-                  <b>{seconds.toFixed(1)}s</b>
-                </label>
-
-                {/* ── the film ────────────────────────────────────────
-                    Fifteen seconds or more, the words changing every five
-                    over a design that does not move. The first draft of the
-                    words comes from the research; all of it is editable. */}
-                <div className="mw-studio-film">
-                  <h5>A film — new words every {SEGMENT_SECONDS} seconds</h5>
-                  {beats.length === 0 ? (
-                    <>
-                      <p className="lede">
-                        One design, held still, with the writing changing on each beat. Three beats
-                        is {filmSeconds(3)} seconds; add more for longer.
-                      </p>
-                      <div className="mw-studio-beatpick">
-                        {[3, 4, 6].map(n => (
-                          <button key={n} type="button" disabled={suggesting || busy}
-                            onClick={() => suggestBeats(n)}>
-                            {suggesting ? 'Writing…' : `${filmSeconds(n)}s · ${n} beats`}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="lede">
-                        {filmSeconds(beats.length)} seconds, {beats.length} beats. Every field is
-                        yours to change — these are suggestions from the research, not decisions.
-                      </p>
-                      {beatFaults.length > 0 && (
-                        <div className="mw-studio-faults">
-                          <ul>{beatFaults.map((f, i) => <li key={i}>{f}</li>)}</ul>
-                        </div>
-                      )}
-                      <div className="mw-studio-beats">
-                        {beats.map((b, i) => (
-                          <div className="mw-studio-beat" key={i}>
-                            <FilmFrame
-                              segment={b} format={deck.format} template={template}
-                              photo={templateById(template).photo === 'none' ? undefined : photo}
-                              source={deck.slides[0]?.source}
-                              at={SEGMENT_SECONDS / 2}
-                            />
-                            <div className="mw-studio-beatfields">
-                              <span className="mw-studio-n">
-                                {i * SEGMENT_SECONDS}–{(i + 1) * SEGMENT_SECONDS}s
-                              </span>
-                              <label>
-                                Subheadline
-                                <input value={b.sub ?? ''}
-                                  onChange={e => editBeat(i, { sub: e.target.value })} />
-                              </label>
-                              <label>
-                                Headline
-                                <textarea rows={2} value={b.headline}
-                                  onChange={e => editBeat(i, { headline: e.target.value })} />
-                              </label>
-                              <label>
-                                Description
-                                <textarea rows={3} value={b.body ?? ''}
-                                  onChange={e => editBeat(i, { body: e.target.value })} />
-                              </label>
-                              <div className="mw-studio-beatbtns">
-                                <button type="button" disabled={recording}
-                                  onClick={() => setBeats(bs => bs.filter((_, j) => j !== i))}>
-                                  Remove this beat
-                                </button>
-                                <button type="button" disabled={recording}
-                                  onClick={() => setBeats(bs => [
-                                    ...bs.slice(0, i + 1),
-                                    { headline: 'New line', sub: b.sub, body: '' },
-                                    ...bs.slice(i + 1),
-                                  ])}>
-                                  Add one after
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mw-studio-beatpick">
-                        <button type="button" className="mw-dl" disabled={recording || !beats.length}
-                          onClick={makeFilm}>
-                          🎬 Record the {filmSeconds(beats.length)}-second film
-                        </button>
-                        <button type="button" disabled={recording || suggesting}
-                          onClick={() => suggestBeats(beats.length)}>
-                          Rewrite the words
-                        </button>
-                        <button type="button" disabled={recording} onClick={() => setBeats([])}>
-                          Start over
-                        </button>
-                      </div>
-                    </>
+                <div className="mw-studio-vidopts">
+                  <label>
+                    <input type="checkbox" checked={reel}
+                      onChange={e => { setReel(e.target.checked); setClips([]) }} />
+                    Reels / Stories size (1080 × 1920)
+                  </label>
+                  {deck.format === 'carousel' && beats.length === 0 && (
+                    <label className="mw-studio-secs">
+                      Seconds per slide
+                      <input type="range" min={2.5} max={7} step={0.5} value={seconds}
+                        disabled={recording}
+                        onChange={e => { setSeconds(Number(e.target.value)); setClips([]) }} />
+                      <b>{seconds.toFixed(1)}s</b>
+                    </label>
                   )}
                 </div>
 
-                <h5 className="mw-studio-orh">Or play the slides</h5>
-                <div className="mw-studio-choice">
-                  <button type="button" disabled={recording} onClick={() => makeVideo('reel')}>
-                    <b>One video, all slides</b>
-                    <small>
-                      A single film for Reels or a LinkedIn video.{' '}
-                      {estimateSeconds(deck, { seconds })}s to record.
-                    </small>
-                  </button>
-                  <button type="button" disabled={recording} onClick={() => makeVideo('per-slide')}>
-                    <b>One video per slide</b>
-                    <small>
-                      Post the carousel with moving slides.{' '}
-                      {estimateSeconds(deck, { seconds })}s to record.
-                    </small>
+                {/* Beats: a longer film whose words change on a design that
+                    does not. Offered off the back of research, because the
+                    first draft of the words comes from the facts. */}
+                {mode === 'research' && res && (
+                  <div className="mw-studio-film">
+                    <h5>
+                      {deck.format === 'single'
+                        ? `A longer video — new words every ${SEGMENT_SECONDS} seconds`
+                        : `Or write beats instead of using the slides`}
+                    </h5>
+                    {beats.length === 0 ? (
+                      <div className="mw-studio-beatpick">
+                        {[3, 4, 6].map(n => (
+                          <button key={n} type="button" disabled={busy} onClick={() => suggestBeats(n)}>
+                            {busy ? 'Writing…' : `${filmSeconds(n)}s · ${n} beats`}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <p className="lede">
+                          {filmSeconds(beats.length)} seconds, {beats.length} beats. Every field is
+                          yours to change — these are suggestions from the research, not decisions.
+                        </p>
+                        {beatFaults.length > 0 && (
+                          <div className="mw-studio-faults">
+                            <ul>{beatFaults.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                          </div>
+                        )}
+                        <div className="mw-studio-beats">
+                          {beats.map((b, i) => (
+                            <div className="mw-studio-beat" key={i}>
+                              <FilmFrame
+                                segment={b} format={reel ? 'reel' : deck.format} template={template}
+                                photo={tmpl.photo === 'none' ? undefined : photo}
+                                source={deck.slides[0]?.source} at={SEGMENT_SECONDS / 2}
+                              />
+                              <div className="mw-studio-beatfields">
+                                <span className="mw-studio-n">
+                                  {i * SEGMENT_SECONDS}–{(i + 1) * SEGMENT_SECONDS}s
+                                </span>
+                                <label>Subheadline
+                                  <input value={b.sub ?? ''} onChange={e => editBeat(i, { sub: e.target.value })} />
+                                </label>
+                                <label>Headline
+                                  <textarea rows={2} value={b.headline}
+                                    onChange={e => editBeat(i, { headline: e.target.value })} />
+                                </label>
+                                <label>Description
+                                  <textarea rows={3} value={b.body ?? ''}
+                                    onChange={e => editBeat(i, { body: e.target.value })} />
+                                </label>
+                                <div className="mw-studio-beatbtns">
+                                  <button type="button" disabled={recording}
+                                    onClick={() => setBeats(bs => bs.filter((_, j) => j !== i))}>Remove</button>
+                                  <button type="button" disabled={recording}
+                                    onClick={() => setBeats(bs => [
+                                      ...bs.slice(0, i + 1),
+                                      { headline: 'New line', sub: b.sub, body: '' },
+                                      ...bs.slice(i + 1),
+                                    ])}>Add one after</button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mw-studio-beatpick">
+                          <button type="button" disabled={busy} onClick={() => suggestBeats(beats.length)}>
+                            Rewrite the words
+                          </button>
+                          <button type="button" disabled={recording} onClick={() => setBeats([])}>
+                            Use the slides instead
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <div className="mw-studio-beatpick">
+                  <button type="button" className="mw-dl" disabled={recording} onClick={record}>
+                    🎬 Record the video ·{' '}
+                    {beats.length
+                      ? `${filmSeconds(beats.length)}s`
+                      : deck.format === 'carousel'
+                        ? `${Math.round(deck.slides.length * seconds)}s`
+                        : `${filmSeconds(deck.slides.length)}s`}
                   </button>
                 </div>
 
                 {recording && (
                   <div className="mw-studio-rec">
                     {/* Real progress, because recording is real time — a
-                        spinner here would be hiding a known number. */}
+                        spinner here would hide a known number. */}
                     <progress value={recProgress} max={1} />
                     <span>Recording… {Math.round(recProgress * 100)}%</span>
                     <button type="button" onClick={() => abort.current?.abort()}>Stop</button>
@@ -752,17 +794,10 @@ export function Studio() {
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                         <video src={URL.createObjectURL(c.blob)} controls loop playsInline />
                         <figcaption>
-                          <b>{c.index === null ? 'The whole deck' : `Slide ${c.index + 1}`}</b>
-                          <small>
-                            {c.ext.toUpperCase()} · {c.seconds}s · {(c.blob.size / 1e6).toFixed(1)} MB
-                          </small>
-                          <button
-                            type="button"
-                            onClick={() => saveBlob(
-                              c.blob,
-                              fileName(deck.topic, (c.index ?? 0) + 1, clips.length).replace(/\.png$/, `.${c.ext}`),
-                            )}
-                          >Download</button>
+                          <small>{c.ext.toUpperCase()} · {c.seconds}s · {(c.blob.size / 1e6).toFixed(1)} MB</small>
+                          <button type="button" onClick={() => saveBlob(
+                            c.blob, fileName(deck.topic, 1, 1).replace(/\.png$/, `.${c.ext}`),
+                          )}>Download</button>
                         </figcaption>
                       </figure>
                     ))}

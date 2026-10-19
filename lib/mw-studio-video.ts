@@ -341,3 +341,138 @@ export function filmSeconds(beats: number, secondsEach = SEGMENT_SECONDS): numbe
 export function estimateSeconds(deck: Deck, opts: RecordOpts = {}): number {
   return Math.round(deck.slides.length * (opts.seconds ?? SLIDE_SECONDS))
 }
+
+
+// ─────────────────────────────────────────────────────────── one video out
+//
+// "If we're going to build a video it shouldn't be carousel video already
+//  right? Video should just be video there's no carousel. So the carousel
+//  can be made into a video where it transitions into the new slide."
+//  (owner, 19 Oct 2026)
+//
+// He is right and the old pair of buttons was me inventing a format. There
+// is one video. What differs is only what it is made FROM:
+//
+//   a carousel   → the slides, cross-faded one into the next
+//   one design   → the words changing on a background that never moves
+//
+// "One video per slide" is gone. It produced N files to be posted as a
+// carousel of videos, which is not a thing anyone asked for and read as a
+// second, confusing format.
+
+/** Seconds of overlap between one slide and the next. */
+export const CROSSFADE = 0.6
+
+function newCanvas(w: number, h: number) {
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const ctx = c.getContext('2d')
+  if (!ctx) throw new Error('Could not get a drawing context.')
+  return { c, ctx }
+}
+
+/**
+ * A carousel as one film, each slide dissolving into the next.
+ *
+ * Cross-fade rather than a push, which was the owner's choice: a push moves
+ * the entire frame, and the whole design rests on the idea that the picture
+ * and the furniture hold still while only words move. A dissolve keeps that
+ * promise across the join as well as within a slide.
+ *
+ * Two offscreen canvases, composited. Drawing a slide clears its canvas, so
+ * the outgoing and incoming frames cannot share one — and compositing is
+ * the only way the join can overlap at all.
+ */
+export async function recordSlidesVideo(
+  deck: Deck, format: Format, template: Template,
+  photos: Map<number, CanvasImageSource>, opts: RecordOpts = {},
+): Promise<Clip> {
+  if (document.hidden) {
+    throw new Error('Keep this tab in front while recording — a hidden tab records almost no frames.')
+  }
+  const { w, h } = SIZE[format]
+  const seconds = opts.seconds ?? SLIDE_SECONDS
+  const fps = opts.fps ?? 30
+  const chosen = pickMime()
+  if (!chosen) throw new Error('This browser cannot record video.')
+
+  const A = newCanvas(w, h)
+  const B = newCanvas(w, h)
+  const out = newCanvas(w, h)
+
+  const photoFor2 = (i: number) => {
+    const p = photos.get(i)
+    return p ? { photo: p } : {}
+  }
+
+  const paint = (elapsed: number) => {
+    const i = Math.min(deck.slides.length - 1, Math.floor(elapsed / seconds))
+    const local = elapsed - i * seconds
+    drawSlide(A.ctx, deck.slides[i], format, photoFor2(i), { at: local, total: seconds }, template)
+
+    out.ctx.globalAlpha = 1
+    out.ctx.clearRect(0, 0, w, h)
+    out.ctx.drawImage(A.c, 0, 0)
+
+    const into = local - (seconds - CROSSFADE)
+    if (into > 0 && i + 1 < deck.slides.length) {
+      drawSlide(B.ctx, deck.slides[i + 1], format, photoFor2(i + 1), { at: into, total: seconds }, template)
+      out.ctx.globalAlpha = Math.min(1, into / CROSSFADE)
+      out.ctx.drawImage(B.c, 0, 0)
+      out.ctx.globalAlpha = 1
+    }
+  }
+  paint(0)
+
+  const stream = out.c.captureStream(fps)
+  const rec = new MediaRecorder(stream, { mimeType: chosen.mime, videoBitsPerSecond: 8_000_000 })
+  const chunks: Blob[] = []
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
+  const done = new Promise<Blob>(r => { rec.onstop = () => r(new Blob(chunks, { type: chosen.mime })) })
+  rec.start()
+
+  const runSeconds = seconds * deck.slides.length
+  const started = performance.now()
+  let lastReport = 0
+  let frames = 0
+  let wentAway = false
+  const onHide = () => { if (document.hidden) wentAway = true }
+  document.addEventListener('visibilitychange', onHide)
+
+  await new Promise<void>(resolve => {
+    const tick = () => {
+      if (opts.signal?.aborted || wentAway) return resolve()
+      const now = performance.now()
+      const elapsed = (now - started) / 1000
+      if (elapsed >= runSeconds) return resolve()
+      frames++
+      paint(elapsed)
+      if (now - lastReport > 250) {
+        lastReport = now
+        opts.onProgress?.(elapsed / runSeconds)
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
+  paint(runSeconds - 0.01)
+  await new Promise(r => setTimeout(r, 120))
+  rec.stop()
+  stream.getTracks().forEach(t => t.stop())
+  document.removeEventListener('visibilitychange', onHide)
+
+  const blob = await done
+  if (wentAway) {
+    throw new Error('Recording stopped because the tab went into the background. Keep it in front and try again.')
+  }
+  const expected = runSeconds * fps
+  if (frames < expected * 0.5) {
+    throw new Error(
+      `Only ${frames} of about ${Math.round(expected)} frames were drawn, so the clip would stutter. ` +
+      'This happens when the tab is not in front — keep it visible and try again.',
+    )
+  }
+  return { blob, ext: chosen.ext, index: null, seconds: runSeconds }
+}

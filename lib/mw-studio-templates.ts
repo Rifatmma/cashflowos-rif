@@ -1,16 +1,23 @@
-// 👉 Five looks, one brand.
+// 👉 Ten looks: five built for a carousel, five built for a single image.
 //
-// The first version had exactly one design, so every post Moving Walls made
-// would have looked identical — which defeats the point of posting often.
-// It also used the chosen photograph on the cover slide and nowhere else, so
-// on a single image (which is a "closer") the picture was selected and then
-// silently never drawn. That was a design decision of mine and it was the
-// wrong one: how photography is used is part of the LOOK, so it belongs to
-// the template rather than being fixed for everything.
+// THEY USED TO BE ONE SET OF FIVE AND THAT WAS WRONG.
 //
-// All five come out of the Visual Identity Guidelines and nothing here
-// invents a colour. What varies is which of the guide's own surfaces carries
-// the slide:
+// A template described how each SLIDE ROLE should look — cover, stat, point,
+// closer — which is a carousel's vocabulary. A single image is one slide of
+// role "closer", so single images fell through whatever each template
+// happened to say about closers. Three of the five said "primary gradient",
+// so Deep, Editorial and Air rendered a single image BYTE FOR BYTE
+// IDENTICALLY. The owner reported them as looking the same; they were the
+// same. And Editorial's "photo on the cover" meant a single image got no
+// photograph at all, because it has no cover.
+//
+// Splitting the sets fixes both at the root rather than patching around
+// them. A single-image look now answers for its own whole design, including
+// whether it is photographic, and the format is chosen before the look so
+// only the applicable five are ever offered.
+//
+// Everything is from the Visual Identity Guidelines, p11-13. What varies is
+// which of the guide's own surfaces carries the design:
 //
 //   Primary gradient    #2554A2 → #1B1E2B      large areas, white type
 //   Secondary gradient  #BFE7FB → #66C9F3      large areas, navy type
@@ -18,10 +25,9 @@
 //   Photography         under a navy scrim
 //
 // Sunburst, Crimson and Emerald stay where the guide puts them: supporting
-// accents, never a field. In practice that means the chevron, a 132px rule
-// and the cover's pill, in every template.
+// accents, never a field — the chevron, a 132px rule, and the cover pill.
 
-export type SurfaceKind = 'paper' | 'field' | 'light' | 'photo' | 'split'
+export type SurfaceKind = 'paper' | 'field' | 'light' | 'photo' | 'split' | 'card'
 
 export type Surface = {
   kind: SurfaceKind
@@ -33,21 +39,26 @@ export type Surface = {
   photoShare?: number
   /** A band of primary gradient across the top, as a fraction of height. */
   band?: number
+  /** 'card' only: where the white panel starts, as a fraction of height. */
+  cardTop?: number
 }
 
 export type SlideKind = 'cover' | 'stat' | 'point' | 'closer'
 
+/** A single image is one slide; a carousel is a sequence. */
+export type FormatFamily = 'single' | 'carousel'
+
 export type Template = {
   id: string
   name: string
-  /** One line, shown on the picker. Says what it is FOR, not what it looks like. */
+  /** Which family it belongs to. A look is never offered to the wrong one. */
+  family: FormatFamily
+  /** One line for the picker. Says what it is FOR, not what it looks like. */
   blurb: string
   /**
-   * Which slides take the photograph.
-   *
    *   'every'  every slide is photographic — needs a good picture
-   *   'cover'  only the opening slide
-   *   'none'   no photography at all; the picker is hidden
+   *   'cover'  only the opening slide (carousel only; meaningless alone)
+   *   'none'   no photography at all
    */
   photo: 'every' | 'cover' | 'none'
   surfaceFor: (kind: SlideKind) => Surface
@@ -55,89 +66,175 @@ export type Template = {
 
 const paper = (band?: number): Surface =>
   ({ kind: 'paper', onDark: false, wave: band ?? null, band })
+const plain = (wave: number | null = 0.97): Surface =>
+  ({ kind: 'paper', onDark: false, wave })
 const field = (wave: number | null = 0.98): Surface =>
   ({ kind: 'field', onDark: true, wave })
-const light = (wave: number | null = 0.98): Surface =>
+const lightS = (wave: number | null = 0.98): Surface =>
   ({ kind: 'light', onDark: false, wave })
-const photo = (wave: number | null = 0.98): Surface =>
+const photoS = (wave: number | null = 0.98): Surface =>
   ({ kind: 'photo', onDark: true, wave })
-const split = (share = 0.46): Surface =>
+const splitS = (share = 0.46): Surface =>
   ({ kind: 'split', onDark: false, wave: share, photoShare: share })
+const cardS = (cardTop = 0.5): Surface =>
+  ({ kind: 'card', onDark: false, wave: null, cardTop })
 
-export const TEMPLATES: Template[] = [
+// ────────────────────────────────────────────────────────── carousel looks
+//
+// Here the slide ROLE genuinely varies — a cover is not a data slide — so
+// each look still answers per role. Air no longer falls back to the primary
+// gradient on its closer, which is half of why it was indistinguishable
+// from Deep.
+
+export const CAROUSEL_TEMPLATES: Template[] = [
   {
     id: 'editorial',
     name: 'Editorial',
-    blurb: 'White page, a blue band at the top, the number in brand gradient. The default for data.',
+    family: 'carousel',
+    blurb: 'White pages under a blue band, photo on the cover. The default for data.',
     photo: 'cover',
     surfaceFor: k =>
-      k === 'cover' ? photo(0.98)
+      k === 'cover' ? photoS(0.98)
       : k === 'closer' ? field()
-      : paper(0.222),              // the 300px band at 1350, kept proportional
+      : paper(0.222),
   },
   {
     id: 'bleed',
     name: 'Full bleed',
-    blurb: 'Every slide is a photograph under a navy scrim, white type over it. Strongest in a feed.',
+    family: 'carousel',
+    blurb: 'Every slide a photograph under a navy scrim. Strongest in a feed.',
     photo: 'every',
-    surfaceFor: () => photo(0.98),
+    surfaceFor: () => photoS(0.98),
   },
   {
     id: 'split',
     name: 'Split',
-    blurb: 'Photograph on top, white panel beneath. Calmer than full bleed, and long text still reads.',
+    family: 'carousel',
+    blurb: 'Photograph on top, white panel beneath. Long text still reads.',
     photo: 'every',
-    surfaceFor: () => split(),
+    surfaceFor: () => splitS(),
   },
   {
     id: 'deep',
     name: 'Deep',
-    blurb: 'Solid brand gradient, no photography. Use when the words are the whole point.',
+    family: 'carousel',
+    blurb: 'Solid brand gradient throughout. Use when the words are the point.',
     photo: 'none',
     surfaceFor: () => field(),
   },
   {
     id: 'air',
     name: 'Air',
-    blurb: 'The pale blue secondary gradient with navy type. Light and quiet — good for a statement.',
+    family: 'carousel',
+    blurb: 'Pale blue throughout with navy type. Light and quiet.',
     photo: 'none',
-    surfaceFor: k => (k === 'closer' ? field() : light()),
+    // Every slide pale, including the closer. Letting the closer fall back
+    // to the primary gradient is what made this identical to Deep.
+    surfaceFor: () => lightS(),
   },
 ]
 
-export const DEFAULT_TEMPLATE = TEMPLATES[0]
+// ──────────────────────────────────────────────────────── single-image looks
+//
+// One slide, so the role is irrelevant and each look is simply itself. They
+// are deliberately distinct in SURFACE, not only in colour: photograph,
+// photograph-with-a-card, blue, pale blue, white. Five looks that differ
+// only by hue is the complaint that produced this file.
 
-export function templateById(id: string | undefined): Template {
-  return TEMPLATES.find(t => t.id === id) ?? DEFAULT_TEMPLATE
+export const SINGLE_TEMPLATES: Template[] = [
+  {
+    id: 'poster',
+    name: 'Poster',
+    family: 'single',
+    blurb: 'Full-bleed photograph, white type across the bottom. The loudest option.',
+    photo: 'every',
+    surfaceFor: () => photoS(0.98),
+  },
+  {
+    id: 'inset',
+    name: 'Inset card',
+    family: 'single',
+    blurb: 'Photograph behind a white card. Keeps long text readable over any picture.',
+    photo: 'every',
+    surfaceFor: () => cardS(0.32),
+  },
+  {
+    id: 'statement',
+    name: 'Statement',
+    family: 'single',
+    blurb: 'Solid brand gradient, type filling the frame. No photograph.',
+    photo: 'none',
+    surfaceFor: () => field(),
+  },
+  {
+    id: 'calm',
+    name: 'Calm',
+    family: 'single',
+    blurb: 'Pale blue with navy type. Quiet — good for a single sentence.',
+    photo: 'none',
+    surfaceFor: () => lightS(),
+  },
+  {
+    id: 'paper',
+    name: 'Paper',
+    family: 'single',
+    blurb: 'A white page and nothing else. The most restrained, and the most legible.',
+    photo: 'none',
+    surfaceFor: () => plain(),
+  },
+]
+
+export const TEMPLATES: Template[] = [...CAROUSEL_TEMPLATES, ...SINGLE_TEMPLATES]
+
+/** Only the looks built for what is being made. */
+export function templatesFor(family: FormatFamily): Template[] {
+  return family === 'single' ? SINGLE_TEMPLATES : CAROUSEL_TEMPLATES
 }
 
-/** Does this template want a photograph for this slide? */
+export const DEFAULT_TEMPLATE: Record<FormatFamily, Template> = {
+  carousel: CAROUSEL_TEMPLATES[0],
+  single: SINGLE_TEMPLATES[0],
+}
+
+/**
+ * Look up by id, falling back to the default for that family.
+ *
+ * The family matters: an id from the other set is not merely unknown, it
+ * would render a single image with a carousel's idea of a closer, which is
+ * the bug this whole file exists to end.
+ */
+export function templateById(id: string | undefined, family: FormatFamily = 'carousel'): Template {
+  const found = TEMPLATES.find(t => t.id === id)
+  if (found && found.family === family) return found
+  return DEFAULT_TEMPLATE[family]
+}
+
+/** Does this look put the photograph on this particular slide role? */
 export function wantsPhoto(t: Template, kind: SlideKind): boolean {
   return t.photo === 'every' || (t.photo === 'cover' && kind === 'cover')
 }
 
-
 /**
- * Will this template put the photograph on ANY of these slides?
+ * Will this look draw a photograph on ANY of these slides?
  *
- * The thing to ask before offering a photo picker, and the question the
- * first two attempts both got wrong by asking something easier instead.
+ * The question to ask before offering a photo picker, and the one the first
+ * two attempts both dodged in favour of something easier.
  *
- *   v1 showed the picker when slide one was a cover. A single image is a
- *      closer, so the picker never appeared at all for single images.
- *   v2 showed it when the template was not 'none'. Editorial — the default —
- *      is 'cover', and a single image has no cover, so the picker appeared,
- *      a photo was chosen, and nothing drew it. Same defect, narrower, and
- *      on the default look.
+ *   v1 asked "is slide one a cover" — a single image is a closer, so the
+ *      picker never appeared for single images at all.
+ *   v2 asked "is the template photographic in principle" — Editorial, the
+ *      default, is 'cover', and a single image has no cover, so the picker
+ *      appeared and nothing drew the result.
  *
- * Both times the mistake was testing a proxy for the real question. The real
- * question is about this deck, so it takes the deck.
+ * Splitting the sets makes this mostly moot for single images, since a
+ * single-image look is 'every' or 'none'. It stays because carousels still
+ * have roles, and because the invariant is worth stating.
  */
 export function usesPhotoAnywhere(t: Template, kinds: SlideKind[]): boolean {
   return kinds.some(k => wantsPhoto(t, k))
 }
 
-/** The templates that WOULD use a photograph here, by name, for telling someone. */
-export function photoTemplatesFor(kinds: SlideKind[]): string[] {
-  return TEMPLATES.filter(t => usesPhotoAnywhere(t, kinds)).map(t => t.name)
+/** The looks that WOULD use a photograph here, by name, for telling someone. */
+export function photoTemplatesFor(kinds: SlideKind[], family: FormatFamily): string[] {
+  return templatesFor(family).filter(t => usesPhotoAnywhere(t, kinds)).map(t => t.name)
 }
