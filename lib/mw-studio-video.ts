@@ -1,4 +1,7 @@
-import { drawSlide, SIZE, SLIDE_SECONDS, type Deck, type Format, type Slide } from './mw-studio-design'
+import {
+  drawSlide, drawFilmSurface, drawSegmentText, SIZE, SLIDE_SECONDS, SEGMENT_SECONDS,
+  type Deck, type Format, type Slide, type Segment, type Template,
+} from './mw-studio-design'
 
 // 👉 Turning the slides into video, in the browser, with nothing installed.
 //
@@ -35,7 +38,7 @@ import { drawSlide, SIZE, SLIDE_SECONDS, type Deck, type Format, type Slide } fr
 // explanation if the tab is hidden part way through. A broken file that
 // announces itself is survivable; a silent one is not.
 
-export type VideoKind = 'per-slide' | 'reel'
+export type VideoKind = 'per-slide' | 'reel' | 'film'
 
 export type Clip = {
   blob: Blob
@@ -84,7 +87,7 @@ export type RecordOpts = {
  */
 async function recordRun(
   slides: Slide[], format: Format, photos: Map<number, CanvasImageSource>,
-  opts: RecordOpts, offset: number, totalSlides: number,
+  opts: RecordOpts, offset: number, totalSlides: number, template: Template,
 ): Promise<Omit<Clip, 'index'>> {
   const { w, h } = SIZE[format]
   const seconds = opts.seconds ?? SLIDE_SECONDS
@@ -104,7 +107,7 @@ async function recordRun(
 
   // The first frame must already be on the canvas before capture starts, or
   // the clip opens on one blank frame — which looks like a broken file.
-  drawSlide(ctx, slides[0], format, photoFor(photos, offset), { at: 0, total: seconds })
+  drawSlide(ctx, slides[0], format, photoFor(photos, offset), { at: 0, total: seconds }, template)
 
   const stream = canvas.captureStream(fps)
   const rec = new MediaRecorder(stream, {
@@ -142,7 +145,7 @@ async function recordRun(
       const i = Math.min(slides.length - 1, Math.floor(elapsed / seconds))
       drawSlide(
         ctx, slides[i], format, photoFor(photos, offset + i),
-        { at: elapsed - i * seconds, total: seconds },
+        { at: elapsed - i * seconds, total: seconds }, template,
       )
 
       // PROGRESS IS THROTTLED, and this was not a nicety. Reporting on every
@@ -165,7 +168,7 @@ async function recordRun(
   drawSlide(
     ctx, slides[slides.length - 1], format,
     photoFor(photos, offset + slides.length - 1),
-    { at: seconds, total: seconds },
+    { at: seconds, total: seconds }, template,
   )
   await new Promise(r => setTimeout(r, 120))
 
@@ -210,19 +213,128 @@ function photoFor(photos: Map<number, CanvasImageSource>, i: number) {
  * posted as a carousel with moving slides rather than as a single film.
  */
 export async function recordDeck(
-  deck: Deck, photos: Map<number, CanvasImageSource>, kind: VideoKind, opts: RecordOpts = {},
+  deck: Deck, photos: Map<number, CanvasImageSource>, kind: VideoKind,
+  template: Template, opts: RecordOpts = {},
 ): Promise<Clip[]> {
   if (kind === 'reel') {
-    const c = await recordRun(deck.slides, deck.format, photos, opts, 0, deck.slides.length)
+    const c = await recordRun(deck.slides, deck.format, photos, opts, 0, deck.slides.length, template)
     return [{ ...c, index: null }]
   }
   const out: Clip[] = []
   for (let i = 0; i < deck.slides.length; i++) {
     if (opts.signal?.aborted) break
-    const c = await recordRun([deck.slides[i]], deck.format, photos, opts, i, deck.slides.length)
+    const c = await recordRun([deck.slides[i]], deck.format, photos, opts, i, deck.slides.length, template)
     out.push({ ...c, index: i })
   }
   return out
+}
+
+/**
+ * Record a film: one unchanging design, the words changing every few seconds.
+ *
+ * This is the shape the owner asked for — fifteen seconds or more, with a new
+ * headline, subheadline and description on each beat. It is also the cleanest
+ * possible version of the original brief, because here the background really
+ * IS a static image: it is painted once into an offscreen bitmap and blitted
+ * for every frame, so nothing but the type can possibly move, and each frame
+ * costs one drawImage plus the words.
+ */
+export async function recordFilm(
+  segments: Segment[], format: Format, template: Template,
+  photo: CanvasImageSource | undefined, source: string | undefined,
+  opts: RecordOpts = {},
+): Promise<Clip> {
+  if (document.hidden) {
+    throw new Error('Keep this tab in front while recording — a hidden tab records almost no frames.')
+  }
+  if (!segments.length) throw new Error('There are no beats to record.')
+
+  const { w, h } = SIZE[format]
+  const seconds = opts.seconds ?? SEGMENT_SECONDS
+  const fps = opts.fps ?? 30
+  const chosen = pickMime()
+  if (!chosen) throw new Error('This browser cannot record video.')
+
+  // The background, painted once. Everything the owner called "static image"
+  // lives in here and is never redrawn.
+  const back = document.createElement('canvas')
+  back.width = w
+  back.height = h
+  const bctx = back.getContext('2d')
+  if (!bctx) throw new Error('Could not get a drawing context.')
+  const surface = drawFilmSurface(bctx, format, template, photo ? { photo } : {}, source)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not get a drawing context.')
+
+  const frame = (at: number, i: number) => {
+    ctx.globalAlpha = 1
+    ctx.drawImage(back, 0, 0)
+    drawSegmentText(ctx, segments[i], format, surface, { at, total: seconds })
+  }
+  frame(0, 0)
+
+  const stream = canvas.captureStream(fps)
+  const rec = new MediaRecorder(stream, { mimeType: chosen.mime, videoBitsPerSecond: 8_000_000 })
+  const chunks: Blob[] = []
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
+  const done = new Promise<Blob>(resolve => {
+    rec.onstop = () => resolve(new Blob(chunks, { type: chosen.mime }))
+  })
+  rec.start()
+
+  const runSeconds = seconds * segments.length
+  const started = performance.now()
+  let lastReport = 0
+  let frames = 0
+  let wentAway = false
+  const onHide = () => { if (document.hidden) wentAway = true }
+  document.addEventListener('visibilitychange', onHide)
+
+  await new Promise<void>(resolve => {
+    const tick = () => {
+      if (opts.signal?.aborted || wentAway) return resolve()
+      const now = performance.now()
+      const elapsed = (now - started) / 1000
+      if (elapsed >= runSeconds) return resolve()
+      frames++
+      const i = Math.min(segments.length - 1, Math.floor(elapsed / seconds))
+      frame(elapsed - i * seconds, i)
+      if (now - lastReport > 250) {
+        lastReport = now
+        opts.onProgress?.(elapsed / runSeconds)
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+
+  frame(seconds, segments.length - 1)
+  await new Promise(r => setTimeout(r, 120))
+  rec.stop()
+  stream.getTracks().forEach(t => t.stop())
+  document.removeEventListener('visibilitychange', onHide)
+
+  const blob = await done
+  if (wentAway) {
+    throw new Error('Recording stopped because the tab went into the background. Keep it in front and try again.')
+  }
+  const expected = runSeconds * fps
+  if (frames < expected * 0.5) {
+    throw new Error(
+      `Only ${frames} of about ${Math.round(expected)} frames were drawn, so the clip would stutter. ` +
+      'This happens when the tab is not in front — keep it visible and try again.',
+    )
+  }
+  return { blob, ext: chosen.ext, index: null, seconds: runSeconds }
+}
+
+/** How long a film of these beats will run. */
+export function filmSeconds(beats: number, secondsEach = SEGMENT_SECONDS): number {
+  return Math.round(beats * secondsEach)
 }
 
 /** Roughly how long the person is about to wait. Real time, so it is exact. */

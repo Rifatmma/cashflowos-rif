@@ -1,6 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { supabase, supabaseConfigured } from './supabase'
-import { type Deck, type Format, type Slide, type SlideKind, LIMITS, KICKER_MAX, faults } from './mw-studio-design'
+import {
+  type Deck, type Format, type Slide, type SlideKind, type Segment,
+  LIMITS, KICKER_MAX, SEGMENT_SECONDS, faults, segmentFaults,
+} from './mw-studio-design'
+import { DEFAULT_TEMPLATE } from './mw-studio-templates'
 
 // 👉 Moving Walls → Studio. Topic in, deck out.
 //
@@ -226,7 +230,7 @@ const KINDS: SlideKind[] = ['cover', 'stat', 'point', 'closer']
 
 /** Turn researched facts into slides. */
 export async function compose(
-  r: Research, format: Format, slideCount = 5,
+  r: Research, format: Format, slideCount = 5, template = DEFAULT_TEMPLATE.id,
 ): Promise<Deck | { error: string }> {
   const a = client()
   if (!a) return { error: 'ANTHROPIC_API_KEY is not set.' }
@@ -290,7 +294,7 @@ JSON only: {"slides":[{"kind":"cover","kicker":"...","headline":"...","body":"..
   })).filter(s => s.headline)
 
   if (!slides.length) return { error: 'Every slide came back empty.' }
-  return { topic: r.topic, format, slides }
+  return { topic: r.topic, format, template, slides }
 }
 
 /**
@@ -304,9 +308,9 @@ JSON only: {"slides":[{"kind":"cover","kicker":"...","headline":"...","body":"..
  * the screen can say what is wrong instead of pretending.
  */
 export async function composeChecked(
-  r: Research, format: Format, slideCount = 5,
+  r: Research, format: Format, slideCount = 5, template = DEFAULT_TEMPLATE.id,
 ): Promise<{ deck: Deck; faults: string[] } | { error: string }> {
-  const first = await compose(r, format, slideCount)
+  const first = await compose(r, format, slideCount, template)
   if ('error' in first) return first
   const bad = faults(first)
   if (!bad.length) return { deck: first, faults: [] }
@@ -348,4 +352,82 @@ JSON only: {"slides":[...]} in the same shape.`,
     }
   } catch { /* the first deck plus its faults is still useful */ }
   return { deck: first, faults: bad }
+}
+
+
+// --------------------------------------------------------------- the film
+//
+// A fifteen-second video is not a four-second one held longer. The owner
+// asked for the words to CHANGE every five seconds over a design that stays
+// put, with a headline, a subheadline and a description he can edit — and
+// for the first draft of those words to come from the research rather than
+// from a blank box.
+//
+// So the beats are suggested, not imposed. Every one is editable on the
+// screen; this only decides what is in the fields when it opens.
+
+/** One suggested beat per five seconds, drawn from the researched facts. */
+export async function suggestSegments(
+  r: Research, beats = 3,
+): Promise<{ segments: Segment[] } | { error: string }> {
+  const a = client()
+  if (!a) return { error: 'ANTHROPIC_API_KEY is not set.' }
+  const n = Math.min(8, Math.max(2, beats))
+
+  const prompt = `Write the words for a ${n * SEGMENT_SECONDS}-second Moving Walls video.
+It is ${n} beats of ${SEGMENT_SECONDS} seconds. The design never changes; only the words do.
+
+TOPIC: ${r.topic}
+ANGLE: ${r.angle}
+
+FACTS — use only these. Do not introduce a number that is not here:
+${r.facts.map((f, i) => `${i + 1}. ${f.claim}  [${f.source}]`).join('\n')}
+
+Each beat has:
+  "sub"      a short uppercase label, ${KICKER_MAX} characters MAX
+  "headline" the line that carries the beat, 70 characters MAX, short is better
+  "body"     one plain sentence, 150 characters MAX
+
+It has to work as a sequence: beat 1 opens the subject, the middle beats carry
+the evidence, the last beat says what Moving Walls thinks — not another number.
+Someone reading at a scroll has five seconds per beat, so no clauses.
+Plain English. No "unlock", "leverage", "game-changer", "in today's landscape".
+
+JSON only: {"segments":[{"sub":"...","headline":"...","body":"..."}]}`
+
+  let res: Anthropic.Message
+  try {
+    res = await a.messages.create({ model: MODEL, max_tokens: 2500, messages: [{ role: 'user', content: prompt }] })
+  } catch (e: any) {
+    return { error: `Suggesting the script failed: ${String(e?.message ?? e).slice(0, 180)}` }
+  }
+
+  const out = parseJson<{ segments?: any[] }>(textOf(res), 'segments')
+  if (!out?.segments?.length) {
+    return {
+      error: res.stop_reason === 'max_tokens'
+        ? 'The script ran past the length limit. Try fewer beats.'
+        : 'The script came back unreadable. Try again.',
+    }
+  }
+
+  const segments: Segment[] = out.segments.slice(0, n).map((x: any) => ({
+    sub: x?.sub ? String(x.sub).trim().slice(0, 40) : undefined,
+    headline: String(x?.headline ?? '').trim(),
+    body: x?.body ? String(x.body).trim() : undefined,
+  })).filter(x => x.headline)
+
+  if (!segments.length) return { error: 'Every beat came back empty.' }
+  // Short of the asked-for count rather than padded with filler: a blank
+  // beat on screen for five seconds is worse than a shorter film.
+  return { segments }
+}
+
+/** Beats plus whatever will not fit, so the screen can say so. */
+export async function suggestScript(
+  r: Research, beats = 3,
+): Promise<{ segments: Segment[]; faults: string[] } | { error: string }> {
+  const out = await suggestSegments(r, beats)
+  if ('error' in out) return out
+  return { segments: out.segments, faults: segmentFaults(out.segments) }
 }

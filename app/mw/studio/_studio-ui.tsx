@@ -1,11 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { researchTopic, composeDeck } from './actions'
+import { researchTopic, composeDeck, suggestFilmScript } from './actions'
 import type { Research } from '@/lib/mw-studio'
 import type { Photo } from '@/lib/mw-photos'
-import { drawSlide, faults, SIZE, SLIDE_SECONDS, type Deck, type Format, type Slide } from '@/lib/mw-studio-design'
-import { recordDeck, pickMime, estimateSeconds, type Clip, type VideoKind } from '@/lib/mw-studio-video'
+import {
+  drawSlide, drawFilmSurface, drawSegmentText, faults, segmentFaults,
+  SIZE, SLIDE_SECONDS, SEGMENT_SECONDS, TEMPLATES, templateById, wantsPhoto,
+  type Deck, type Format, type Slide, type Segment,
+} from '@/lib/mw-studio-design'
+import {
+  recordDeck, recordFilm, pickMime, estimateSeconds, filmSeconds,
+  type Clip, type VideoKind,
+} from '@/lib/mw-studio-video'
 
 // The Studio screen. Four steps down one column, each appearing only once the
 // one above it has an answer:
@@ -23,11 +30,12 @@ import { recordDeck, pickMime, estimateSeconds, type Clip, type VideoKind } from
 // is downloaded are the same pixels.
 
 function SlideCanvas({
-  slide, format, photo, onReady, onImage,
+  slide, format, photo, template, onReady, onImage,
 }: {
   slide: Slide
   format: Format
   photo?: string
+  template: string
   onReady?: (c: HTMLCanvasElement) => void
   /** Hands the decoded photo up, so recording does not re-fetch or re-decode it. */
   onImage?: (img: HTMLImageElement | null) => void
@@ -43,7 +51,7 @@ function SlideCanvas({
 
     const paint = (img?: HTMLImageElement) => {
       if (dead) return
-      drawSlide(ctx, slide, format, img ? { photo: img } : {})
+      drawSlide(ctx, slide, format, img ? { photo: img } : {}, undefined, templateById(template))
       onReady?.(c)
       onImage?.(img ?? null)
     }
@@ -73,7 +81,82 @@ function SlideCanvas({
     })
 
     return () => { dead = true }
-  }, [slide, format, photo, onReady, onImage])
+  }, [slide, format, photo, template, onReady, onImage])
+
+  const { w, h } = SIZE[format]
+  return <canvas ref={ref} width={w} height={h} className="mw-studio-canvas" />
+}
+
+/**
+ * A tiny picture of what a template looks like.
+ *
+ * Drawn in CSS rather than rendered from the real engine: the picker has to
+ * appear before a deck exists, so there is nothing to render yet, and five
+ * live 1080px canvases on screen at once to choose between would be absurd.
+ * The gradients are the same tokens the real surfaces use.
+ */
+const SWATCH: Record<string, React.CSSProperties[]> = {
+  editorial: [
+    { inset: 0, background: '#fff' },
+    { inset: '0 0 72% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' },
+  ],
+  bleed: [{ inset: 0, background: 'linear-gradient(160deg,#5b6b84,#1B1E2B 70%)' }],
+  split: [
+    { inset: 0, background: '#fff' },
+    { inset: '0 0 54% 0', background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' },
+  ],
+  deep: [{ inset: 0, background: 'linear-gradient(135deg,#2554A2,#1B1E2B)' }],
+  air: [{ inset: 0, background: 'linear-gradient(135deg,#BFE7FB,#66C9F3)' }],
+}
+
+function Swatch({ id }: { id: string }) {
+  return (
+    <span className="mw-studio-swatch" aria-hidden="true">
+      {(SWATCH[id] ?? SWATCH.deep).map((st, i) => (
+        <span key={i} style={{ position: 'absolute', ...st }} />
+      ))}
+    </span>
+  )
+}
+
+/** One frozen moment of a film, for the beat editor's thumbnail. */
+function FilmFrame({
+  segment, format, template, photo, source, at,
+}: {
+  segment: Segment; format: Format; template: string
+  photo?: string; source?: string; at: number
+}) {
+  const ref = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const c = ref.current
+    if (!c) return
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    let dead = false
+    const t = templateById(template)
+
+    const paint = (img?: HTMLImageElement) => {
+      if (dead) return
+      const surface = drawFilmSurface(ctx, format, t, img ? { photo: img } : {}, source)
+      drawSegmentText(ctx, segment, format, surface, { at, total: SEGMENT_SECONDS })
+    }
+
+    const fonts = (document as any).fonts
+    const ready: Promise<unknown> = fonts
+      ? Promise.all([fonts.load('700 88px Poppins'), fonts.load('600 26px Poppins')]).catch(() => undefined)
+      : Promise.resolve()
+
+    ready.then(() => {
+      if (dead) return
+      if (!photo || t.photo === 'none') return paint()
+      const img = new Image()
+      img.onload = () => paint(img)
+      img.onerror = () => paint()
+      img.src = photo
+    })
+    return () => { dead = true }
+  }, [segment, format, template, photo, source, at])
 
   const { w, h } = SIZE[format]
   return <canvas ref={ref} width={w} height={h} className="mw-studio-canvas" />
@@ -116,6 +199,9 @@ export function Studio() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [photo, setPhoto] = useState<string | undefined>()
   const [deck, setDeck] = useState<Deck | null>(null)
+  // The look. Changing it never re-asks the model — the copy is the same,
+  // only the surface it sits on changes, so switching is instant.
+  const [template, setTemplate] = useState(TEMPLATES[0].id)
   const [problems, setProblems] = useState<string[]>([])
   const [error, setError] = useState('')
   const [busy, start] = useTransition()
@@ -129,6 +215,11 @@ export function Studio() {
   const [recProgress, setRecProgress] = useState(0)
   const [recError, setRecError] = useState('')
   const [seconds, setSeconds] = useState(SLIDE_SECONDS)
+
+  // The film: beats of five seconds, each with its own words.
+  const [beats, setBeats] = useState<Segment[]>([])
+  const [beatFaults, setBeatFaults] = useState<string[]>([])
+  const [suggesting, setSuggesting] = useState(false)
   const abort = useRef<AbortController | null>(null)
   const images = useRef(new Map<number, HTMLImageElement>())
 
@@ -159,11 +250,12 @@ export function Studio() {
     if (!res) return
     setError(''); setDeck(null); setProblems([])
     start(async () => {
-      const d = await composeDeck(res, format, count)
+      const d = await composeDeck(res, format, count, template)
       if (!d.ok) return setError(d.error)
       canvases.current.clear()
       images.current.clear()
       setClips([])
+      setBeats([])
       setDeck(d.deck)
       setProblems(d.faults)
     })
@@ -191,13 +283,71 @@ export function Studio() {
     setRecording(true)
     abort.current = new AbortController()
     try {
-      const out = await recordDeck(deck, images.current, kind, {
+      const out = await recordDeck(deck, images.current, kind, templateById(template), {
         seconds,
         onProgress: setRecProgress,
         signal: abort.current.signal,
       })
       setClips(out)
       if (out[0]?.ext === 'webm') {
+        setRecError(
+          'This browser could only record WebM. Instagram will not accept it — ' +
+          'record in Chrome or Safari to get an MP4.',
+        )
+      }
+    } catch (e: any) {
+      setRecError(String(e?.message ?? e))
+    } finally {
+      setRecording(false)
+      abort.current = null
+    }
+  }
+
+  /** Switching look repaints from the same copy; nothing is re-generated. */
+  const pickTemplate = (id: string) => {
+    setTemplate(id)
+    setClips([])                         // any clip now shows the old look
+    setDeck(d => (d ? { ...d, template: id } : d))
+  }
+
+  const suggestBeats = (n: number) => {
+    if (!res) return
+    setRecError('')
+    setSuggesting(true)
+    start(async () => {
+      const out = await suggestFilmScript(res, n)
+      setSuggesting(false)
+      if (!out.ok) return setRecError(out.error)
+      setBeats(out.segments)
+      setBeatFaults(out.faults)
+      setClips([])
+    })
+  }
+
+  const editBeat = (i: number, patch: Partial<Segment>) => {
+    setBeats(bs => {
+      const next = bs.map((b, j) => (j === i ? { ...b, ...patch } : b))
+      setBeatFaults(segmentFaults(next))
+      setClips([])
+      return next
+    })
+  }
+
+  const makeFilm = async () => {
+    if (!deck || !beats.length) return
+    setRecError('')
+    setClips([])
+    setRecProgress(0)
+    setRecording(true)
+    abort.current = new AbortController()
+    try {
+      const clip = await recordFilm(
+        beats, deck.format, templateById(template),
+        images.current.get(0), deck.slides[0]?.source,
+        { onProgress: setRecProgress, signal: abort.current.signal },
+      )
+      setClips([clip])
+      if (clip.ext === 'webm') {
         setRecError(
           'This browser could only record WebM. Instagram will not accept it — ' +
           'record in Chrome or Safari to get an MP4.',
@@ -279,7 +429,37 @@ export function Studio() {
         </section>
       )}
 
-      {/* 3 ───────────────────────────────────────────── single or carousel */}
+      {/* 3 ───────────────────────────────────────────────────── the look */}
+      {res && (
+        <section className="mw-studio-templates">
+          <h3>Which look?</h3>
+          <p className="lede">
+            All five are the Moving Walls palette — what changes is the surface the words sit on,
+            and whether the design uses photography. You can switch after generating; the writing
+            stays as it is and only the design is repainted.
+          </p>
+          <div className="mw-studio-looks">
+            {TEMPLATES.map(t => (
+              <button
+                key={t.id} type="button"
+                onClick={() => pickTemplate(t.id)}
+                aria-current={template === t.id ? 'true' : undefined}
+              >
+                <Swatch id={t.id} />
+                <b>{t.name}</b>
+                <small>{t.blurb}</small>
+                <em>
+                  {t.photo === 'every' ? 'photo on every slide'
+                    : t.photo === 'cover' ? 'photo on the cover'
+                    : 'no photography'}
+                </em>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 4 ───────────────────────────────────────────── single or carousel */}
       {res && (
         <section className="mw-studio-format">
           <h3>Which format?</h3>
@@ -318,7 +498,11 @@ export function Studio() {
           {/* The cover photo picker. The alt text is shown because Pexels
               returns confident, unrelated pictures rather than admitting it
               found nothing. */}
-          {deck.slides[0]?.kind === 'cover' && photos.length > 0 && (
+          {/* Shown whenever the CHOSEN TEMPLATE uses photography — not only
+              when slide one happens to be a cover. The first version gated
+              on the cover, so on a single image (which is a closer) the
+              picture was selected and then silently never drawn. */}
+          {templateById(template).photo !== 'none' && photos.length > 0 && (
             <div className="mw-studio-photos">
               <h4>Cover photo</h4>
               <div className="mw-studio-strip">
@@ -352,7 +536,8 @@ export function Studio() {
                 <SlideCanvas
                   slide={s}
                   format={deck.format}
-                  photo={s.kind === 'cover' ? photo : undefined}
+                  template={template}
+                  photo={wantsPhoto(templateById(template), s.kind) ? photo : undefined}
                   onReady={register(i)}
                   onImage={keepImage(i)}
                 />
@@ -420,6 +605,102 @@ export function Studio() {
                   <b>{seconds.toFixed(1)}s</b>
                 </label>
 
+                {/* ── the film ────────────────────────────────────────
+                    Fifteen seconds or more, the words changing every five
+                    over a design that does not move. The first draft of the
+                    words comes from the research; all of it is editable. */}
+                <div className="mw-studio-film">
+                  <h5>A film — new words every {SEGMENT_SECONDS} seconds</h5>
+                  {beats.length === 0 ? (
+                    <>
+                      <p className="lede">
+                        One design, held still, with the writing changing on each beat. Three beats
+                        is {filmSeconds(3)} seconds; add more for longer.
+                      </p>
+                      <div className="mw-studio-beatpick">
+                        {[3, 4, 6].map(n => (
+                          <button key={n} type="button" disabled={suggesting || busy}
+                            onClick={() => suggestBeats(n)}>
+                            {suggesting ? 'Writing…' : `${filmSeconds(n)}s · ${n} beats`}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="lede">
+                        {filmSeconds(beats.length)} seconds, {beats.length} beats. Every field is
+                        yours to change — these are suggestions from the research, not decisions.
+                      </p>
+                      {beatFaults.length > 0 && (
+                        <div className="mw-studio-faults">
+                          <ul>{beatFaults.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                        </div>
+                      )}
+                      <div className="mw-studio-beats">
+                        {beats.map((b, i) => (
+                          <div className="mw-studio-beat" key={i}>
+                            <FilmFrame
+                              segment={b} format={deck.format} template={template}
+                              photo={templateById(template).photo === 'none' ? undefined : photo}
+                              source={deck.slides[0]?.source}
+                              at={SEGMENT_SECONDS / 2}
+                            />
+                            <div className="mw-studio-beatfields">
+                              <span className="mw-studio-n">
+                                {i * SEGMENT_SECONDS}–{(i + 1) * SEGMENT_SECONDS}s
+                              </span>
+                              <label>
+                                Subheadline
+                                <input value={b.sub ?? ''}
+                                  onChange={e => editBeat(i, { sub: e.target.value })} />
+                              </label>
+                              <label>
+                                Headline
+                                <textarea rows={2} value={b.headline}
+                                  onChange={e => editBeat(i, { headline: e.target.value })} />
+                              </label>
+                              <label>
+                                Description
+                                <textarea rows={3} value={b.body ?? ''}
+                                  onChange={e => editBeat(i, { body: e.target.value })} />
+                              </label>
+                              <div className="mw-studio-beatbtns">
+                                <button type="button" disabled={recording}
+                                  onClick={() => setBeats(bs => bs.filter((_, j) => j !== i))}>
+                                  Remove this beat
+                                </button>
+                                <button type="button" disabled={recording}
+                                  onClick={() => setBeats(bs => [
+                                    ...bs.slice(0, i + 1),
+                                    { headline: 'New line', sub: b.sub, body: '' },
+                                    ...bs.slice(i + 1),
+                                  ])}>
+                                  Add one after
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mw-studio-beatpick">
+                        <button type="button" className="mw-dl" disabled={recording || !beats.length}
+                          onClick={makeFilm}>
+                          🎬 Record the {filmSeconds(beats.length)}-second film
+                        </button>
+                        <button type="button" disabled={recording || suggesting}
+                          onClick={() => suggestBeats(beats.length)}>
+                          Rewrite the words
+                        </button>
+                        <button type="button" disabled={recording} onClick={() => setBeats([])}>
+                          Start over
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <h5 className="mw-studio-orh">Or play the slides</h5>
                 <div className="mw-studio-choice">
                   <button type="button" disabled={recording} onClick={() => makeVideo('reel')}>
                     <b>One video, all slides</b>

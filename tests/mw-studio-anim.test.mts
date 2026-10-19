@@ -21,7 +21,7 @@
 // it supports is still on screen would be worse than no animation at all, so
 // footer() is drawn outside every animated block and these tests pin that.
 
-import { drawSlide, TIMING, type Slide } from '../lib/mw-studio-design'
+import { drawSlide, TIMING, TEMPLATES, templateById, type Slide, type Template } from '../lib/mw-studio-design'
 
 let bad = 0
 const ok = (m: string) => console.log(`ok   ${m}`)
@@ -55,6 +55,8 @@ function spy() {
     clearRect: () => {}, fillRect: () => note('rect'),
     beginPath: () => {}, closePath: () => {},
     moveTo: () => {}, lineTo: () => {}, arcTo: () => {},
+    // Path construction and clipping draw nothing, so they record nothing.
+    rect: () => {}, clip: () => {},
     fill: () => note('fill'), stroke: () => note('stroke'),
     drawImage: () => note('image'),
     createLinearGradient: () => ({ addColorStop: () => {} }),
@@ -62,11 +64,12 @@ function spy() {
   return { ctx: ctx as CanvasRenderingContext2D, calls }
 }
 
-const draw = (s: Slide, at?: number, photo?: CanvasImageSource) => {
+const draw = (s: Slide, at?: number, photo?: CanvasImageSource, template?: Template) => {
   const { ctx, calls } = spy()
   drawSlide(
     ctx, s, 'carousel', photo ? { photo } : {},
     at === undefined ? undefined : { at, total: 4 },
+    template,
   )
   return calls
 }
@@ -210,5 +213,50 @@ for (const at of [0, 0.25, 2, 3.9, 4]) {
     'the logo and wave, drawn around the animated blocks, keep their own position')
 }
 
-console.log(bad ? `\n${bad} failed` : '\nall passed — only the text moves')
+
+// ── EVERY TEMPLATE, not just the default ───────────────────────────────────
+//
+// Five looks multiply the ways this can go wrong, and the requirement is the
+// same for all of them: the surface is a static image and only the words
+// move. A new template added later gets this check for free, which is the
+// point of iterating TEMPLATES rather than listing them.
+
+const img = { width: 1080, height: 1350 } as unknown as CanvasImageSource
+
+for (const t of TEMPLATES) {
+  for (const s of [stat, cover]) {
+    const still = draw(s, undefined, img, t)
+    const frame = draw(s, 0.3, img, t)
+
+    is(changed(still, frame).length > 0,
+      `${t.id}/${s.kind}: something animates`)
+
+    for (const op of ['rect', 'stroke', 'image'] as const) {
+      is(frame.filter(c => c.op === op && c.dy !== 0).length === 0,
+        `${t.id}/${s.kind}: no ${op} moves`)
+    }
+
+    is(JSON.stringify(draw(s, 2, img, t)) === JSON.stringify(still),
+      `${t.id}/${s.kind}: mid-hold equals the still`)
+  }
+}
+
+// ── the photograph reaches the templates that asked for one ───────────────
+//
+// This is the bug that prompted the whole template system: the picture was
+// chosen in the UI and then silently never drawn, because only a "cover"
+// slide consumed it and a single image is a "closer".
+for (const t of TEMPLATES) {
+  const drawn = draw({ ...stat, kind: 'closer' }, undefined, img, t).some(c => c.op === 'image')
+  if (t.photo === 'every') {
+    is(drawn, `${t.id}: says every slide is photographic, and a closer really gets the photo`)
+  } else {
+    is(!drawn, `${t.id}: does not claim to use a photo on a closer, and does not draw one`)
+  }
+}
+
+is(templateById('nonsense').id === TEMPLATES[0].id,
+  'an unknown template id falls back to the default rather than throwing')
+
+console.log(bad ? `\n${bad} failed` : '\nall passed — only the text moves, in every template')
 process.exit(bad ? 1 : 0)
