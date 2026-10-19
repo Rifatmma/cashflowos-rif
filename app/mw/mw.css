@@ -772,3 +772,102 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 .mw-mtabs-more[open] > summary { margin-bottom: 8px; }
 .mw-mtabs.is-quiet a { font-size: 12px; padding: 5px 10px; opacity: .75; }
 .mw-mtabs.is-quiet a:hover { opacity: 1; }
+
+/* ─────────────────────────────────────────────────────── Studio
+   The post generator. Four steps down one column.
+
+   The slide previews are drawn at 1080 and scaled with CSS, so the review
+   and the download are the same pixels — nothing is re-laid-out for export
+   and there is no "it looked different in the preview". */
+
+.mw-studio { display: grid; gap: 28px; }
+
+.mw-studio-ask { display: grid; gap: 10px; }
+.mw-studio-ask label { font-weight: 600; }
+.mw-studio-ask textarea {
+  width: 100%; padding: 14px 16px; font: inherit; font-size: 16px;
+  border: 1px solid var(--mw-line-strong); border-radius: var(--mw-r);
+  background: var(--mw-surface); color: var(--mw-ink); resize: vertical;
+}
+.mw-studio-ask button {
+  justify-self: start; padding: 12px 22px; border-radius: 999px; border: 0;
+  background: linear-gradient(135deg, var(--mw-brand-deep), var(--mw-brand)); color: #fff;
+  font-weight: 600; cursor: pointer;
+}
+.mw-studio-ask button:disabled { opacity: .5; cursor: default; }
+
+.mw-studio-error {
+  padding: 12px 16px; border-radius: 10px;
+  background: var(--mw-bad-bg); border: 1px solid var(--mw-bad);
+}
+.mw-studio-warn {
+  padding: 10px 14px; border-radius: 10px;
+  background: var(--mw-warn-bg); border: 1px solid var(--mw-warn);
+}
+
+.mw-studio-facts ol { margin: 10px 0 0; padding-left: 22px; display: grid; gap: 12px; }
+.mw-studio-facts li small { display: block; opacity: .7; margin-top: 3px; }
+.mw-studio-reinforce code { margin-right: 8px; }
+.mw-studio-check { opacity: .7; font-size: 14px; margin-top: 12px; }
+
+.mw-studio-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+.mw-studio-choice button {
+  text-align: left; padding: 18px; border-radius: var(--mw-r-lg); cursor: pointer;
+  border: 1px solid var(--mw-line-strong); background: var(--mw-surface); color: var(--mw-ink);
+}
+.mw-studio-choice button:hover { border-color: var(--mw-brand); }
+.mw-studio-choice b { display: block; margin-bottom: 5px; }
+.mw-studio-choice small { opacity: .7; }
+
+.mw-studio-deck-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+
+.mw-studio-faults {
+  padding: 14px 16px; border-radius: 10px; margin: 12px 0;
+  background: var(--mw-warn-bg); border: 1px solid var(--mw-warn);
+}
+.mw-studio-faults ul { margin: 8px 0; padding-left: 20px; }
+.mw-studio-faults p { margin: 0; opacity: .75; font-size: 14px; }
+
+/* The photo strip. Each thumbnail carries its alt text because Pexels never
+   admits it found nothing — it returns a confident, unrelated photograph. */
+.mw-studio-strip { display: flex; gap: 10px; overflow-x: auto; padding: 4px 0 10px; }
+.mw-studio-strip button {
+  flex: 0 0 120px; padding: 0; border-radius: 10px; overflow: hidden; cursor: pointer;
+  border: 2px solid transparent; background: var(--mw-surface); color: var(--mw-ink);
+}
+.mw-studio-strip button[aria-current] { border-color: var(--mw-brand); }
+.mw-studio-strip img { width: 100%; height: 150px; object-fit: cover; display: block; }
+.mw-studio-strip small {
+  display: block; padding: 6px; font-size: 11px; line-height: 1.3; opacity: .75;
+  text-align: left; height: 44px; overflow: hidden;
+}
+.mw-studio-nophoto {
+  display: grid; place-content: center; height: 194px; font-size: 13px;
+  border: 2px dashed var(--mw-line-strong) !important;
+}
+.mw-studio-nophoto small { height: auto !important; text-align: center !important; }
+
+.mw-studio-slides { display: grid; gap: 22px; margin-top: 18px; }
+.mw-studio-slide {
+  margin: 0; display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start;
+}
+.mw-studio-canvas {
+  width: 300px; height: auto; display: block; border-radius: 10px;
+  border: 1px solid var(--mw-line-strong); background: #fff;
+}
+.mw-studio-slide figcaption { display: grid; gap: 8px; }
+.mw-studio-n { font-weight: 700; opacity: .5; }
+.mw-studio-slide input, .mw-studio-slide textarea {
+  width: 100%; padding: 9px 12px; font: inherit; font-size: 15px;
+  border: 1px solid var(--mw-line-strong); border-radius: 9px; background: var(--mw-surface);
+  color: var(--mw-ink); resize: vertical;
+}
+.mw-studio-slide figcaption > button {
+  justify-self: start; padding: 8px 16px; border-radius: 999px;
+  border: 1px solid var(--mw-line-strong); background: transparent; color: var(--mw-ink); cursor: pointer;
+}
+
+@media (max-width: 760px) {
+  .mw-studio-choice, .mw-studio-slide { grid-template-columns: 1fr; }
+  .mw-studio-canvas { width: 100%; max-width: 360px; }
+}

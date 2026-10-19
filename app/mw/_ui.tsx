@@ -7,7 +7,7 @@ import type { Alert } from '@/lib/mw-data'
 export function MwHero({
   tab, pulled, stale, headline, children, sources,
 }: {
-  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook'
+  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook' | 'studio'
   pulled: string
   stale: boolean
   headline: string
@@ -22,6 +22,7 @@ export function MwHero({
     { key: 'plan', href: '/mw/plan', label: 'Market plan' },
     { key: 'gaps', href: '/mw/gaps', label: 'Content gap' },
     { key: 'sales', href: '/mw/sales', label: 'Sales follow-up' },
+    { key: 'studio', href: '/mw/studio', label: 'Studio' },
     { key: 'playbook', href: '/mw/playbook', label: 'How we log work' },
     { key: 'import', href: '/mw/import', label: 'Import' },
   ] as const
