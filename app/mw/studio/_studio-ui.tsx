@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
 import { researchTopic, composeDeck } from './actions'
 import type { Research } from '@/lib/mw-studio'
 import type { Photo } from '@/lib/mw-photos'
-import { drawSlide, faults, SIZE, type Deck, type Format, type Slide } from '@/lib/mw-studio-design'
+import { drawSlide, faults, SIZE, SLIDE_SECONDS, type Deck, type Format, type Slide } from '@/lib/mw-studio-design'
+import { recordDeck, pickMime, estimateSeconds, type Clip, type VideoKind } from '@/lib/mw-studio-video'
 
 // The Studio screen. Four steps down one column, each appearing only once the
 // one above it has an answer:
@@ -22,12 +23,14 @@ import { drawSlide, faults, SIZE, type Deck, type Format, type Slide } from '@/l
 // is downloaded are the same pixels.
 
 function SlideCanvas({
-  slide, format, photo, onReady,
+  slide, format, photo, onReady, onImage,
 }: {
   slide: Slide
   format: Format
   photo?: string
   onReady?: (c: HTMLCanvasElement) => void
+  /** Hands the decoded photo up, so recording does not re-fetch or re-decode it. */
+  onImage?: (img: HTMLImageElement | null) => void
 }) {
   const ref = useRef<HTMLCanvasElement>(null)
 
@@ -42,6 +45,7 @@ function SlideCanvas({
       if (dead) return
       drawSlide(ctx, slide, format, img ? { photo: img } : {})
       onReady?.(c)
+      onImage?.(img ?? null)
     }
 
     // Poppins must be loaded before the first stroke or the slide is drawn in
@@ -69,7 +73,7 @@ function SlideCanvas({
     })
 
     return () => { dead = true }
-  }, [slide, format, photo, onReady])
+  }, [slide, format, photo, onReady, onImage])
 
   const { w, h } = SIZE[format]
   return <canvas ref={ref} width={w} height={h} className="mw-studio-canvas" />
@@ -80,6 +84,15 @@ function SlideCanvas({
 function fileName(topic: string, n: number, total: number): string {
   const slug = topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'post'
   return total === 1 ? `${slug}.png` : `${slug}-${String(n).padStart(2, '0')}.png`
+}
+
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function save(canvas: HTMLCanvasElement, name: string) {
@@ -108,10 +121,27 @@ export function Studio() {
   const [busy, start] = useTransition()
   const [step, setStep] = useState<'research' | 'compose'>('research')
 
+  // Video. Recording happens in real time, so progress is a real number and
+  // the whole thing is abortable — a thirty-second wait with a spinner and
+  // no way out is not acceptable.
+  const [clips, setClips] = useState<Clip[]>([])
+  const [recording, setRecording] = useState(false)
+  const [recProgress, setRecProgress] = useState(0)
+  const [recError, setRecError] = useState('')
+  const [seconds, setSeconds] = useState(SLIDE_SECONDS)
+  const abort = useRef<AbortController | null>(null)
+  const images = useRef(new Map<number, HTMLImageElement>())
+
   // Canvases register themselves so "Download all" does not have to go
   // hunting through the DOM for them.
   const canvases = useRef(new Map<number, HTMLCanvasElement>())
   const register = useCallback((i: number) => (c: HTMLCanvasElement) => { canvases.current.set(i, c) }, [])
+  const keepImage = useCallback(
+    (i: number) => (img: HTMLImageElement | null) => {
+      if (img) images.current.set(i, img); else images.current.delete(i)
+    },
+    [],
+  )
 
   const doResearch = () => {
     setError(''); setDeck(null); setRes(null); setProblems([])
@@ -132,6 +162,8 @@ export function Studio() {
       const d = await composeDeck(res, format, count)
       if (!d.ok) return setError(d.error)
       canvases.current.clear()
+      images.current.clear()
+      setClips([])
       setDeck(d.deck)
       setProblems(d.faults)
     })
@@ -144,8 +176,39 @@ export function Studio() {
       const slides = d.slides.map((s, j) => (j === i ? { ...s, ...patch } : s))
       const next = { ...d, slides }
       setProblems(faults(next))
+      // Any recorded clip now shows copy that is no longer on the slide, so
+      // it is thrown away rather than left there looking current.
+      setClips([])
       return next
     })
+  }
+
+  const makeVideo = async (kind: VideoKind) => {
+    if (!deck) return
+    setRecError('')
+    setClips([])
+    setRecProgress(0)
+    setRecording(true)
+    abort.current = new AbortController()
+    try {
+      const out = await recordDeck(deck, images.current, kind, {
+        seconds,
+        onProgress: setRecProgress,
+        signal: abort.current.signal,
+      })
+      setClips(out)
+      if (out[0]?.ext === 'webm') {
+        setRecError(
+          'This browser could only record WebM. Instagram will not accept it — ' +
+          'record in Chrome or Safari to get an MP4.',
+        )
+      }
+    } catch (e: any) {
+      setRecError(String(e?.message ?? e))
+    } finally {
+      setRecording(false)
+      abort.current = null
+    }
   }
 
   const downloadAll = () => {
@@ -291,6 +354,7 @@ export function Studio() {
                   format={deck.format}
                   photo={s.kind === 'cover' ? photo : undefined}
                   onReady={register(i)}
+                  onImage={keepImage(i)}
                 />
                 <figcaption>
                   <span className="mw-studio-n">{i + 1}</span>
@@ -324,6 +388,92 @@ export function Studio() {
                 </figcaption>
               </figure>
             ))}
+          </div>
+
+          {/* ── video ─────────────────────────────────────────────────────
+              Deliberately below the slides. The still is the thing being
+              approved; the video is made FROM it, which is the order he
+              asked for — "the static image needs to be created first then
+              the animation can come after". */}
+          <div className="mw-studio-video">
+            <h4>Make it move</h4>
+            <p className="lede">
+              Only the text animates — it rises in, holds, and lifts out. The photo, the wave,
+              the logo and the source line never move, so the video is the same design as the
+              image above it. <b>Keep this tab in front while it records</b> — browsers stop
+              drawing in a background tab, and the clip would come out nearly empty.
+            </p>
+
+            {!pickMime() ? (
+              <p className="mw-studio-warn">
+                This browser cannot record video. Chrome or Safari will produce an MP4.
+              </p>
+            ) : (
+              <>
+                <label className="mw-studio-secs">
+                  Seconds per slide
+                  <input
+                    type="range" min={2.5} max={7} step={0.5} value={seconds}
+                    disabled={recording}
+                    onChange={e => { setSeconds(Number(e.target.value)); setClips([]) }}
+                  />
+                  <b>{seconds.toFixed(1)}s</b>
+                </label>
+
+                <div className="mw-studio-choice">
+                  <button type="button" disabled={recording} onClick={() => makeVideo('reel')}>
+                    <b>One video, all slides</b>
+                    <small>
+                      A single film for Reels or a LinkedIn video.{' '}
+                      {estimateSeconds(deck, { seconds })}s to record.
+                    </small>
+                  </button>
+                  <button type="button" disabled={recording} onClick={() => makeVideo('per-slide')}>
+                    <b>One video per slide</b>
+                    <small>
+                      Post the carousel with moving slides.{' '}
+                      {estimateSeconds(deck, { seconds })}s to record.
+                    </small>
+                  </button>
+                </div>
+
+                {recording && (
+                  <div className="mw-studio-rec">
+                    {/* Real progress, because recording is real time — a
+                        spinner here would be hiding a known number. */}
+                    <progress value={recProgress} max={1} />
+                    <span>Recording… {Math.round(recProgress * 100)}%</span>
+                    <button type="button" onClick={() => abort.current?.abort()}>Stop</button>
+                  </div>
+                )}
+
+                {recError && <p className="mw-studio-warn">{recError}</p>}
+
+                {clips.length > 0 && (
+                  <div className="mw-studio-clips">
+                    {clips.map((c, i) => (
+                      <figure key={i}>
+                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                        <video src={URL.createObjectURL(c.blob)} controls loop playsInline />
+                        <figcaption>
+                          <b>{c.index === null ? 'The whole deck' : `Slide ${c.index + 1}`}</b>
+                          <small>
+                            {c.ext.toUpperCase()} · {c.seconds}s · {(c.blob.size / 1e6).toFixed(1)} MB
+                          </small>
+                          <button
+                            type="button"
+                            onClick={() => saveBlob(
+                              c.blob,
+                              fileName(deck.topic, (c.index ?? 0) + 1, clips.length).replace(/\.png$/, `.${c.ext}`),
+                            )}
+                          >Download</button>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </section>
       )}

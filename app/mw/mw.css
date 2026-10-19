@@ -871,3 +871,33 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
   .mw-studio-choice, .mw-studio-slide { grid-template-columns: 1fr; }
   .mw-studio-canvas { width: 100%; max-width: 360px; }
 }
+
+/* Video. Below the slides, because the still is what gets approved and the
+   film is made from it — the owner's order, not an arbitrary one. */
+.mw-studio-video {
+  margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--mw-line);
+}
+.mw-studio-video h4 { margin: 0 0 6px; }
+.mw-studio-secs { display: flex; align-items: center; gap: 12px; margin: 14px 0; font-size: 14px; }
+.mw-studio-secs input { flex: 0 1 220px; }
+
+.mw-studio-rec { display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 14px; }
+.mw-studio-rec progress { flex: 0 1 240px; height: 8px; }
+.mw-studio-rec button {
+  padding: 5px 14px; border-radius: 999px; border: 1px solid var(--mw-line-strong);
+  background: transparent; color: var(--mw-ink); cursor: pointer;
+}
+
+.mw-studio-clips { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 18px; }
+.mw-studio-clips figure { margin: 0; width: 240px; }
+.mw-studio-clips video {
+  width: 240px; border-radius: var(--mw-r); display: block;
+  border: 1px solid var(--mw-line-strong); background: #000;
+}
+.mw-studio-clips figcaption { display: grid; gap: 5px; margin-top: 8px; font-size: 13px; }
+.mw-studio-clips figcaption small { opacity: .7; }
+.mw-studio-clips figcaption button {
+  justify-self: start; padding: 6px 14px; border-radius: 999px;
+  border: 1px solid var(--mw-line-strong); background: transparent;
+  color: var(--mw-ink); cursor: pointer;
+}

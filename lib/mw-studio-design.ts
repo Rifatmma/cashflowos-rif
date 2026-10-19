@@ -91,6 +91,88 @@ const PAD = 84
 /** The top ~22% of a 4:5 is covered by the profile row in-feed. */
 const SAFE_TOP = 0.22
 
+// ------------------------------------------------------------- animation
+//
+// "The animation will only animate the entry and exit of the text only, most
+// of the element will still be static image." (owner, 19 Oct 2026)
+//
+// That sentence is the whole specification and it is taken literally. The
+// photo, the gradient field, the zigzag, the logo and the source line never
+// move. Only the typographic blocks enter and leave, and they do it in
+// reading order — kicker, then headline, then body — because a carousel
+// slide is read top to bottom and animating them together just makes the
+// whole slide flash.
+//
+// The chevron travels with its kicker. It is not text, but it is the
+// kicker's own furniture and leaving it hanging in place while its label
+// flies in looks like a bug rather than a decision. Nothing else moves.
+//
+// This is expressed as a parameter on the SAME draw functions that produce
+// the still, not as a separate animated renderer. A second renderer is how
+// you end up with a video that does not match the image it was made from.
+
+export type Anim = {
+  /** Seconds since this slide appeared. */
+  at: number
+  /** How long this slide is on screen, start to finish. */
+  total: number
+}
+
+export const TIMING = {
+  in: 0.7,        // how long a block takes to arrive
+  out: 0.45,      // and to leave
+  stagger: 0.1,   // the gap between one block starting and the next
+  rise: 26,       // px travelled on entry
+  fall: 18,       // px travelled on exit
+} as const
+
+/** Default seconds per slide: in, a readable hold, out. */
+export const SLIDE_SECONDS = 4
+
+const easeOut = (x: number) => 1 - Math.pow(1 - x, 3)
+const easeIn = (x: number) => x * x
+const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x)
+
+/**
+ * Where one text block is in its entrance or exit.
+ *
+ * Returns fully-visible when there is no animation, so every still drawn by
+ * this module is byte-identical to what it was before animation existed.
+ */
+function blockPhase(anim: Anim | undefined, i: number): { alpha: number; dy: number } {
+  if (!anim) return { alpha: 1, dy: 0 }
+  const inStart = i * TIMING.stagger
+  const outStart = Math.max(inStart + TIMING.in, anim.total - TIMING.out - i * 0.06)
+
+  if (anim.at < inStart) return { alpha: 0, dy: TIMING.rise }
+  if (anim.at < inStart + TIMING.in) {
+    const k = easeOut(clamp01((anim.at - inStart) / TIMING.in))
+    return { alpha: k, dy: TIMING.rise * (1 - k) }
+  }
+  if (anim.at < outStart) return { alpha: 1, dy: 0 }
+  const k = easeIn(clamp01((anim.at - outStart) / TIMING.out))
+  return { alpha: 1 - k, dy: -TIMING.fall * k }
+}
+
+/**
+ * Draw one text block under its own entrance/exit transform.
+ *
+ * Skips the draw entirely when the block is invisible — not an optimisation,
+ * but so a block that has not arrived yet cannot leave a 0-alpha artefact on
+ * a gradient fill.
+ */
+function block(
+  ctx: CanvasRenderingContext2D, anim: Anim | undefined, i: number, draw: () => void,
+) {
+  const { alpha, dy } = blockPhase(anim, i)
+  if (alpha <= 0.001) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(0, dy)
+  draw()
+  ctx.restore()
+}
+
 // ------------------------------------------------------------------- pieces
 
 function grad(
@@ -281,7 +363,7 @@ function footer(
 
 type Assets = { photo?: CanvasImageSource }
 
-function drawCover(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number, a: Assets) {
+function drawCover(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number, a: Assets, anim?: Anim) {
   if (a.photo) {
     cover(ctx, a.photo, w, h)
     // The scrim is heavier at the foot because that is where the type sits.
@@ -307,22 +389,33 @@ function drawCover(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number
   const ctaH = s.cta ? 96 : 0
   let y = h - 240 - ctaH - hl.length * 92 * 1.04
 
-  chevrons(ctx, PAD, y - 86)
-  ctx.font = `600 26px ${FONT}`
-  ctx.fillStyle = INK.sky
-  tracked(ctx, s.kicker.toUpperCase(), PAD, y - 34, 3.6)
+  const kickerY = y - 34
+  block(ctx, anim, 0, () => {
+    chevrons(ctx, PAD, kickerY - 52)
+    ctx.font = `600 26px ${FONT}`
+    ctx.fillStyle = INK.sky
+    tracked(ctx, s.kicker.toUpperCase(), PAD, kickerY, 3.6)
+  })
 
-  ctx.font = `700 92px ${FONT}`
-  ctx.fillStyle = '#FFFFFF'
+  const headTop = y
   ctx.textBaseline = 'top'
-  for (const l of hl) { ctx.fillText(l, PAD, y); y += 92 * 1.04 }
+  block(ctx, anim, 1, () => {
+    ctx.font = `700 92px ${FONT}`
+    ctx.fillStyle = '#FFFFFF'
+    let ly = headTop
+    for (const l of hl) { ctx.fillText(l, PAD, ly); ly += 92 * 1.04 }
+  })
+  y += hl.length * 92 * 1.04
   ctx.textBaseline = 'alphabetic'
 
-  if (s.cta) pill(ctx, s.cta, PAD, y + 24)
+  if (s.cta) {
+    const ctaY = y + 24
+    block(ctx, anim, 2, () => pill(ctx, s.cta!, PAD, ctaY))
+  }
   footer(ctx, w, h, s.source, true)
 }
 
-function drawStat(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number) {
+function drawStat(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number, anim?: Anim) {
   ctx.fillStyle = INK.paper
   ctx.fillRect(0, 0, w, h)
   ctx.fillStyle = grad(ctx, 0, 0, w, 300, INK.blue, INK.navy)
@@ -330,76 +423,110 @@ function drawStat(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number)
   zigzag(ctx, 300, w, INK.ice, 1)
   zigzag(ctx, 372, w, INK.sky, 1)
 
-  chevrons(ctx, PAD, 86)
-  ctx.font = `600 26px ${FONT}`
-  ctx.fillStyle = INK.sky
-  tracked(ctx, s.kicker.toUpperCase(), PAD, 148, 3.6)
+  block(ctx, anim, 0, () => {
+    chevrons(ctx, PAD, 86)
+    ctx.font = `600 26px ${FONT}`
+    ctx.fillStyle = INK.sky
+    tracked(ctx, s.kicker.toUpperCase(), PAD, 148, 3.6)
+  })
 
   ctx.textBaseline = 'top'
   let y = 430
   if (s.figure) {
-    ctx.font = `700 240px ${FONT}`
-    ctx.fillStyle = grad(ctx, PAD, y, PAD + 600, y + 240, INK.blue, INK.sky)
-    ctx.fillText(s.figure, PAD, y)
+    const figY = y
+    block(ctx, anim, 1, () => {
+      ctx.font = `700 240px ${FONT}`
+      ctx.fillStyle = grad(ctx, PAD, figY, PAD + 600, figY + 240, INK.blue, INK.sky)
+      ctx.fillText(s.figure!, PAD, figY)
+    })
     y += 240 * 0.9 + 34
   }
+  // Where the headline ENDS decides where the body starts, so the measure
+  // happens out here and only the painting goes inside the block.
+  const headY = y
   ctx.font = `700 64px ${FONT}`
-  ctx.fillStyle = INK.navy
-  y = lines(ctx, s.headline, PAD, y, w - PAD * 2, 1.1)
+  y = headY + wrap(ctx, s.headline, w - PAD * 2).length * 64 * 1.1
+  block(ctx, anim, s.figure ? 2 : 1, () => {
+    ctx.font = `700 64px ${FONT}`
+    ctx.fillStyle = INK.navy
+    lines(ctx, s.headline, PAD, headY, w - PAD * 2, 1.1)
+  })
   if (s.body) {
-    ctx.font = `500 30px ${FONT}`
-    ctx.fillStyle = INK.body
-    lines(ctx, s.body, PAD, y + 18, w - PAD * 2 - 80, 1.45)
+    const bodyY = y + 18
+    block(ctx, anim, s.figure ? 3 : 2, () => {
+      ctx.font = `500 30px ${FONT}`
+      ctx.fillStyle = INK.body
+      lines(ctx, s.body!, PAD, bodyY, w - PAD * 2 - 80, 1.45)
+    })
   }
   ctx.textBaseline = 'alphabetic'
   footer(ctx, w, h, s.source, false)
 }
 
-function drawPoint(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number) {
+function drawPoint(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number, anim?: Anim) {
   ctx.fillStyle = INK.paper
   ctx.fillRect(0, 0, w, h)
   zigzag(ctx, h - 30, w, INK.ice, 1)
 
-  chevrons(ctx, PAD, 110)
-  ctx.font = `600 26px ${FONT}`
-  ctx.fillStyle = INK.blue
-  tracked(ctx, s.kicker.toUpperCase(), PAD, 172, 3.6)
+  block(ctx, anim, 0, () => {
+    chevrons(ctx, PAD, 110)
+    ctx.font = `600 26px ${FONT}`
+    ctx.fillStyle = INK.blue
+    tracked(ctx, s.kicker.toUpperCase(), PAD, 172, 3.6)
+  })
 
   ctx.textBaseline = 'top'
-  rule(ctx, PAD, 300)
+  rule(ctx, PAD, 300)              // the rule anchors the block, so it stays put
   ctx.font = `700 72px ${FONT}`
-  ctx.fillStyle = INK.navy
-  let y = lines(ctx, s.headline, PAD, 336, w - PAD * 2, 1.1)
+  const y = 336 + wrap(ctx, s.headline, w - PAD * 2).length * 72 * 1.1
+  block(ctx, anim, 1, () => {
+    ctx.font = `700 72px ${FONT}`
+    ctx.fillStyle = INK.navy
+    lines(ctx, s.headline, PAD, 336, w - PAD * 2, 1.1)
+  })
   if (s.body) {
-    ctx.font = `400 32px ${FONT}`
-    ctx.fillStyle = INK.body
-    lines(ctx, s.body, PAD, y + 26, w - PAD * 2 - 60, 1.5)
+    const bodyY = y + 26
+    block(ctx, anim, 2, () => {
+      ctx.font = `400 32px ${FONT}`
+      ctx.fillStyle = INK.body
+      lines(ctx, s.body!, PAD, bodyY, w - PAD * 2 - 60, 1.5)
+    })
   }
   ctx.textBaseline = 'alphabetic'
   footer(ctx, w, h, s.source, false)
 }
 
-function drawCloser(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number) {
+function drawCloser(ctx: CanvasRenderingContext2D, s: Slide, w: number, h: number, anim?: Anim) {
   ctx.fillStyle = grad(ctx, 0, 0, w, h, INK.blue, INK.navy)
   ctx.fillRect(0, 0, w, h)
   zigzag(ctx, h - 30, w, INK.sky, 0.32)
   zigzag(ctx, h - 30, w, INK.ice, 0.22, 26, 46, 4)
 
   const top = Math.round(h * SAFE_TOP * 0.5)
-  chevrons(ctx, PAD, top)
-  ctx.font = `600 26px ${FONT}`
-  ctx.fillStyle = INK.sky
-  tracked(ctx, s.kicker.toUpperCase(), PAD, top + 62, 3.6)
+  block(ctx, anim, 0, () => {
+    chevrons(ctx, PAD, top)
+    ctx.font = `600 26px ${FONT}`
+    ctx.fillStyle = INK.sky
+    tracked(ctx, s.kicker.toUpperCase(), PAD, top + 62, 3.6)
+  })
 
   ctx.textBaseline = 'top'
-  rule(ctx, PAD, Math.round(h * 0.3))
+  const headTop = Math.round(h * 0.3)
+  rule(ctx, PAD, headTop)          // the rule anchors the block, so it stays put
   ctx.font = `700 86px ${FONT}`
-  ctx.fillStyle = '#FFFFFF'
-  let y = lines(ctx, s.headline, PAD, Math.round(h * 0.3) + 36, w - PAD * 2, 1.04)
+  const y = headTop + 36 + wrap(ctx, s.headline, w - PAD * 2).length * 86 * 1.04
+  block(ctx, anim, 1, () => {
+    ctx.font = `700 86px ${FONT}`
+    ctx.fillStyle = '#FFFFFF'
+    lines(ctx, s.headline, PAD, headTop + 36, w - PAD * 2, 1.04)
+  })
   if (s.body) {
-    ctx.font = `400 32px ${FONT}`
-    ctx.fillStyle = INK.onDark
-    lines(ctx, s.body, PAD, y + 26, w - PAD * 2 - 80, 1.5)
+    const bodyY = y + 26
+    block(ctx, anim, 2, () => {
+      ctx.font = `400 32px ${FONT}`
+      ctx.fillStyle = INK.onDark
+      lines(ctx, s.body!, PAD, bodyY, w - PAD * 2 - 80, 1.5)
+    })
   }
   ctx.textBaseline = 'alphabetic'
   footer(ctx, w, h, s.source, true)
@@ -447,14 +574,17 @@ function cover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, w: number,
 /** Paint one slide at full size. The caller sizes the canvas. */
 export function drawSlide(
   ctx: CanvasRenderingContext2D, s: Slide, format: Format, assets: Assets = {},
+  /** Omit for the still. Supplied, it draws one frame of the same slide. */
+  anim?: Anim,
 ) {
   const { w, h } = SIZE[format]
   ctx.clearRect(0, 0, w, h)
   ctx.textAlign = 'left'
-  if (s.kind === 'cover') drawCover(ctx, s, w, h, assets)
-  else if (s.kind === 'stat') drawStat(ctx, s, w, h)
-  else if (s.kind === 'closer') drawCloser(ctx, s, w, h)
-  else drawPoint(ctx, s, w, h)
+  ctx.globalAlpha = 1
+  if (s.kind === 'cover') drawCover(ctx, s, w, h, assets, anim)
+  else if (s.kind === 'stat') drawStat(ctx, s, w, h, anim)
+  else if (s.kind === 'closer') drawCloser(ctx, s, w, h, anim)
+  else drawPoint(ctx, s, w, h, anim)
 }
 
 // --------------------------------------------------------------- copy limits

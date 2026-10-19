@@ -56,33 +56,66 @@ async function ourPages(limit = 25): Promise<{ url: string; impressions: number 
 }
 
 /**
- * Pull the first JSON object or array out of a model reply.
+ * Pull a JSON object out of a model reply, by NAME.
  *
- * Asking for "JSON only" works most of the time and fails the rest, usually
- * with a fenced block or a sentence in front. Both are cheap to survive.
+ * This function has been wrong twice, both times for the same reason: it was
+ * guessing which bracket in the reply was the payload.
+ *
+ *   v1 took the first "[" or "{". With web search on, the model writes a
+ *      line of prose carrying a citation like "[1]" before the JSON. The
+ *      scan locked onto that, found no matching close, and the whole call
+ *      failed as "a shape I could not read".
+ *
+ *   v2 took the largest thing that parsed, preferring the first fenced
+ *      block. When the model emitted any other fenced block first — a quoted
+ *      snippet, an example — that block parsed, won, and was returned as the
+ *      payload. The caller then saw an object with no `facts` in it and
+ *      reported that the topic had no results, which was a lie about a
+ *      parsing failure.
+ *
+ * Both are the same mistake this codebase keeps making: a blunt text match
+ * standing in for a judgement. So it no longer judges. The caller names the
+ * key it needs, every candidate in the whole reply is tried, and only an
+ * object actually containing that key can win. If nothing has it, that is a
+ * failure and says so, rather than returning the wrong object confidently.
  */
-function parseJson<T>(text: string): T | null {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text)
-  const body = fenced ? fenced[1] : text
-  const start = body.search(/[[{]/)
-  if (start < 0) return null
-  // Walk to the matching close rather than regexing — a URL containing a
-  // brace in the middle of the payload should not truncate the parse.
-  const open = body[start]
-  const close = open === '[' ? ']' : '}'
+function parseJson<T>(text: string, want: string): T | null {
+  // Every fenced block, then the raw reply — not just the first fence.
+  const bodies: string[] = []
+  for (const m of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) bodies.push(m[1])
+  bodies.push(text)
+
+  let best: { value: unknown; size: number } | null = null
+  for (const body of bodies) {
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] !== '{') continue          // the payload is always an object
+      const end = matchingClose(body, i)
+      if (end < 0) continue
+      try {
+        const value = JSON.parse(body.slice(i, end + 1))
+        if (value && typeof value === 'object' && want in value) {
+          const size = end - i
+          if (!best || size > best.size) best = { value, size }
+        }
+      } catch { /* not JSON starting here */ }
+    }
+  }
+  return best ? (best.value as T) : null
+}
+
+/** Index of the brace closing the one at `start`, or -1. */
+function matchingClose(body: string, start: number): number {
   let depth = 0, inStr = false, esc = false
   for (let i = start; i < body.length; i++) {
     const c = body[i]
     if (esc) { esc = false; continue }
-    if (c === '\\') { esc = true; continue }
+    if (inStr && c === '\\') { esc = true; continue }
     if (c === '"') { inStr = !inStr; continue }
     if (inStr) continue
-    if (c === open) depth++
-    else if (c === close && --depth === 0) {
-      try { return JSON.parse(body.slice(start, i + 1)) as T } catch { return null }
-    }
+    if (c === '{') depth++
+    else if (c === '}' && --depth === 0) return i
   }
-  return null
+  return -1
 }
 
 function textOf(res: Anthropic.Message): string {
@@ -151,13 +184,30 @@ Reply with JSON only:
     caveat = 'Web search was unavailable, so this comes from the model’s own knowledge. Check every figure before posting.'
   }
 
-  const out = parseJson<{ angle?: string; facts?: Fact[]; reinforces?: string[] }>(textOf(res))
-  if (!out) return { error: 'The research came back in a shape I could not read. Try rewording the topic.' }
+  const raw = textOf(res)
+  const out = parseJson<{ angle?: string; facts?: Fact[]; reinforces?: string[] }>(raw, 'facts')
+  if (!out) {
+    return {
+      error: 'The research came back in a shape I could not read. It started: ' +
+        JSON.stringify(raw.slice(0, 160)),
+    }
+  }
 
   const facts = (out.facts ?? [])
     .filter(f => f && typeof f.claim === 'string' && typeof f.source === 'string' && f.claim.trim() && f.source.trim())
     .slice(0, 6)
-  if (!facts.length) return { error: 'Nothing checkable came back for that topic. Try something more specific.' }
+  if (!facts.length) {
+    // Distinguishing "the model found nothing" from "it found things and
+    // they were all thrown away for having no source" matters: the first is
+    // a topic problem and the second is a prompt problem, and the old
+    // message blamed the topic for both.
+    const raw = (out.facts ?? []).length
+    return {
+      error: raw === 0
+        ? 'Nothing came back for that topic. Try something more specific.'
+        : `All ${raw} findings were dropped for having no named source, so there is nothing postable here.`,
+    }
+  }
 
   const known = new Set(pages.map(p => p.url))
   return {
@@ -212,13 +262,22 @@ JSON only: {"slides":[{"kind":"cover","kicker":"...","headline":"...","body":"..
 
   let res: Anthropic.Message
   try {
-    res = await a.messages.create({ model: MODEL, max_tokens: 2500, messages: [{ role: 'user', content: prompt }] })
+    res = await a.messages.create({ model: MODEL, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
   } catch (e: any) {
     return { error: `Writing the slides failed: ${String(e?.message ?? e).slice(0, 180)}` }
   }
 
-  const out = parseJson<{ slides?: any[] }>(textOf(res))
-  if (!out?.slides?.length) return { error: 'The slides came back unreadable. Try again.' }
+  const raw = textOf(res)
+  const out = parseJson<{ slides?: any[] }>(raw, 'slides')
+  if (!out?.slides?.length) {
+    // `stop_reason` is the thing worth knowing here: a deck of five sourced
+    // slides can run past the ceiling, and a truncated reply has no closing
+    // brace, so it reads as "unreadable" when it is really "too long".
+    const why = res.stop_reason === 'max_tokens'
+      ? 'The writing ran past the length limit and was cut off. Try fewer slides.'
+      : 'The slides came back unreadable. It started: ' + JSON.stringify(raw.slice(0, 160))
+    return { error: why }
+  }
 
   const slides: Slide[] = out.slides.slice(0, n).map((s: any, i: number) => ({
     kind: KINDS.includes(s?.kind) ? s.kind : i === 0 && format === 'carousel' ? 'cover' : 'point',
@@ -257,7 +316,7 @@ export async function composeChecked(
   try {
     const res = await a.messages.create({
       model: MODEL,
-      max_tokens: 2500,
+      max_tokens: 4000,
       messages: [{
         role: 'user',
         content: `These slides break the layout. Rewrite them SHORTER. Keep the meaning and the sources;
@@ -272,7 +331,7 @@ ${JSON.stringify(first.slides, null, 1)}
 JSON only: {"slides":[...]} in the same shape.`,
       }],
     })
-    const out = parseJson<{ slides?: any[] }>(textOf(res))
+    const out = parseJson<{ slides?: any[] }>(textOf(res), 'slides')
     if (out?.slides?.length) {
       const fixed: Deck = {
         ...first,
