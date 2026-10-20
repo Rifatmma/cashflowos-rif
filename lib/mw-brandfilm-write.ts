@@ -51,7 +51,7 @@ const EXAMPLE = `{"title":"Overseas OOH for Chinese brands",
   {"kind":"logo","line":7,"text":[{"s":"You keep the client.","st":"h","on":"You"},{"s":"We bring the network.","st":"s","on":"We"}]},
   {"kind":"end","line":7,"from":"Overseas","text":[{"s":"Overseas out-of-home.","st":"h","on":"Overseas"},{"s":"No boundaries.","st":"s","on":"no"},{"s":"movingwalls.com","st":"b","on":"boundaries"}]}]}`
 
-function prompt(articleTitle: string, articleText: string, facts: string, audience: Audience, lang: SubLang, seconds: number) {
+function prompt(articleTitle: string, articleText: string, facts: string, audience: Audience, lang: SubLang, seconds: number, recent: string[]) {
   return `You are writing a short motion-graphics video for Moving Walls (an out-of-home advertising
 technology company, tagline "No boundaries"). A narrator called Ava reads the script; the visuals
 are flat, geometric brand illustrations that land on her words.
@@ -96,8 +96,34 @@ scene using "from"):
            revenue or service landing on top of existing ones.
   reports  {"items":["SG","AU",…],"at":["word",…]}  fragmentation, inconsistent measurement.
   board    {"rows":["UP TO 14 CHARS",…]}  stations, airports, departures, schedules.
-  rail     {"stations":["…",…5]}  transit journeys.   crossing {"screensOn":"word"}  busy streets.
+  rail     {"stations":["…",…5]}  transit journeys.   crossing {"screensOn":"word"}  a street crossing ONLY.
   skyline  {}  a city.
+  compare  {"items":[{"label":"Residents","value":4.58,"display":"4.58M"},{"label":"By day","value":6.39,"display":"6.39M"}]}
+           two or three figures side by side — the last one is highlighted.
+  people   {"total":40,"filled":28,"label":"7 in 10 …"}  a share of people, audiences, reach.
+  pins     {"pins":[[x,y,"PLACE"],…]}  places in ONE city, 1000×800 box.
+  timeline {"items":[["2019","pilot"],["2025","programmatic"]]}  dates and milestones.
+  donut    {"value":72,"label":"bought programmatically"}  one percentage, 0–100.
+  globe    {"labels":["DUBAI","SINGAPORE"]}  worldwide reach, several countries.
+  screens  {"label":"…"}  a network of screens switching on.
+  funnel   {"items":["Reach","Attention","Visits"]}  stages narrowing to an outcome.
+  dayparts {"items":[[7,10,"COMMUTE"],[18,22,"EVENING"]]}  times of day (24h).
+  phone    {"label":"…"}  mobile and out-of-home working together.
+  checklist {"items":["…","…","…"]}  benefits, what you get, steps done.
+  split    {"left":["Time slots","1 week"],"right":["Impressions","1.56M"]}  before/after, old vs new.
+  trend    {"values":[2,3,5,9],"labels":["22","23","24","25"]}  growth over time (sourced numbers only).
+  billboard {"lines":["PLAN","BUY"]}  a roadside digital screen showing words.
+  heat     {"label":"…"}  where audiences gather, attention, targeting.
+VARIETY: pick the illustration that shows THIS line's idea most specifically — a number about
+people is "people" or "compare", not a street. Use each illustration at most once per video.
+${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}
+
+PHOTO SUGGESTIONS: on 2 to 4 panel scenes where a single physical object or person makes the
+point (a megaphone for reach, a passport for travel, a shopping bag for retail, a commuter for
+transit), add "photo":{"query":"megaphone isolated on white background","word":"REACH"}.
+The query must ask for an object or person shot on a plain white or green-screen background.
+"word" is one big word shown behind the cut-out. Keep "art" on those scenes too — it is used
+when the video is made without photos.
 ${lang === 'zh' ? `
 "supers": Simplified Chinese subtitles, one entry per line; split a long line into two chunks at a
 natural pause (≤ 22 characters each). Translate meaning, not words; use the terms Moving Walls uses
@@ -135,7 +161,7 @@ function parseKeyed(text: string, want: string): any | null {
 }
 
 export async function writeBrandFilm(
-  r: Research, audience: Audience, lang: SubLang, seconds = 32,
+  r: Research, audience: Audience, lang: SubLang, seconds = 32, recentArts: string[] = [],
 ): Promise<{ plan: Plan; notes: string[] } | { error: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) return { error: 'ANTHROPIC_API_KEY is not set.' }
@@ -153,7 +179,7 @@ export async function writeBrandFilm(
   try {
     res = await a.messages.create({
       model: MODEL, max_tokens: 6000,
-      messages: [{ role: 'user', content: prompt(r.topic, text, facts, audience, lang, seconds) }],
+      messages: [{ role: 'user', content: prompt(r.topic, text, facts, audience, lang, seconds, [...new Set(recentArts)].slice(0, 12)) }],
     })
   } catch (e: any) {
     return { error: `Writing the video failed: ${String(e?.message ?? e).slice(0, 180)}` }

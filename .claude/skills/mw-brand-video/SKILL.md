@@ -26,6 +26,7 @@ Settle these with the user in one round of questions (skip any they already answ
 - **Format(s)** — 9:16, 16:9, 1:1, 4:5. Render only what they pick; each format is a full render.
 - **Audience** — who the video speaks to (agencies / brands / media owners).
 - **Language** — English only, or English VO + subtitles in another language.
+- **Look** — *Infographic* (brand illustrations and data visuals only) or *Infographic + photos* (2–4 scenes swap their illustration for a black-and-white cut-out photo; see `references/spec.md` → Cut-out photos). Default to Infographic.
 - Anything the article leaves open (which stat to feature, length cap).
 
 ### 3. Script → approval
@@ -39,13 +40,17 @@ python3 <skill-dir>/scripts/vo.py ./videos/<slug>
 It prints every line's duration and word timings — you need those indexes for the spec.
 
 ### 5. Spec
-Copy the closer example's `spec.js` into the project and rewrite it for this script (see `references/spec.md`). Choose art that *shows* each line rather than repeating it in text: routes for expansion, formats for media types, reports for fragmentation, number for a hero stat, burst for the rhythm line. Alternate `zig`/`chev` transitions and dark/light backgrounds so consecutive scenes contrast.
+Copy the closer example's `spec.js` into the project and rewrite it for this script (see `references/spec.md`).
+- **Make it look different from the last videos.** Read `~/.mw-brand-video/history.json` and choose `accent`, `cover`, `burst`, panel `layout`s, transitions and illustrations that the recent entries did not use. At ~10 videos a week, sameness is the main risk.
+- Choose art that *shows* each line rather than repeating it in text. A number about people is `people` or `compare`, a share is `donut`, growth is `trend`, places in a city are `pins`, and so on. The full library and what each piece is for is in `references/spec.md`.
+- **Timing:** headline at the cut (`a + .2`), sub-lines 0.3s before their word. Never land a headline on a mid-sentence word.
+- Alternate dark and light backgrounds so consecutive scenes contrast.
 
 ### 6. Check stills, then render
 ```bash
 node $ENGINE/render.js ./videos/<slug> 916 stills 2.5 6 10 15 20 25   # PNGs in out/
 ```
-Look at the stills (tile them with ffmpeg if many). Check: text not clipped, sub-lines not colliding, art not under the subtitle bar, the right word on screen at each time. Fix the spec, re-check. Only then render the chosen formats:
+Look at the stills (tile them with ffmpeg if many). Check: text not clipped, sub-lines not colliding, art not under the subtitle bar, the right word on screen at each time, and in 9:16 nothing readable in the top 13% or bottom 20% (platform buttons). Fix the spec, re-check. Only then render the chosen formats:
 ```bash
 node $ENGINE/render.js ./videos/<slug> 916,45      # or: all
 ```

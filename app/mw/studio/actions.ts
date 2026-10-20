@@ -72,9 +72,9 @@ export type BrandPlanResult = { ok: true; plan: Plan; notes: string[] } | { ok: 
 
 /** Ava's script and the scene under each line, written from the article. */
 export async function writeBrandVideo(
-  r: Research, audience: Audience, lang: SubLang, seconds: number,
+  r: Research, audience: Audience, lang: SubLang, seconds: number, recentArts: string[] = [],
 ): Promise<BrandPlanResult> {
-  const out = await writeBrandFilm(r, audience, lang, seconds)
+  const out = await writeBrandFilm(r, audience, lang, seconds, recentArts.map(String).slice(0, 20))
   if ('error' in out) return { ok: false, error: out.error }
   return { ok: true, plan: out.plan, notes: out.notes }
 }

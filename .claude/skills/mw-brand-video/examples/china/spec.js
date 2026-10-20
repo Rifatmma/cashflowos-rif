@@ -28,29 +28,29 @@
     scenes: [
       { kind: 'cover', a: 0, b: 3.0, text: [
         { t: .25, s: 'Overseas OOH', st: 'lab' },
-        { t: w(0, 0), s: 'Chinese brands', st: 'h' },
-        { t: w(0, 2), s: 'are going global.', st: 's' } ] },
+        { t: 0 + .35, s: 'Chinese brands', st: 'h' },
+        { t: w(0, 2) - .3, s: 'are going global.', st: 's' } ] },
       { kind: 'panel', a: 3.0, b: 5.5, tr: 'zig', bg: 'navy', tex: true, art: 'routes',
         ev: { origin: [700, 230, 'CHINA'], dests: [[600, 540, 'SINGAPORE'], [840, 700, 'SYDNEY'], [220, 380, 'DUBAI']], at: [.2, .45, .7] }, text: [
         { t: 3.05, s: 'Going global', st: 'lab' },
-        { t: w(1, 1), s: 'Their agencies', st: 'h' },
-        { t: w(1, 3), s: 'are the first call.', st: 's' } ] },
+        { t: 3.0 + .2, s: 'Their agencies', st: 'h' },
+        { t: w(1, 3) - .3, s: 'are the first call.', st: 's' } ] },
       { kind: 'panel', a: 5.5, b: 10.0, tr: 'chev', bg: 'white', tex: true, art: 'lines',
         ev: { items: ['Media planning', 'Digital', 'Social', 'Overseas OOH'], freshAt: w(2, 7) - 5.5 }, text: [
         { t: 5.6, s: 'For agencies', st: 'lab' },
-        { t: w(2, 0), s: 'Every brand overseas', st: 'h' },
-        { t: w(2, 7), s: 'is a new line of work.', st: 's' } ] },
+        { t: 5.5 + .2, s: 'Every brand overseas', st: 'h' },
+        { t: w(2, 7) - .3, s: 'is a new line of work.', st: 's' } ] },
       { kind: 'panel', a: 10.0, b: 15.0, tr: 'zig', bg: 'navy', tex: true, art: 'reports',
         ev: { items: ['SG', 'AU', 'AE', 'VN', 'MY'], at: [1.4, 1.65, 2.3, 2.55, 3.6] }, text: [
         { t: 10.1, s: 'Where agencies get stuck', st: 'lab' },
-        { t: w(3, 1), s: 'Every new market,', st: 'h' },
-        { t: w(3, 5), s: 'new media, new buying rules,', st: 's' },
-        { t: w(3, 11), s: 'a different report.', st: 's', color: '#FEDA24' } ] },
+        { t: 10.0 + .2, s: 'Every new market,', st: 'h' },
+        { t: w(3, 5) - .3, s: 'new media, new buying rules,', st: 's' },
+        { t: w(3, 11) - .3, s: 'a different report.', st: 's', color: 'accent' } ] },
       { kind: 'panel', a: 15.0, b: 21.5, tr: 'chev', bg: 'sky', art: 'formats',
         ev: { items: [['plane', 'Airports'], ['train', 'Transit'], ['bag', 'Retail']], at: [w(4, 10) - 15, w(4, 11) - 15, w(4, 13) - 15] }, text: [
         { t: 15.07, s: 'Moving Walls', st: 'lab' },
-        { t: w(4, 4), s: 'One platform.', st: 'h' },
-        { t: w(4, 7), s: 'One global network.', st: 's' } ] },
+        { t: 15.0 + .2, s: 'One platform.', st: 'h' },
+        { t: w(4, 7) - .3, s: 'One global network.', st: 's' } ] },
       { kind: 'burst', a: 21.5, b: 27.0, bg: 'white', words: [
         { t: w(5, 0), s: 'PLAN.', bg: 'white' },
         { t: w(5, 1), s: 'RUN.', bg: 'cover' },
@@ -62,16 +62,16 @@
       { kind: 'panel', a: 27.0, b: 33.0, tr: 'zig', bg: 'navy', tex: true, art: 'number', artAt: w(6, 8) + .2 - 1.1,
         ev: { value: '230', unit: 'digital screens' }, text: [
         { t: 27.05, s: 'Case study · Vietnam', st: 'lab' },
-        { t: w(6, 1), s: 'Calvin Klein', st: 'h' },
-        { t: w(6, 10), s: 'one consistent report.', st: 's', color: '#FEDA24' },
+        { t: 27.0 + .2, s: 'Calvin Klein', st: 'h' },
+        { t: w(6, 10) - .3, s: 'one consistent report.', st: 's', color: 'accent' },
         { t: w(6, 10) + .4, s: '39 premium locations · 27 days', st: 'b', scale: .8 },
         { t: w(6, 10) + .6, s: '1.56M billable impressions', st: 'b', scale: .8 } ] },
       { kind: 'logo', a: 33.0, b: w(7, 8) - .1, tr: 'chev', text: [
-        { t: w(7, 0), s: 'You keep the client.', st: 'h', scale: .72 },
-        { t: w(7, 4), s: 'We bring the network.', st: 's' } ] },
+        { t: 33.0 + .2, s: 'You keep the client.', st: 'h', scale: .72 },
+        { t: w(7, 4) - .3, s: 'We bring the network.', st: 's' } ] },
       { kind: 'end', a: w(7, 8) - .1, b: 39.5, tr: 'zig', text: [
-        { t: w(7, 8), s: 'Overseas out-of-home.', st: 'h', scale: .8 },
-        { t: w(7, 10), s: 'No boundaries.', st: 's' },
+        { t: w(7, 8) - .1 + .2, s: 'Overseas out-of-home.', st: 'h', scale: .8 },
+        { t: w(7, 10) - .3, s: 'No boundaries.', st: 's' },
         { t: w(7, 11) + .6, s: 'movingwalls.com', st: 'b', scale: .8 } ] },
     ],
   };

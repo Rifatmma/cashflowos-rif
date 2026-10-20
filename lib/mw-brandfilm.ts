@@ -33,7 +33,11 @@ export const BACKGROUNDS = ['cover', 'navy', 'sky', 'white'] as const
 type Bg = (typeof BACKGROUNDS)[number]
 
 /** Illustrations the engine knows, and the event fields each one reads. */
-export const ARTS = ['routes', 'network', 'formats', 'number', 'lines', 'reports', 'board', 'rail', 'crossing', 'skyline'] as const
+export const ARTS = [
+  'routes', 'network', 'formats', 'number', 'lines', 'reports', 'board', 'rail', 'crossing', 'skyline',
+  'compare', 'people', 'pins', 'timeline', 'donut', 'globe', 'screens', 'funnel', 'dayparts', 'phone',
+  'checklist', 'split', 'trend', 'billboard', 'heat',
+] as const
 type Art = (typeof ARTS)[number]
 
 export type PlanText = {
@@ -61,10 +65,25 @@ export type PlanScene = {
   text?: PlanText[]
   /** burst only: one word per beat. */
   words?: { s: string; on: string; bg?: Bg }[]
+  /** A cut-out photo that could stand in for the illustration ("Infographic + photos" mode). */
+  photo?: { query: string; word?: string }
+  /** Chosen by pickRecipe, not the model. */
+  layout?: Layout
+  variant?: string
 }
+
+export type Layout = 'stack' | 'flip' | 'center'
+export type Accent = 'sun' | 'crimson' | 'emerald'
+export type Mode = 'infographic' | 'photos'
+
+/** The look choices for one video, remembered so the next ones differ. */
+export type Recipe = { accent: Accent; cover: string; burst: string; arts: string[]; at: number }
 
 export type Plan = {
   title: string
+  accent?: Accent
+  cover?: 'zigzag' | 'bigword' | 'mark'
+  burst?: 'flip' | 'stack'
   lines: string[]
   /** Optional subtitles: per line, one or two chunks in the target language. */
   supers?: string[][]
@@ -83,6 +102,10 @@ export type VoiceLine = {
 /** What the engine draws: every cue resolved to absolute seconds. */
 export type Film = {
   title: string
+  accent: Accent
+  cover: string
+  burst: string
+  photos?: Record<string, string>
   dur: number
   bpm: number
   /** When each line starts. */
@@ -125,7 +148,9 @@ export function lineStarts(voice: VoiceLine[]): number[] {
 }
 
 /** Plan + voice → film. Pure; runs in the browser after Ava has spoken. */
-export function resolveFilm(plan: Plan, voice: VoiceLine[]): Film {
+export function resolveFilm(
+  plan: Plan, voice: VoiceLine[], mode: Mode = 'infographic', photos?: Record<string, string>,
+): Film {
   const starts = lineStarts(voice)
   const last = voice.length - 1
   const dur = Math.ceil((starts[last] + voice[last].dur + 1.2) / BEAT) * BEAT
@@ -136,12 +161,24 @@ export function resolveFilm(plan: Plan, voice: VoiceLine[]): Film {
     const v = voice[sc.line]
     const a = i === 0 ? 0 : sc.from ? Math.max(starts[sc.line], at(sc.line, sc.from) - 0.1) : starts[sc.line]
     let cursor = sc.from ? wordTime(v, sc.from) - 0.01 : -1
+    // The headline is on screen as the scene cuts in, so it is readable
+    // while Ava says it — landing it on its word put it a second late
+    // whenever the word sat mid-sentence. Everything after it arrives a
+    // little AHEAD of the word it echoes (the eye reads before the ear
+    // hears), never before the item above it.
+    let firstHead = true, prev = a
     const text = (sc.text ?? []).map(t => {
-      const time = t.on ? at(sc.line, t.on, cursor) : a + (t.st === 'lab' ? 0.08 : 0.15)
-      if (t.on) cursor = time - starts[sc.line]
+      let time: number
+      if (t.st === 'lab') time = a + 0.08
+      else if ((t.st === 'h' || t.st === 'hx') && firstHead) { firstHead = false; time = a + (i === 0 ? 0.35 : 0.12) }
+      else if (t.on) time = at(sc.line, t.on, cursor) - 0.3
+      else time = prev + 0.25
+      if (t.on) cursor = Math.max(cursor, at(sc.line, t.on, cursor) - starts[sc.line])
+      time = +Math.max(time, prev + (t.st === 'lab' ? 0 : 0.12), a + 0.05).toFixed(3)
+      prev = time
       return {
         t: time, s: t.s, st: t.st,
-        ...(t.accent ? { color: '#FEDA24' } : {}),
+        ...(t.accent ? { color: 'accent' } : {}),
         ...(t.strikeOn ? { strike: at(sc.line, t.strikeOn, cursor) } : {}),
         ...(t.st === 'b' ? { scale: 0.75 } : {}),
       }
@@ -157,15 +194,29 @@ export function resolveFilm(plan: Plan, voice: VoiceLine[]): Film {
     // A number settles about 1.1s after it starts rolling, so start it so the
     // last digit lands as she says it.
     if (sc.art === 'number' && ev.on) artAt = Math.max(a, at(sc.line, ev.on) + 0.2 - 1.1)
-    const words = sc.words?.map((w, k) => ({ t: at(sc.line, w.on), s: w.s, bg: w.bg ?? (k % 2 ? 'cover' : 'white'), ...(w.s.trim().includes(' ') ? { st: 'h' } : {}) }))
-    return { ...sc, a, artAt, ev, text, ...(words ? { words } : {}) }
+    // A burst word lands a hair before it is said, like the text.
+    const words = sc.words?.map((w, k) => ({ t: Math.max(a, at(sc.line, w.on) - 0.12), s: w.s, bg: w.bg ?? (k % 2 ? 'cover' : 'white'), ...(w.s.trim().includes(' ') ? { st: 'h' } : {}) }))
+    const photo = mode === 'photos' && sc.photo && photos?.[photoKey(sc.photo.query)]
+      ? { key: photoKey(sc.photo.query), word: sc.photo.word, shape: (['circle', 'bar', 'zig', 'blue'] as const)[i % 4] }
+      : undefined
+    return { ...sc, a, artAt, ev, text, ...(words ? { words } : {}), ...(photo ? { photo } : { photo: undefined }) }
   })
 
-  // Scenes tile the timeline; transitions alternate so consecutive cuts differ.
+  // Scenes tile the timeline. Transitions come from a pool and never repeat
+  // back to back; the choice is seeded by the title so a re-render of the
+  // same video is identical and a different video differs.
+  const r = seeded(plan.title)
+  const pool = ['zig', 'chev', 'iris', 'slide', 'bars']
+  let lastTr = ''
   scenes.forEach((sc: any, i) => {
     sc.b = i + 1 < scenes.length ? scenes[i + 1].a : dur
-    if (i > 0 && sc.kind !== 'burst') sc.tr = i % 2 ? 'zig' : 'chev'
-    if (sc.kind === 'burst') sc.bg = sc.bg ?? 'white'
+    if (i > 0 && sc.kind !== 'burst') {
+      const options = pool.filter(t => t !== lastTr)
+      sc.tr = options[Math.floor(r() * options.length)]
+      lastTr = sc.tr
+    }
+    if (sc.kind === 'burst') { sc.bg = sc.bg ?? 'white'; sc.variant = plan.burst }
+    if (sc.kind === 'cover') sc.variant = plan.cover
   })
 
   let supers: Film['supers']
@@ -184,7 +235,55 @@ export function resolveFilm(plan: Plan, voice: VoiceLine[]): Film {
     })
   }
 
-  return { title: plan.title, dur, bpm: 120, starts, scenes, ...(supers ? { supers } : {}) }
+  return {
+    title: plan.title, dur, bpm: 120, starts, scenes,
+    accent: plan.accent ?? 'sun', cover: plan.cover ?? 'zigzag', burst: plan.burst ?? 'flip',
+    ...(supers ? { supers } : {}),
+  }
+}
+
+/** A cut-out's library key: the search words, normalised. */
+export const photoKey = (query: string) => query.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+
+function seeded(seed: string) {
+  let h = 2166136261
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  let s = h >>> 0
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296)
+}
+
+/**
+ * Choose this video's look, avoiding what the last few videos used.
+ *
+ * Ten videos a week from one engine will look like one video ten times
+ * unless something varies on purpose. The model chooses WHAT to show; this
+ * chooses HOW: accent colour, opener, word-burst style and the layout of
+ * every panel — each different from the recent videos where there is a
+ * choice, and seeded by the title so the same video always renders alike.
+ */
+export function pickRecipe(plan: Plan, recent: Recipe[]): { plan: Plan; recipe: Recipe } {
+  const r = seeded(plan.title + plan.lines.join('|'))
+  const freshest = <T extends string>(all: T[], used: (rc: Recipe) => string): T => {
+    // Prefer whatever was used least recently; ties broken by the seed.
+    const age = (v: string) => { const k = recent.findIndex(rc => used(rc) === v); return k < 0 ? 99 : k }
+    const best = Math.max(...all.map(age))
+    const pick = all.filter(v => age(v) === best)
+    return pick[Math.floor(r() * pick.length)]
+  }
+  const accent = freshest<Accent>(['sun', 'crimson', 'emerald'], rc => rc.accent)
+  const cover = freshest(['zigzag', 'bigword', 'mark'], rc => rc.cover) as Plan['cover']
+  const burst = freshest(['flip', 'stack'], rc => rc.burst) as Plan['burst']
+  const layouts: Layout[] = ['stack', 'flip', 'center']
+  let last: Layout | '' = ''
+  const scenes = plan.scenes.map(sc => {
+    if (sc.kind !== 'panel') return sc
+    const options = layouts.filter(l => l !== last)
+    const layout = options[Math.floor(r() * options.length)]
+    last = layout
+    return { ...sc, layout }
+  })
+  const arts = scenes.map(s => s.art).filter((a): a is Art => !!a)
+  return { plan: { ...plan, accent, cover, burst, scenes }, recipe: { accent, cover: cover!, burst: burst!, arts, at: Date.now() } }
 }
 
 /**
@@ -220,11 +319,32 @@ export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
       reports: () => Array.isArray(ev.items) && ev.items.length > 0,
       board: () => Array.isArray(ev.rows) && ev.rows.length > 0,
       rail: () => Array.isArray(ev.stations) && ev.stations.length >= 2,
+      compare: () => Array.isArray(ev.items) && ev.items.length >= 2 && ev.items.every((d: any) => d && d.label && Number.isFinite(+d.value)),
+      people: () => Number.isFinite(+ev.total) && +ev.total > 0,
+      pins: () => Array.isArray(ev.pins) && ev.pins.length > 0,
+      timeline: () => Array.isArray(ev.items) && ev.items.length >= 2,
+      donut: () => Number.isFinite(+ev.value) && +ev.value >= 0 && +ev.value <= 100,
+      globe: () => Array.isArray(ev.labels) && ev.labels.length > 0,
+      funnel: () => Array.isArray(ev.items) && ev.items.length >= 2,
+      dayparts: () => Array.isArray(ev.items) && ev.items.length > 0,
+      checklist: () => Array.isArray(ev.items) && ev.items.length > 0,
+      split: () => Array.isArray(ev.left) && Array.isArray(ev.right),
+      trend: () => Array.isArray(ev.values) && ev.values.length >= 3 && ev.values.every((v: any) => Number.isFinite(+v)),
+      billboard: () => Array.isArray(ev.lines) && ev.lines.length > 0,
     }
     if (art && need[art] && !need[art]!()) { notes.push(`The ${art} illustration was missing its details and was left out.`); art = undefined }
     if (art === 'formats') ev.items = ev.items.slice(0, 4).map((it: any) => [['plane', 'train', 'bag', 'screen', 'road'].includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 16)])
     if (art === 'board') ev.rows = ev.rows.slice(0, 5).map((r: any) => str(r, 14).toUpperCase())
-    if (art === 'number') ev.value = String(ev.value).replace(/[^\d.,%+]/g, '').slice(0, 6)
+    if (art === 'number') ev.value = String(ev.value).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
+    if (art === 'compare') ev.items = ev.items.slice(0, 3).map((d: any) => ({ label: str(d.label, 30), value: +d.value, display: str(d.display ?? d.value, 10) }))
+    if (art === 'people') { ev.total = Math.min(60, Math.max(4, Math.round(+ev.total))); ev.filled = Math.min(ev.total, Math.max(0, Math.round(+(ev.filled ?? ev.total * .6)))) }
+    if (art === 'pins') ev.pins = ev.pins.slice(0, 5).map((q: any) => [Math.min(940, Math.max(60, +q?.[0] || 500)), Math.min(740, Math.max(120, +q?.[1] || 400)), str(q?.[2], 16).toUpperCase()])
+    if (art === 'timeline') ev.items = ev.items.slice(0, 5).map((q: any) => [str(q?.[0], 10), str(q?.[1], 18)])
+    if (art === 'funnel' || art === 'checklist') ev.items = ev.items.slice(0, 5).map((q: any) => str(q, 24))
+    if (art === 'dayparts') ev.items = ev.items.slice(0, 4).map((q: any) => [((+q?.[0] || 0) % 24 + 24) % 24, ((+q?.[1] || 1) % 24 + 24) % 24, str(q?.[2], 12).toUpperCase()])
+    if (art === 'trend') ev.values = ev.values.slice(0, 8).map((v: any) => +v)
+    if (art === 'billboard') ev.lines = ev.lines.slice(0, 4).map((q: any) => str(q, 16).toUpperCase())
+    if (art === 'globe') ev.labels = ev.labels.slice(0, 4).map((q: any) => str(q, 14).toUpperCase())
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({
       s: str(t?.s, 48), st: ['lab', 'h', 'hx', 's', 'b'].includes(t?.st) ? t.st : 'h',
@@ -240,6 +360,7 @@ export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
       kind, line, ...(s?.from ? { from: str(s.from, 30) } : {}),
       bg: bg(s?.bg) ?? (kind === 'panel' ? (scenes.length % 2 ? 'white' : 'navy') : undefined),
       ...(art ? { art, ev } : {}), text, ...(words ? { words } : {}),
+      ...(kind === 'panel' && s?.photo?.query ? { photo: { query: str(s.photo.query, 60), ...(s.photo.word ? { word: str(s.photo.word, 14) } : {}) } } : {}),
     } as PlanScene)
   }
 

@@ -94,7 +94,9 @@ for i, sc in enumerate(spec['scenes']):
     a = sc['a']
     if i: add(whoosh(.35), a - .35, .3, rng.uniform(-.4, .4))
     if sc.get('tr') == 'zig': add(whoosh(.5, False), a, .25, .3); add(impact(), a, .35)
-    if sc.get('tr') == 'chev': add(whoosh(.25), a - .25, .3, -.3); add(impact(), a, .3)
+    if sc.get('tr') in ('chev', 'slide'): add(whoosh(.25), a - .25, .3, -.3); add(impact(), a, .3)
+    if sc.get('tr') == 'iris': add(impact(), a, .32); add(whoosh(.45, False), a, .22)
+    if sc.get('tr') == 'bars': add(whoosh(.3), a - .3, .28); add(impact(), a, .32); add(whoosh(.3, False), a, .2, .3)
     if sc['kind'] == 'burst':
         for w in sc['words']: add(impact(), w['t'], .45); add(kick(), w['t'], .7)
         add(riser(1.2), a - 1.2, .25)

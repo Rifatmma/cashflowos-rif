@@ -56,4 +56,23 @@ async function renderFormat(browser, f) {
   const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--allow-file-access-from-files'] });
   await Promise.all(fmts.map(f => renderFormat(browser, f)));
   await browser.close();
+  if (mode !== 'stills') remember();
 })();
+
+// The look of every finished video, newest first, so the next one can be
+// different (SKILL.md: read it before choosing accent / cover / burst / art).
+function remember() {
+  const home = process.env.MW_VIDEO_HOME || path.join(require('os').homedir(), '.mw-brand-video');
+  const file = path.join(home, 'history.json');
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* first video */ }
+  list.unshift({
+    title: spec.title, at: new Date().toISOString(),
+    accent: spec.accent || 'sun', cover: spec.cover || 'zigzag', burst: spec.burst || 'flip',
+    arts: spec.scenes.map(s => s.art).filter(Boolean),
+    layouts: spec.scenes.map(s => s.layout).filter(Boolean),
+    transitions: spec.scenes.map(s => s.tr).filter(Boolean),
+  });
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(list.slice(0, 20), null, 1));
+}

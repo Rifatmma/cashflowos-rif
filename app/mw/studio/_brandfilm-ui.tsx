@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { researchArticleUrl, writeBrandVideo, speakBrandVideo } from './actions'
 import type { Research } from '@/lib/mw-studio'
 import {
-  FILM_FORMATS, resolveFilm, estimateSeconds,
-  type Audience, type Film, type FilmFormat, type Plan, type SubLang, type VoiceLine,
+  FILM_FORMATS, resolveFilm, estimateSeconds, pickRecipe,
+  type Audience, type Film, type FilmFormat, type Mode, type Plan, type Recipe, type SubLang, type VoiceLine,
 } from '@/lib/mw-brandfilm'
 import { createEngine } from '@/lib/mw-brandfilm-engine'
 import { buildMix, SR } from '@/lib/mw-brandfilm-score'
@@ -54,6 +54,21 @@ async function loadFonts(zh: boolean) {
   ]).catch(() => undefined)
 }
 
+/**
+ * The last few videos' look, so the next one differs.
+ *
+ * Per browser for now: it is what one person making several videos in a
+ * week sees repeat. (A team-wide memory arrives with the photo library,
+ * which needs a table anyway.)
+ */
+const RECENT_KEY = 'mw-brandfilm-recent'
+function readRecent(): Recipe[] {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').slice(0, 6) } catch { return [] }
+}
+function remember(r: Recipe) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify([r, ...readRecent()].slice(0, 6))) } catch { /* private mode */ }
+}
+
 async function decodeMp3(b64: string): Promise<Float32Array> {
   const bin = atob(b64), bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
@@ -82,6 +97,7 @@ export function BrandFilm() {
   const [lang, setLang] = useState<SubLang>('none')
   const [format, setFormat] = useState<FilmFormat | null>(null)
   const [seconds, setSeconds] = useState(32)
+  const [mode, setMode] = useState<Mode>('infographic')
 
   const [plan, setPlan] = useState<Plan | null>(null)
   const [notes, setNotes] = useState<string[]>([])
@@ -103,8 +119,8 @@ export function BrandFilm() {
   useEffect(() => { loadAssets().then(setAssets).catch(() => setError('The brand assets did not load. Refresh and try again.')) }, [])
 
   const film: Film | null = useMemo(
-    () => (plan && voice ? resolveFilm(plan, voice.lines) : null),
-    [plan, voice],
+    () => (plan && voice ? resolveFilm(plan, voice.lines, mode, {}) : null),
+    [plan, voice, mode],
   )
   const mix = useMemo(() => (film && voice ? buildMix(film, voice.pcm) : null), [film, voice])
 
@@ -123,9 +139,14 @@ export function BrandFilm() {
     if (!res) return
     setError(''); setPlan(null); setVoice(null); setClip(null); setNotes([])
     start(async () => {
-      const r = await writeBrandVideo(res, audience, lang, seconds)
+      const recent = readRecent()
+      const r = await writeBrandVideo(res, audience, lang, seconds, recent.flatMap(x => x.arts))
       if (!r.ok) return setError(r.error)
-      setPlan(r.plan); setNotes(r.notes)
+      // The model chose what to show; this chooses how it looks, unlike
+      // the last few videos.
+      const picked = pickRecipe(r.plan, recent)
+      remember(picked.recipe)
+      setPlan(picked.plan); setNotes(r.notes)
     })
   }
 
@@ -172,7 +193,7 @@ export function BrandFilm() {
 
   const engineFor = (ctx: CanvasRenderingContext2D) => {
     const f = FILM_FORMATS[format!]
-    return createEngine(ctx, f.w, f.h, film, assets!.shapes, { dark: assets!.dark, light: assets!.light })
+    return createEngine(ctx, f.w, f.h, film, assets!.shapes, { dark: assets!.dark, light: assets!.light, photos: {} })
   }
 
   // Redraw the still whenever the scrubber, the words or the format move.
@@ -364,6 +385,33 @@ export function BrandFilm() {
           <button type="button" className="mw-dl" onClick={speak} disabled={busy}>
             {busy && !voice ? 'Ava is reading…' : voice ? 'Record Ava again' : '🎙 Record Ava'}
           </button>
+        </section>
+      )}
+
+      {/* 3b ─────────────────────────────────────── infographic or photos */}
+      {plan && (
+        <section>
+          <h3>Infographic, or with photos?</h3>
+          <div className="mw-studio-choice">
+            <button type="button" onClick={() => { setMode('infographic'); setClip(null) }} aria-current={mode === 'infographic' ? 'true' : undefined}>
+              <b>Infographic</b>
+              <small>Brand illustrations and data visuals throughout — the look you have now.</small>
+            </button>
+            <button type="button" disabled title="Arrives with the cut-out photo library"
+              aria-current={mode === 'photos' ? 'true' : undefined}>
+              <b>Infographic + photos</b>
+              <small>
+                {plan.scenes.filter(s => s.photo).length || 'Some'} scenes swap their illustration for a
+                black-and-white cut-out photo. Coming next — needs the photo library set up.
+              </small>
+            </button>
+          </div>
+          {plan.accent && (
+            <p className="lede">
+              This video’s look: {({ sun: 'Sunburst', crimson: 'Crimson', emerald: 'Emerald' } as const)[plan.accent]} accent,{' '}
+              {plan.cover} opener, {plan.burst} word burst — chosen to differ from your last few videos.
+            </p>
+          )}
         </section>
       )}
 

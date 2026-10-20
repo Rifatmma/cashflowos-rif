@@ -173,7 +173,9 @@ export function buildMix(film: Film, vo: Float32Array[]): { left: Float32Array; 
     const a = sc.a
     if (i) add(whoosh(r, 0.35), a - 0.35, 0.3, r() * 0.4)
     if (sc.tr === 'zig') { add(whoosh(r, 0.5, false), a, 0.25, 0.3); add(impact(r), a, 0.35) }
-    if (sc.tr === 'chev') { add(whoosh(r, 0.25), a - 0.25, 0.3, -0.3); add(impact(r), a, 0.3) }
+    if (sc.tr === 'chev' || sc.tr === 'slide') { add(whoosh(r, 0.25), a - 0.25, 0.3, -0.3); add(impact(r), a, 0.3) }
+    if (sc.tr === 'iris') { add(impact(r), a, 0.32); add(whoosh(r, 0.45, false), a, 0.22) }
+    if (sc.tr === 'bars') { add(whoosh(r, 0.3), a - 0.3, 0.28); add(impact(r), a, 0.32); add(whoosh(r, 0.3, false), a, 0.2, 0.3) }
     if (sc.kind === 'burst') {
       for (const w of sc.words) { add(impact(r), w.t, 0.45); add(kick(), w.t, 0.7) }
       add(riser(r, 1.2), a - 1.2, 0.25)
