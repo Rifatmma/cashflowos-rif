@@ -33,9 +33,60 @@ for (const f of ['Poppins-Bold.ttf', 'Poppins-SemiBold.ttf', 'Poppins-Regular.tt
   if (existsSync(p)) GlobalFonts.registerFromPath(p, 'Poppins')
 }
 
-const WIDE = process.argv.includes('--wide')
-const W = WIDE ? 1920 : 1080
-const H = WIDE ? 1080 : 1920
+// ONE FORMAT PER RENDER, chosen up front.
+//
+// The first version rendered every shape from a single layout riddled with
+// `WIDE ? a : b`, which produced output that was consistent and wrong: the
+// landscape cut had its dot grid starting above the top of the frame and
+// its labels sitting on the chrome. The deeper fault was that VERTICAL
+// positions were computed from the frame's WIDTH — u(0.3) is 17% of height
+// in 9:16 and 53% of it in 16:9 — so a layout tuned in portrait could not
+// survive the change of aspect. Hence `v()` below, and a layout table per
+// format rather than ternaries scattered through the drawing code.
+//
+// It is also cheaper: one render, not two, and nothing is spent making a
+// shape that was never going to be right.
+
+type Fmt = 'vertical' | 'square' | 'wide'
+const FMT: Fmt =
+  process.argv.includes('--wide') ? 'wide'
+  : process.argv.includes('--square') ? 'square'
+  : 'vertical'
+
+const SIZES: Record<Fmt, [number, number]> = {
+  vertical: [1080, 1920],
+  square: [1080, 1080],
+  wide: [1920, 1080],
+}
+const [W, H] = SIZES[FMT]
+const WIDE = FMT === 'wide'
+
+/**
+ * Per-format numbers, declared in one place.
+ *
+ * Fractions of HEIGHT for anything vertical, fractions of WIDTH for
+ * anything horizontal. Mixing the two is what broke the landscape cut.
+ */
+const LAYOUTS: Record<Fmt, {
+  mid: number          // where the content centres, as a fraction of height
+  statement: number    // caption size, fraction of width
+  bignum: number
+  iconSize: number
+  iconLabel: number
+  dotCols: number
+  dotRows: number
+  gridTop: number      // fraction of HEIGHT
+  barW: number
+  barMax: number       // fraction of HEIGHT
+}> = {
+  vertical: { mid: 0.46, statement: 0.082, bignum: 0.26, iconSize: 0.225, iconLabel: 0.026,
+              dotCols: 10, dotRows: 10, gridTop: 0.20, barW: 0.2, barMax: 0.22 },
+  square:   { mid: 0.47, statement: 0.070, bignum: 0.22, iconSize: 0.185, iconLabel: 0.022,
+              dotCols: 12, dotRows: 8,  gridTop: 0.20, barW: 0.16, barMax: 0.30 },
+  wide:     { mid: 0.50, statement: 0.048, bignum: 0.15, iconSize: 0.115, iconLabel: 0.0155,
+              dotCols: 20, dotRows: 8,  gridTop: 0.20, barW: 0.075, barMax: 0.38 },
+}
+const L = LAYOUTS[FMT]
 const FPS = 30
 const OUT = 'C:/Users/MOVING WELLS/mw-social/article'
 mkdirSync(OUT, { recursive: true })
@@ -169,8 +220,9 @@ writeFileSync(`${OUT}/mix.wav`, toWav(mixed.left, mixed.right))
 // ── painting ───────────────────────────────────────────────────────────────
 const canvas = createCanvas(W, H)
 const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D
-const u = (n: number) => Math.round(W * n)       // sizes relative to width
-const PAD = u(0.075)
+const u = (n: number) => Math.round(W * n)       // anything horizontal
+const v = (n: number) => Math.round(H * n)       // anything vertical
+const PAD = Math.round(Math.min(W, H) * 0.075)
 
 const grad = (x0: number, y0: number, x1: number, y1: number, a: string, b: string) => {
   const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, a); g.addColorStop(1, b); return g
@@ -198,7 +250,7 @@ const tc = (t: number) => {
 /** The editorial frame that runs through every card. */
 function chrome(t: number, card: typeof cards[number], dark: boolean) {
   const ink = dark ? 'rgba(191,231,251,.55)' : 'rgba(27,30,43,.45)'
-  const s = u(0.0135)
+  const s = Math.round(Math.min(W, H) * 0.0135)
   tracked('MOVING WALLS · PROGRAMMATIC DOOH', PAD, PAD, s, s * 0.22, ink)
   const ch = card.chapter ?? ''
   tracked(ch, W - PAD - trackedWidth(ch, s, s * 0.22), PAD, s, s * 0.22, ink)
@@ -210,9 +262,9 @@ function chrome(t: number, card: typeof cards[number], dark: boolean) {
   // A progress rule across the foot: how far through the film we are.
   const k = clamp01(t / TOTAL)
   ctx.fillStyle = dark ? 'rgba(255,255,255,.12)' : 'rgba(27,30,43,.1)'
-  ctx.fillRect(PAD, H - PAD * 0.9, W - PAD * 2, u(0.003))
+  ctx.fillRect(PAD, H - PAD * 0.9, W - PAD * 2, Math.max(2, Math.round(Math.min(W, H) * 0.003)))
   ctx.fillStyle = dark ? SKY : BLUE
-  ctx.fillRect(PAD, H - PAD * 0.9, (W - PAD * 2) * k, u(0.003))
+  ctx.fillRect(PAD, H - PAD * 0.9, (W - PAD * 2) * k, Math.max(2, Math.round(Math.min(W, H) * 0.003)))
 }
 
 /**
@@ -307,10 +359,10 @@ function note(text: string | undefined, t0: number, t: number, dark: boolean) {
   if (!text) return
   const k = at(t, t0 + 0.5, 0.5)
   layer(ctx, k * 0.9, 0, 0, () => {
-    ctx.font = `400 ${u(0.0165)}px Poppins`
+    ctx.font = `400 ${Math.round(Math.min(W, H) * 0.0165)}px Poppins`
     ctx.textAlign = 'center'
     ctx.fillStyle = dark ? 'rgba(191,231,251,.75)' : 'rgba(27,30,43,.55)'
-    ctx.fillText(text, W / 2, H - PAD * 1.9)
+    ctx.fillText(text, W / 2, H - PAD * 2.1)
   })
 }
 
@@ -364,19 +416,19 @@ function frame(t: number) {
     ctx.fillRect(0, H * wipe, W, H)
   }
 
-  const mid = H * (WIDE ? 0.5 : 0.46)
+  const mid = H * L.mid
 
   if (card.kind === 'statement' || card.kind === 'logo') {
     if (card.kind === 'logo') {
       const land = at(l, 0.1, 0.7, ease.outExpo)
-      const mw = W * (WIDE ? 0.2 : 0.42) * lerp(1.15, 1, land)
+      const mw = W * (WIDE ? 0.22 : 0.42) * lerp(1.15, 1, land)
       layer(ctx, land, 0, 0, () =>
-        drawMark(ctx, (W - mw) / 2, mid - markHeight(mw) - u(0.05), mw, '#FFFFFF'))
-      caption(card.show ?? '', card.start + 0.55, t, dark, u(WIDE ? 0.05 : 0.082), mid + u(0.06))
+        drawMark(ctx, (W - mw) / 2, mid - markHeight(mw) - v(0.04), mw, '#FFFFFF'))
+      caption(card.show ?? '', card.start + 0.55, t, dark, u(L.statement), mid + v(0.05))
     } else if (card.phrases) {
-      phrases(card.phrases, card.start + 0.12, card.speech, t, dark, u(WIDE ? 0.055 : 0.082), mid)
+      phrases(card.phrases, card.start + 0.12, card.speech, t, dark, u(L.statement), mid)
     } else {
-      caption(card.show ?? '', card.start + 0.1, t, dark, u(WIDE ? 0.055 : 0.082), mid)
+      caption(card.show ?? '', card.start + 0.1, t, dark, u(L.statement), mid)
     }
   }
 
@@ -384,9 +436,10 @@ function frame(t: number) {
     // Three named things, arriving as she names them, each drawing itself
     // in and then floating so the row is never static.
     const icons = card.icons ?? []
-    const size = u(WIDE ? 0.125 : 0.225)
-    const span = W * (WIDE ? 0.56 : 0.78)
-    const y = mid - u(WIDE ? 0.02 : 0.08)
+    const size = u(L.iconSize)
+    const span = W * (WIDE ? 0.62 : 0.80)
+    // Vertical, so measured against height.
+    const y = mid - v(L.iconSize * 0.22)
     icons.forEach((ic, i) => {
       const cx = W / 2 + (i - (icons.length - 1) / 2) * (span / icons.length)
       const k = at(t, card.start + 0.18 + i * (card.speech * 0.2), 0.55, ease.outQuart)
@@ -400,70 +453,77 @@ function frame(t: number) {
         dark ? SKY : BLUE, dark ? 'rgba(191,231,251,.9)' : 'rgba(27,30,43,.6)',
         // 1.6% of width is 17px at 1080 — drawn, but not readable at a
         // glance, which is the only speed an icon label is read at.
-        k, `700 ${u(0.026)}px Poppins`, u(0.0078),
+        k, `700 ${u(L.iconLabel)}px Poppins`, u(0.0068),
       )
       ctx.restore()
     })
     // Clear of the icon labels, which sit at roughly mid + 0.10W.
+    // Clear of the icon labels, which sit at y + size * 0.82. The caption
+    // is centred on its own y, so the gap has to cover half its height as
+    // well — v(0.075) left the two touching in landscape.
+    const capSize = u(WIDE ? 0.034 : 0.056)
     caption(card.show ?? '', card.start + card.speech * 0.62, t, dark,
-      u(WIDE ? 0.036 : 0.056), mid + u(WIDE ? 0.2 : 0.26))
+      capSize, y + size * 0.82 + capSize * 1.1 + v(0.055))
   }
 
   else if (card.kind === 'define') {
     const k = at(l, 0.15, 0.5, ease.outQuart)
     layer(ctx, k, 0, lerp(u(0.03), 0, k), () => {
-      ctx.font = `700 ${u(WIDE ? 0.058 : 0.092)}px Poppins`
+      ctx.font = `700 ${u(L.statement * 1.12)}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark ? '#FFFFFF' : NAVY
       ctx.fillText(card.show ?? '', W / 2, mid)
     })
     const k2 = at(l, 0.5, 0.4)
     layer(ctx, k2, 0, 0, () => {
-      const s = u(WIDE ? 0.026 : 0.042)
+      const s = u(WIDE ? 0.022 : 0.042)
       const w = trackedWidth(card.sub ?? '', s, s * 0.3)
-      tracked(card.sub ?? '', (W - w) / 2, mid + u(0.075), s, s * 0.3, SUN)
+      tracked(card.sub ?? '', (W - w) / 2, mid + v(0.06), s, s * 0.3, SUN)
     })
   }
 
   else if (card.kind === 'bignum') {
     const k = at(l, 0.12, Math.min(1.5, card.speech * 0.8), ease.linear)
-    const size = u(WIDE ? 0.17 : 0.26)
+    const size = u(L.bignum)
     layer(ctx, at(l, 0.05, 0.3), 0, 0, () => {
       // A counter that stops dead looks switched off, so the figure keeps a
       // slow scale once it has landed.
       const alive = 1 + breathe(t, 0.26, 0.012)
       ctx.save()
-      ctx.translate(W / 2, mid - u(0.02))
+      ctx.translate(W / 2, mid - v(0.02))
       ctx.scale(alive, alive)
-      ctx.translate(-W / 2, -(mid - u(0.02)))
+      ctx.translate(-W / 2, -(mid - v(0.02)))
       ctx.font = `700 ${size}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark
         ? grad(W * 0.25, 0, W * 0.75, 0, ICE, SKY)
         : grad(W * 0.25, 0, W * 0.75, 0, BLUE, SKY)
-      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + (card.suffix ?? '')), W / 2, mid - u(0.02))
+      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + (card.suffix ?? '')), W / 2, mid - v(0.02))
       ctx.restore()
     })
-    caption(card.show ?? '', card.start + 0.45, t, dark, u(WIDE ? 0.032 : 0.05), mid + u(0.09))
+    caption(card.show ?? '', card.start + 0.45, t, dark, u(WIDE ? 0.03 : 0.05), mid + v(0.07))
   }
 
   else if (card.kind === 'dots') {
     // A grid where the filled share IS the number.
-    const cols = WIDE ? 20 : 10
-    const rows = 10
+    const cols = L.dotCols
+    const rows = L.dotRows
     const total = cols * rows
     const target = Math.round(total * (card.value ?? 0) / 100)
     const k = at(l, 0.15, Math.min(1.6, card.speech * 0.75), ease.outCubic)
     const lit = Math.round(target * k)
-    const gapX = u(WIDE ? 0.034 : 0.066)
-    const r = u(WIDE ? 0.0085 : 0.017)
+    // The grid is sized so that it, the number and the caption together
+    // fit between the chrome and the foot — measured against HEIGHT, which
+    // is the whole reason the landscape version used to start off-frame.
+    const gridH = v(0.30)
+    const gapY = gridH / rows
+    const gapX = Math.min(gapY, (W - PAD * 2) / cols)
+    const r = gapX * 0.26
     const x0 = W / 2 - (gapX * (cols - 1)) / 2
-    // Grid, number and caption are one stack; starting higher stops the
-    // caption landing on top of the number.
-    const y0 = mid - u(0.30)
+    const y0 = v(L.gridTop)
     for (let i = 0; i < total; i++) {
       const cx = x0 + (i % cols) * gapX
-      const cy = y0 + Math.floor(i / cols) * gapX
+      const cy = y0 + Math.floor(i / cols) * gapY
       ctx.beginPath()
       ctx.arc(cx, cy, r, 0, Math.PI * 2)
       if (i < lit) {
@@ -478,24 +538,25 @@ function frame(t: number) {
       else { ctx.strokeStyle = dark ? 'rgba(191,231,251,.3)' : 'rgba(37,84,162,.25)'; ctx.lineWidth = u(0.0018); ctx.stroke() }
     }
     layer(ctx, at(l, 0.3, 0.4), 0, 0, () => {
-      ctx.font = `700 ${u(WIDE ? 0.1 : 0.15)}px Poppins`
+      ctx.font = `700 ${u(L.bignum * 0.62)}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark ? '#FFFFFF' : NAVY
-      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + '%'), W / 2, y0 + gapX * rows + u(0.13))
+      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + '%'), W / 2, y0 + gapY * rows + v(0.1))
     })
-    caption(card.show ?? '', card.start + 0.6, t, dark, u(WIDE ? 0.03 : 0.046), y0 + gapX * rows + u(0.235))
+    caption(card.show ?? '', card.start + 0.6, t, dark, u(WIDE ? 0.028 : 0.046),
+      y0 + gapY * rows + v(0.17))
   }
 
   else if (card.kind === 'bars') {
     // 2027 against today, as two bars.
     const k = at(l, 0.2, 1.1, ease.outQuart)
-    const bw = u(WIDE ? 0.09 : 0.2)
-    const maxH = H * (WIDE ? 0.3 : 0.22)
-    const base = mid + u(0.1)
+    const bw = u(L.barW)
+    const maxH = H * L.barMax
+    const base = mid + v(0.1)
     const pairs: [string, number][] = [['TODAY', 6], ['2027', card.value ?? 16]]
-    pairs.forEach(([lab, v], i) => {
+    pairs.forEach(([lab, val], i) => {
       const x = W / 2 + (i - 0.5) * bw * 2.1
-      const hgt = maxH * (v / 20) * (i === 0 ? at(l, 0.2, 0.6, ease.outQuart) : k)
+      const hgt = maxH * (val / 20) * (i === 0 ? at(l, 0.2, 0.6, ease.outQuart) : k)
       ctx.fillStyle = i === 1
         ? grad(0, base - hgt, 0, base, SKY, BLUE)
         : (dark ? 'rgba(191,231,251,.35)' : 'rgba(37,84,162,.25)')
@@ -504,14 +565,14 @@ function frame(t: number) {
       ctx.textAlign = 'center'
       // Was .6 alpha navy on near-white: drawn, but not visible.
       ctx.fillStyle = dark ? 'rgba(191,231,251,.9)' : 'rgba(27,30,43,.85)'
-      ctx.fillText(lab, x, base + u(0.042))
+      ctx.fillText(lab, x, base + v(0.038))
       if (i === 1) {
         ctx.font = `700 ${u(WIDE ? 0.045 : 0.07)}px Poppins`
         ctx.fillStyle = dark ? '#FFFFFF' : NAVY
-        ctx.fillText(counter(v, k, n => Math.round(n) + '%'), x, base - hgt - u(0.022))
+        ctx.fillText(counter(val, k, n => Math.round(n) + '%'), x, base - hgt - v(0.022))
       }
     })
-    caption(card.show ?? '', card.start + 0.55, t, dark, u(WIDE ? 0.03 : 0.046), base + u(0.14))
+    caption(card.show ?? '', card.start + 0.55, t, dark, u(WIDE ? 0.028 : 0.046), base + v(0.115))
   }
 
   // a wave band at the foot of every card
@@ -526,7 +587,7 @@ function frame(t: number) {
 }
 
 // ── encode ─────────────────────────────────────────────────────────────────
-const name = WIDE ? 'article-16x9' : 'article-9x16'
+const name = FMT === 'wide' ? 'article-16x9' : FMT === 'square' ? 'article-1x1' : 'article-9x16'
 const ff = spawn(ffmpegPath as string, [
   '-y',
   '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`, '-r', String(FPS), '-i', 'pipe:0',

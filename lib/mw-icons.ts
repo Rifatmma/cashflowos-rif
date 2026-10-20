@@ -21,34 +21,43 @@ type Seg = [number, number][]
 
 /** Each icon as polylines in a 100×100 box, plus any circles. */
 const SHAPES: Record<IconName, { lines: Seg[]; dots?: [number, number, number][] }> = {
-  // A hoarding on two legs.
+  // A roadside hoarding: a WIDE panel on two splayed legs.
+  //
+  // The first attempt was a near-square panel on a single centred stem,
+  // which is a computer monitor. An outdoor billboard reads as billboard
+  // because it is much wider than it is tall and stands on two legs.
   billboard: {
     lines: [
-      [[12, 16], [88, 16], [88, 60], [12, 60], [12, 16]],
-      [[34, 60], [30, 92]],
-      [[66, 60], [70, 92]],
-      [[24, 92], [76, 92]],
-      [[26, 30], [60, 30]],
-      [[26, 44], [48, 44]],
+      [[6, 20], [94, 20], [94, 56], [6, 56], [6, 20]],
+      [[30, 56], [22, 94]],
+      [[70, 56], [78, 94]],
+      [[16, 76], [84, 76]],
+      [[18, 32], [66, 32]],
+      [[18, 44], [48, 44]],
     ],
   },
-  // A bus shelter panel, seen head on.
+  // A train, seen head on: rounded roof, windscreen, headlights, track.
+  //
+  // Was a laptop-shaped box. "Transit" in out-of-home means trains, metros
+  // and buses, and an icon labelled TRANSIT has to be one of those.
   transit: {
     lines: [
-      [[18, 14], [82, 14], [82, 74], [18, 74], [18, 14]],
-      [[18, 86], [82, 86]],
-      [[30, 74], [30, 86]],
-      [[70, 74], [70, 86]],
-      [[30, 28], [70, 28]],
-      [[30, 42], [58, 42]],
+      [[22, 82], [22, 30], [30, 14], [70, 14], [78, 30], [78, 82], [22, 82]],
+      [[30, 30], [70, 30], [70, 52], [30, 52], [30, 30]],
+      [[22, 64], [78, 64]],
+      [[32, 88], [32, 94]],
+      [[68, 88], [68, 94]],
+      [[10, 94], [90, 94]],
     ],
+    dots: [[34, 73, 4], [66, 73, 4]],
   },
-  // A shopfront with an awning.
+  // A shopping bag. Unambiguous at any size, which a storefront is not —
+  // the previous one was read as a house, because that is what a gable
+  // over a box looks like.
   mall: {
     lines: [
-      [[10, 38], [50, 14], [90, 38]],
-      [[20, 38], [20, 88], [80, 88], [80, 38]],
-      [[40, 88], [40, 58], [60, 58], [60, 88]],
+      [[18, 34], [82, 34], [88, 92], [12, 92], [18, 34]],
+      [[36, 44], [36, 24], [64, 24], [64, 44]],
     ],
   },
   target: {
