@@ -59,7 +59,46 @@ export async function encodeFrames(
   paint: (ctx: CanvasRenderingContext2D, at: number, frame: number) => void,
   opts: EncodeOpts = {},
 ): Promise<Blob> {
-  const { w, h } = SIZE[format]
+  return encodeAV(SIZE[format], seconds, paint, undefined, opts)
+}
+
+/** Stereo PCM to put under the picture. */
+export type AudioTrack = { left: Float32Array; right: Float32Array; sampleRate: number }
+
+/**
+ * Which audio codec this browser can put in an MP4, if any.
+ *
+ * AAC first: it is what Instagram, LinkedIn and every phone expect. Opus in
+ * MP4 plays in browsers and most players but not everywhere, so it is the
+ * fallback, and the caller is told which one it got.
+ */
+export async function audioCodec(sampleRate: number): Promise<'aac' | 'opus' | null> {
+  const AE = typeof window !== 'undefined' ? (window as any).AudioEncoder : undefined
+  if (typeof AE !== 'function') return null
+  for (const [codec, id] of [['aac', 'mp4a.40.2'], ['opus', 'opus']] as const) {
+    try {
+      const r = await AE.isConfigSupported({ codec: id, sampleRate, numberOfChannels: 2, bitrate: 192_000 })
+      if (r?.supported) return codec
+    } catch { /* try the next */ }
+  }
+  return null
+}
+
+/**
+ * Encode frames, and optionally a soundtrack, to MP4 at any size.
+ *
+ * The audio is encoded first, in one pass: it is short and fast, and doing
+ * it up front means an unsupported codec fails before a minute of frames has
+ * been drawn rather than after.
+ */
+export async function encodeAV(
+  size: { w: number; h: number },
+  seconds: number,
+  paint: (ctx: CanvasRenderingContext2D, at: number, frame: number) => void,
+  audio: AudioTrack | undefined,
+  opts: EncodeOpts = {},
+): Promise<Blob> {
+  const { w, h } = size
   const fps = opts.fps ?? 30
   const total = Math.max(1, Math.round(seconds * fps))
 
@@ -69,11 +108,43 @@ export async function encodeFrames(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Could not get a drawing context.')
 
+  const acodec = audio ? await audioCodec(audio.sampleRate) : null
+  if (audio && !acodec) throw new Error('This browser cannot encode audio into an MP4. Use Chrome or Edge.')
+
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
     video: { codec: 'avc', width: w, height: h },
+    ...(audio && acodec ? { audio: { codec: acodec, numberOfChannels: 2, sampleRate: audio.sampleRate } } : {}),
     fastStart: 'in-memory',        // the moov atom first, so it streams
+    // AAC encoders start with priming samples stamped before zero.
+    firstTimestampBehavior: 'offset',
   })
+
+  if (audio && acodec) {
+    let afail: Error | null = null
+    const aenc = new (window as any).AudioEncoder({
+      output: (chunk: any, meta: any) => muxer.addAudioChunk(chunk, meta),
+      error: (e: any) => { afail = e instanceof Error ? e : new Error(String(e)) },
+    })
+    aenc.configure({ codec: acodec === 'aac' ? 'mp4a.40.2' : 'opus', sampleRate: audio.sampleRate, numberOfChannels: 2, bitrate: 192_000 })
+    const block = 4096, n = audio.left.length
+    for (let i = 0; i < n; i += block) {
+      const len = Math.min(block, n - i)
+      // Planar: all of the left channel, then all of the right.
+      const data = new Float32Array(len * 2)
+      data.set(audio.left.subarray(i, i + len), 0)
+      data.set(audio.right.subarray(i, i + len), len)
+      const ad = new (window as any).AudioData({
+        format: 'f32-planar', sampleRate: audio.sampleRate, numberOfFrames: len, numberOfChannels: 2,
+        timestamp: Math.round(i / audio.sampleRate * 1_000_000), data,
+      })
+      aenc.encode(ad)
+      ad.close()
+    }
+    await aenc.flush()
+    try { aenc.close() } catch { /* closed */ }
+    if (afail) throw afail
+  }
 
   let failure: Error | null = null
   const encoder = new VideoEncoder({

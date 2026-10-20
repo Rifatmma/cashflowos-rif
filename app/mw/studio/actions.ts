@@ -4,6 +4,9 @@ import { research, composeChecked, suggestScript, type Research } from '@/lib/mw
 import { searchPhotos, type Photo } from '@/lib/mw-photos'
 import { researchArticle } from '@/lib/mw-article'
 import type { Deck, Format, Segment } from '@/lib/mw-studio-design'
+import { writeBrandFilm } from '@/lib/mw-brandfilm-write'
+import { speakAll, type SpokenLine } from '@/lib/mw-brandfilm-voice'
+import type { Audience, Plan, SubLang } from '@/lib/mw-brandfilm'
 
 // Server actions for the Studio tab. Three steps, each returning on its own,
 // because the whole point of the screen is that you see the facts before a
@@ -61,4 +64,30 @@ export async function researchArticleUrl(url: string): Promise<ArticleResult> {
   if ('error' in r) return { ok: false, error: r.error }
   const photos = await searchPhotos(r.topic).catch(() => [] as Photo[])
   return { ok: true, research: r, photos }
+}
+
+// ------------------------------------------------------------ brand video
+
+export type BrandPlanResult = { ok: true; plan: Plan; notes: string[] } | { ok: false; error: string }
+
+/** Ava's script and the scene under each line, written from the article. */
+export async function writeBrandVideo(
+  r: Research, audience: Audience, lang: SubLang, seconds: number,
+): Promise<BrandPlanResult> {
+  const out = await writeBrandFilm(r, audience, lang, seconds)
+  if ('error' in out) return { ok: false, error: out.error }
+  return { ok: true, plan: out.plan, notes: out.notes }
+}
+
+export type VoiceResult = { ok: true; lines: SpokenLine[] } | { ok: false; error: string }
+
+/** Ava reads every line; each comes back as mp3 with its word timings. */
+export async function speakBrandVideo(lines: string[]): Promise<VoiceResult> {
+  const clean = lines.map(l => String(l ?? '').trim().slice(0, 240)).filter(Boolean).slice(0, 10)
+  if (!clean.length) return { ok: false, error: 'There is nothing for Ava to say.' }
+  try {
+    return { ok: true, lines: await speakAll(clean) }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e).slice(0, 220) }
+  }
 }

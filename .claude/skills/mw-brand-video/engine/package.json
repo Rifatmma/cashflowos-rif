@@ -1,0 +1,9 @@
+{
+  "name": "mw-brand-video-engine",
+  "private": true,
+  "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.0.0",
+    "@fontsource/poppins": "^5.0.0",
+    "playwright": "^1.48.0"
+  }
+}

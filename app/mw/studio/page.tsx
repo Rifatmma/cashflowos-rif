@@ -11,6 +11,9 @@ import { Studio } from './_studio-ui'
 // "pulled from Ads, GA4 and Semrush" line every other tab carries.
 
 export const dynamic = 'force-dynamic'
+// Ava reads a whole script in one server action — eight lines, three at a
+// time — which can outlast the default function limit.
+export const maxDuration = 60
 
 export default async function MwStudio() {
   const guest = await currentGuest()
@@ -28,7 +31,7 @@ export default async function MwStudio() {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
       <link
         rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&display=swap"
       />
 
       <MwHero

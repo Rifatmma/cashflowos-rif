@@ -14,6 +14,7 @@ import {
   recordSlidesVideo, recordFilm, encodeSlidesVideo, encodeFilm,
   canEncode, pickMime, filmSeconds, type Clip,
 } from '@/lib/mw-studio-video'
+import { BrandFilm } from './_brandfilm-ui'
 
 // The Studio screen.
 //
@@ -208,6 +209,8 @@ function blankDeck(format: Format, template: string): Deck {
 
 export function Studio() {
   const [format, setFormat] = useState<Format | null>(null)
+  /** The third thing it makes: an Ava-voiced motion video, its own flow. */
+  const [brand, setBrand] = useState(false)
   const family: FormatFamily = format ? familyOf(format) : 'carousel'
   const [mode, setMode] = useState<Mode | null>(null)
 
@@ -250,6 +253,7 @@ export function Studio() {
   const photoFor = (i: number) => slidePhoto[i] ?? photo
 
   const pickFormat = (f: Format) => {
+    setBrand(false)
     setFormat(f)
     setTemplate(DEFAULT_TEMPLATE[familyOf(f)].id)
     setDeck(null); setClips([]); setBeats([]); setError('')
@@ -419,22 +423,31 @@ export function Studio() {
       {/* 1 ───────────────────────────────────────── what are you making */}
       <section>
         <h3>What are you making?</h3>
-        <div className="mw-studio-choice">
+        <div className="mw-studio-choice mw-bf-3">
           <button type="button" onClick={() => pickFormat('single')}
-            aria-current={format === 'single' ? 'true' : undefined}>
+            aria-current={format === 'single' && !brand ? 'true' : undefined}>
             <b>A single image</b>
             <small>1080 × 1080. One design. Good for LinkedIn and a quick in-feed post.</small>
           </button>
           <button type="button" onClick={() => pickFormat('carousel')}
-            aria-current={format === 'carousel' ? 'true' : undefined}>
+            aria-current={format === 'carousel' && !brand ? 'true' : undefined}>
             <b>A carousel</b>
             <small>1080 × 1350, up to 8 slides. Room to lay out an argument.</small>
           </button>
+          <button type="button" onClick={() => { setBrand(true); setFormat(null); setMode(null); setDeck(null) }}
+            aria-current={brand ? 'true' : undefined}>
+            <b>A brand video with Ava</b>
+            <small>From one of our articles: Ava narrates, the brand zigzags and illustrations land on her words. 9:16, 16:9, 1:1 or 4:5.</small>
+          </button>
         </div>
         <p className="lede" style={{ marginTop: 10 }}>
-          Either can also become a video at the end. There is one video, not a third format.
+          {brand
+            ? 'A narrated motion video with music, built from a movingwalls.com article.'
+            : 'An image or carousel can also become a simple video at the end.'}
         </p>
       </section>
+
+      {brand && <BrandFilm />}
 
       {/* 2 ──────────────────────────────────── where the words come from */}
       {format && (
