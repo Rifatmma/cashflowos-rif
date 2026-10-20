@@ -82,7 +82,7 @@ export type Recipe = { accent: Accent; cover: string; burst: string; arts: strin
 export type Plan = {
   title: string
   accent?: Accent
-  cover?: 'zigzag' | 'bigword' | 'mark'
+  cover?: 'zigzag' | 'chevrons' | 'mark'
   burst?: 'flip' | 'stack'
   lines: string[]
   /** Optional subtitles: per line, one or two chunks in the target language. */
@@ -271,7 +271,7 @@ export function pickRecipe(plan: Plan, recent: Recipe[]): { plan: Plan; recipe: 
     return pick[Math.floor(r() * pick.length)]
   }
   const accent = freshest<Accent>(['sun', 'crimson', 'emerald'], rc => rc.accent)
-  const cover = freshest(['zigzag', 'bigword', 'mark'], rc => rc.cover) as Plan['cover']
+  const cover = freshest(['zigzag', 'chevrons', 'mark'], rc => rc.cover) as Plan['cover']
   const burst = freshest(['flip', 'stack'], rc => rc.burst) as Plan['burst']
   const layouts: Layout[] = ['stack', 'flip', 'center']
   let last: Layout | '' = ''

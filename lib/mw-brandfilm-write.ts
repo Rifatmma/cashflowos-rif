@@ -120,10 +120,9 @@ ${recent.length ? `These were used in the last few videos — avoid them unless 
 
 PHOTO SUGGESTIONS: on 2 to 4 panel scenes where a single physical object or person makes the
 point (a megaphone for reach, a passport for travel, a shopping bag for retail, a commuter for
-transit), add "photo":{"query":"megaphone isolated on white background","word":"REACH"}.
+transit), add "photo":{"query":"megaphone isolated on white background"}.
 The query must ask for an object or person shot on a plain white or green-screen background.
-"word" is one big word shown behind the cut-out. Keep "art" on those scenes too — it is used
-when the video is made without photos.
+Keep "art" on those scenes too — it is used when the video is made without photos.
 ${lang === 'zh' ? `
 "supers": Simplified Chinese subtitles, one entry per line; split a long line into two chunks at a
 natural pause (≤ 22 characters each). Translate meaning, not words; use the terms Moving Walls uses

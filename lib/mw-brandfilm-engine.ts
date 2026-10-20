@@ -118,9 +118,12 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     if (tex) {
       const i = DARK[kind] ? TEX.dark : TEX.light;
       if (i && i.complete && i.naturalWidth) {
-        const s = Math.max(W, H) * 1.15 / i.naturalWidth;
+        // Scaled to overfill the frame on BOTH axes with room to spare, and
+        // swaying in place rather than drifting: a texture that drifted with
+        // time slid its own edge into view ~30s in (a dark wedge at the top).
+        const s = Math.hypot(W, H) * 1.25 / Math.min(i.naturalWidth, i.naturalHeight);
         x.save(); x.globalAlpha = DARK[kind] ? .55 : .5; x.globalCompositeOperation = DARK[kind] ? 'screen' : 'multiply';
-        x.translate(W / 2 + Math.sin(t * .15) * 30 * U, H / 2 + t * 6 * U); x.rotate(.08);
+        x.translate(W / 2 + Math.sin(t * .15) * 30 * U, H / 2 + Math.cos(t * .11) * 24 * U); x.rotate(.08);
         x.drawImage(i, -i.naturalWidth * s / 2, -i.naturalHeight * s / 2, i.naturalWidth * s, i.naturalHeight * s); x.restore();
       }
     }
@@ -680,25 +683,41 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   });
 
   // A cut-out photograph, the way the references use them: black & white,
-  // a flat brand shape behind it, a giant cropped word behind that.
-  // TEX.photos[key] is a transparent-background image (phase 2 supplies it).
+  // over a flat brand shape, with quiet GEOMETRY behind — never words.
+  // (A giant cropped word was tried first; it pulled the eye up from the
+  // real headline to decode letters that meant nothing.)
+  // TEX.photos[key] is a transparent-background image.
+  function photoDeco(kind, u, cx, cy, R, dark) {
+    const line = dark ? 'rgba(191,231,251,.32)' : 'rgba(43,60,146,.22)', soft = dark ? 'rgba(102,201,243,.18)' : 'rgba(43,60,146,.1)';
+    const p = oExpo(P(u, 0, .8));
+    x.save(); x.globalAlpha = p; x.translate(cx, cy);
+    if (kind === 'rings') {
+      x.strokeStyle = line; x.lineWidth = 2.5 * U;
+      for (let k = 1; k <= 3; k++) { x.save(); x.rotate(u * .12 * (k % 2 ? 1 : -1)); x.setLineDash(k === 2 ? [10 * U, 14 * U] : []); x.beginPath(); x.arc(0, 0, R * (1 + k * .22) * lerp(.85, 1, p), 0, 7); x.stroke(); x.restore(); }
+    } else if (kind === 'chevrons') {
+      const k = R * 1.5 / SH.chevrons.h;
+      x.save(); x.translate(-R * 1.9 + (u * 18 * U) % (R * .3), -R * .75); x.scale(k, k);
+      x.strokeStyle = line; x.lineWidth = 2.5 * U / k; SH.chevrons.p.forEach(pp => x.stroke(pp)); x.restore();
+    } else if (kind === 'dots') {
+      x.fillStyle = soft;
+      for (let gx = -4; gx <= 4; gx++) for (let gy = -3; gy <= 3; gy++) {
+        const q = oBack(P(u, .1 + (Math.abs(gx) + Math.abs(gy)) * .04, .4 + (Math.abs(gx) + Math.abs(gy)) * .04), 2);
+        if (q > 0) { x.beginPath(); x.arc(gx * R * .32, gy * R * .32, 6 * U * q, 0, 7); x.fill(); }
+      }
+    } else {
+      const w = R * 3.2, k = w / SH.wave_outline.w;
+      x.save(); x.translate(-w / 2 - u * 10 * U, -SH.wave_outline.h * k / 2); x.scale(k, k);
+      x.strokeStyle = line; x.lineWidth = 2.5 * U / k; SH.wave_outline.p.forEach(pp => x.stroke(pp)); x.restore();
+    }
+    x.restore();
+  }
   ART.photo = function (u, r, dark, ev) {
     const img = TEX.photos && TEX.photos[ev.key];
     if (!img || !img.naturalWidth) return;
     const ar = img.naturalWidth / img.naturalHeight;
     x.save();
-    if (ev.word) {
-      // The giant word behind the subject: readable, slightly wider than the
-      // art box so its ends bleed, drifting slowly — never a texture.
-      const word = ev.word.toUpperCase(), wp = oExpo(P(u, 0, .7));
-      let s = r.h * .34; x.font = `800 ${s}px Poppins`; const ww = x.measureText(word).width;
-      s = Math.min(s * (r.w * 1.08) / ww, r.h * .42); x.font = `800 ${s}px Poppins`;
-      const wx = r.x + r.w / 2 + (1 - wp) * 160 * U - u * 14 * U, wy = r.y + r.h * .5 + s * .36;
-      x.save(); x.textAlign = 'center'; x.globalAlpha = wp;
-      x.fillStyle = dark ? 'rgba(102,201,243,.16)' : 'rgba(43,60,146,.08)'; x.fillText(word, wx, wy);
-      x.lineWidth = 2.5 * U; x.strokeStyle = dark ? 'rgba(191,231,251,.55)' : 'rgba(43,60,146,.35)'; x.strokeText(word, wx, wy);
-      x.restore();
-    }
+    const deco = ev.deco || { circle: 'rings', bar: 'chevrons', zig: 'dots', blue: 'zigline' }[ev.shape || 'circle'] || 'rings';
+    photoDeco(deco, u, r.x + r.w / 2, r.y + r.h * .52, Math.min(r.w, r.h) * .38, dark);
     const sp = oBack(P(u, .05, .5), 1.6), cx = r.x + r.w / 2, cy = r.y + r.h * .52, R = Math.min(r.w, r.h) * .38;
     x.save(); x.translate(cx, cy); x.scale(sp, sp);
     if (ev.shape === 'bar') { x.fillStyle = accGrad(-R, R); x.fillRect(-R * .55, -R * 1.3, R * 1.1, R * 2.6); }
@@ -767,16 +786,19 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     cover(sc, T) {
       const v = sc.variant || SPEC.cover || 'zigzag';
       background('cover', T, v === 'mark');
-      if (v === 'bigword') {
-        const word = (sc.big || (sc.text.find(t => t.st === 'h' || t.st === 'hx') || {}).s || 'MOVING WALLS').split(/\s+/)[0].toUpperCase();
-        const p = oExpo(P(T, sc.a, sc.a + .9));
-        let s = H * (LAND ? .5 : .3); x.font = `800 ${s}px Poppins`; const ww = x.measureText(word).width; s *= (W * 1.25) / ww;
-        x.font = `800 ${s}px Poppins`; x.textAlign = 'left';
-        const y0 = SA.y + SA.h * (LAND ? .42 : .38), drift = (1 - p) * W * .5 + (T - sc.a) * 25 * U;
-        x.lineWidth = 3 * U; x.strokeStyle = 'rgba(191,231,251,.55)'; x.strokeText(word, -W * .12 - drift, y0);
-        x.save(); x.beginPath(); x.rect(0, 0, W * P(T, sc.a + .2, sc.a + 1.1), H); x.clip();
-        x.fillStyle = 'rgba(102,201,243,.22)'; x.fillText(word, -W * .12 - drift, y0); x.restore();
-        x.strokeStyle = 'rgba(191,231,251,.25)'; x.strokeText(word, -W * .4 + drift * .6, y0 + s * .95);
+      if (v === 'chevrons' || v === 'bigword') {
+        // Huge outline arrows sweeping in — the guidebook's direction mark at
+        // poster scale. ('bigword', a giant cropped headline word, was
+        // retired: decorative letters pulled the eye from the real headline.)
+        const p = oExpo(P(T, sc.a, sc.a + .9)), k = Math.min(H * (LAND ? .62 : .3), W * .62) / SH.chevrons.h, cw = SH.chevrons.w * k;
+        for (let row = 0; row < 2; row++) {
+          x.save();
+          x.translate(lerp(-cw, W * .05, p) + row * cw * .35 + (T - sc.a) * 18 * U, H * (LAND ? .05 : .08) + row * SH.chevrons.h * k * .55);
+          x.scale(k, k);
+          x.lineWidth = (row ? 2 : 3) * U / k; x.strokeStyle = row ? 'rgba(191,231,251,.22)' : 'rgba(191,231,251,.5)';
+          SH.chevrons.p.forEach((pp, i) => { if (!row && i === 2) { x.fillStyle = `rgba(102,201,243,${.2 * p})`; x.fill(pp) } x.stroke(pp) });
+          x.restore();
+        }
         shape('wave_solid', SA.x, SA.y, 150 * U, C.sun1, { alpha: P(T, sc.a + .1, sc.a + .4) });
       } else if (v === 'mark') {
         const big = Math.max(W, H) * 1.1, p = oExpo(P(T, sc.a, sc.a + 1));

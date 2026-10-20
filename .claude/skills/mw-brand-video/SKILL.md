@@ -49,9 +49,9 @@ Copy the closer example's `spec.js` into the project and rewrite it for this scr
 ### 5b. Photos (only if the user chose *Infographic + photos*)
 For 2–4 panel scenes where one physical object or person makes the point, get a cut-out:
 ```bash
-python3 <skill-dir>/scripts/photos.py ./videos/<slug> "megaphone isolated on white background" REACH
+python3 <skill-dir>/scripts/photos.py ./videos/<slug> "megaphone isolated on white background"
 ```
-It prints `{"key","path","credit"}`. Add `photos: { <key>: '<path>' }` to the SPEC and `photo: { key, word: 'REACH' }` to the scene, and keep its `art` as the fallback. It reuses the team's shared cut-out library first. Otherwise it gets Pexels photos that Claude has checked show the subject, and keys out white or green backdrops for free.
+It prints `{"key","path","credit"}`. Add `photos: { <key>: '<path>' }` to the SPEC and `photo: { key }` to the scene, and keep its `art` as the fallback. It reuses the team's shared cut-out library first. Otherwise it gets Pexels photos that Claude has checked show the subject, and keys out white or green backdrops for free.
 - On `{"error"}`, keep the illustration for that scene, and say which ones need the Studio's AI cut-out (busy backgrounds).
 - Needs `MW_STUDIO_TOKEN` in the environment (same value as on Vercel). If it's missing, tell the user and continue infographic-only.
 - List photo credits for the caption when you hand over ("Photos by … on Pexels").

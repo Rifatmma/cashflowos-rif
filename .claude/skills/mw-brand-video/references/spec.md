@@ -10,7 +10,7 @@ A project is a folder: `lines.json` (the VO script) → `vo.json`/`vo.js` + `l<i
   const end = l => +(START[l] + VO[l].dur).toFixed(3);
   const SPEC = {
     title, dur, bpm: 120,
-    accent: 'crimson', cover: 'bigword', burst: 'stack',      // this video's look (see Variety)
+    accent: 'crimson', cover: 'chevrons', burst: 'stack',      // this video's look (see Variety)
     vo: START.map((t, i) => ({ file: `l${i}.wav`, t })),
     supers: [...], photos: { megaphone: 'cutouts/megaphone.png' },   // both optional
     scenes: [...],
@@ -42,7 +42,7 @@ Every text line is measured and shrunk to fit its column, and each text block to
 
 Before choosing the look, **read `~/.mw-brand-video/history.json`** (render.js appends every finished video). Then choose, avoiding the most recent:
 - `accent`: `sun` (Sunburst), `crimson` or `emerald`. These are the guidebook's three accents; use one per video.
-- `cover`: `zigzag` (guidebook cover pattern), `bigword` (giant cropped outline word) or `mark` (huge MW mark outline).
+- `cover`: `zigzag` (guidebook cover pattern), `chevrons` (huge outline arrows sweeping in) or `mark` (huge MW mark outline).
 - `burst`: `flip` (one big word per beat, ground flips) or `stack` (words build into a list).
 - Per panel `layout`: `stack` (text above art), `flip` (art above text) or `center` (centred text, art below). In 16:9, `flip` puts the art on the left. Don't use the same layout twice in a row.
 - Per scene `tr` (transition in): `zig`, `chev`, `iris`, `slide` or `bars`. No repeats back to back.
@@ -60,7 +60,7 @@ Before choosing the look, **read `~/.mw-brand-video/history.json`** (render.js a
 | `layout` | panel layout (see Variety) |
 | `variant` | overrides `SPEC.cover` / `SPEC.burst` for this scene |
 | `art`, `ev`, `artAt` | illustration plus its parameters; times in `ev` are seconds after `artAt` (default `a`) |
-| `photo` | `{ key, word?, shape? }`: use cut-out `SPEC.photos[key]` instead of the art. `shape` is `circle` (default), `bar`, `zig` or `blue`. |
+| `photo` | `{ key, shape?, deco? }`: use cut-out `SPEC.photos[key]` instead of the art. `shape` is `circle` (default), `bar`, `zig` or `blue`. `deco` (the geometry behind it) is `rings`, `chevrons`, `dots` or `zigline`. Never text behind a photo: it pulls the eye away from the headline. |
 | `text` | text items (below) |
 | `words` | burst only: `[{ t, s, bg?, st?, color? }]` |
 
@@ -112,7 +112,7 @@ Then run `node scripts/brandfilm-sync.mjs` in the app repo so /mw/studio gets it
 
 ## Cut-out photos
 
-`SPEC.photos = { key: 'path/in/project.png' }`, each a transparent PNG with the background removed. Get them with `scripts/photos.py` (shared library, then Pexels plus a relevance check, keyed locally). In the Studio the same library is used, with an in-browser AI cut-out for busy backgrounds. A panel with `photo: { key, word }` draws it black-and-white, over a flat accent shape, with `word` as a giant cropped outline behind. Keep `art` on those scenes too, so the infographic-only version still works.
+`SPEC.photos = { key: 'path/in/project.png' }`, each a transparent PNG with the background removed. Get them with `scripts/photos.py` (shared library, then Pexels plus a relevance check, keyed locally). In the Studio the same library is used, with an in-browser AI cut-out for busy backgrounds. A panel with `photo: { key }` draws it black-and-white over a flat accent shape, with quiet brand geometry behind it. Keep `art` on those scenes too, so the infographic-only version still works.
 
 ## Subtitles
 
