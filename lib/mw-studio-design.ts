@@ -499,18 +499,78 @@ function paintSurface(
   return full
 }
 
+// The logo's own box, bottom right. Everything else in the footer has to
+// keep out of it.
+const LOGO_W = 118
+const LOGO_GAP = 24
+const SOURCE_SIZE = 22
+const SOURCE_LEAD = 27
+const SOURCE_MAX_LINES = 3
+
+/** How much room the source line actually has before it reaches the mark. */
+export function sourceWidth(w: number): number {
+  return w - PAD - LOGO_W - LOGO_GAP - PAD
+}
+
+/**
+ * The source line, broken to fit beside the logo.
+ *
+ * It used to be one fillText at the full frame width, so a long attribution
+ * — and a real one like "invidis, reporting the WOO Global pDooH
+ * Expenditure Study (Sept 2026)" is long — ran straight through the
+ * wordmark. Now it wraps into the gap left of the mark and grows UPWARD, so
+ * the last line keeps the baseline it always had and the block rises into
+ * empty space rather than off the bottom of the frame.
+ *
+ * Exported so it can be tested without a canvas: the invariant is that no
+ * line is ever wider than the room available.
+ */
+export function sourceLines(
+  ctx: CanvasRenderingContext2D, source: string, w: number,
+): string[] {
+  const maxW = sourceWidth(w)
+  let ls = wrap(ctx, source, maxW)
+
+  if (ls.length > SOURCE_MAX_LINES) {
+    ls = ls.slice(0, SOURCE_MAX_LINES)
+    ls[SOURCE_MAX_LINES - 1] += ' …'
+  }
+  // A single unbroken token — a URL, usually — is kept whole by wrap() and
+  // would still overhang, so every line is trimmed to the room it has.
+  return ls.map(l => (ctx.measureText(l).width <= maxW ? l : clip(ctx, l, maxW)))
+}
+
+function clip(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  let t = text
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1)
+  return t.replace(/[\s,;:.\-]+$/, '') + '…'
+}
+
 /** The attribution strip every slide carries. */
 function footer(
   ctx: CanvasRenderingContext2D, w: number, h: number, source: string | undefined, onDark: boolean,
 ) {
-  if (source) {
-    ctx.font = `400 22px ${FONT}`
-    ctx.fillStyle = onDark ? INK.faintOnDark : INK.faint
-    ctx.textAlign = 'left'
-    ctx.textBaseline = 'alphabetic'
-    ctx.fillText(source, PAD, h - 92)
-  }
-  mark(ctx, w - PAD - 118, h - 118, 118, onDark)
+  mark(ctx, w - PAD - LOGO_W, h - 118, LOGO_W, onDark)
+  if (!source) return
+
+  ctx.font = `400 ${SOURCE_SIZE}px ${FONT}`
+  ctx.fillStyle = onDark ? INK.faintOnDark : INK.faint
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+
+  const ls = sourceLines(ctx, source, w)
+  // Bottom-up: the final line sits where the single line always sat.
+  ls.forEach((l, i) => ctx.fillText(l, PAD, h - 92 - (ls.length - 1 - i) * SOURCE_LEAD))
+}
+
+/** How tall the source block is, so the copy above it can keep clear. */
+function sourceHeight(ctx: CanvasRenderingContext2D, source: string | undefined, w: number): number {
+  if (!source) return 0
+  ctx.save()
+  ctx.font = `400 ${SOURCE_SIZE}px ${FONT}`
+  const n = sourceLines(ctx, source, w).length
+  ctx.restore()
+  return (n - 1) * SOURCE_LEAD
 }
 
 // --------------------------------------------------------------- composition
@@ -648,7 +708,10 @@ export function drawSlide(
   // frame-bottom squeezed the text area to nothing and the first render
   // overflowed the panel and ran through the logo.
   const card = surface.kind === 'card'
-  const floor = Math.min(area.bottom, (card ? h - 48 : h) - (card ? 162 : 170))
+  // A two- or three-line source grows upward, so the copy above it has to
+  // give way by the same amount or the fix would simply move the collision.
+  const extra = sourceHeight(ctx, s.source, w)
+  const floor = Math.min(area.bottom, (card ? h - 48 : h) - (card ? 162 : 170) - extra)
   const top0 = Math.max(area.top, h * (surface.band ? surface.band + 0.09 : 0.07))
   const room = floor - top0
 
