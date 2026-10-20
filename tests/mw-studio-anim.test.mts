@@ -25,6 +25,13 @@ import {
   drawSlide, TIMING, TEMPLATES, CAROUSEL_TEMPLATES, SINGLE_TEMPLATES, templateById,
   type Slide, type Template,
 } from '../lib/mw-studio-design'
+import { usePath2D } from '../lib/mw-brand'
+
+// The brand motifs are Path2D artwork now, so the stub needs a Path2D to
+// build them from. It records nothing: what matters here is WHEN a shape is
+// drawn and under what transform, not its geometry.
+class StubPath { constructor(public d: string) {} }
+usePath2D(StubPath as any)
 
 let bad = 0
 const ok = (m: string) => console.log(`ok   ${m}`)
@@ -53,6 +60,12 @@ function spy() {
     save() { stack.push({ alpha, dy }) },
     restore() { const p = stack.pop(); if (p) { alpha = p.alpha; dy = p.dy } },
     translate(_x: number, y: number) { dy += y },
+    // The real artwork is scaled into place, and a stub that lacks these
+    // throws rather than failing an assertion — which reads as a broken
+    // test instead of a broken invariant.
+    scale() {}, rotate() {}, setTransform() {}, transform() {},
+    arc: () => {}, arcTo: () => {}, rect: () => {}, clip: () => {},
+    setLineDash: () => {}, measureTextWidth: () => 0,
     measureText: (t: string) => ({ width: t.length * 11 }),
     fillText: (t: string) => note('text', t),
     clearRect: () => {}, fillRect: () => note('rect'),
@@ -156,12 +169,28 @@ for (const [name, s] of [['stat', stat], ['cover', cover]] as const) {
 // asserted here so that if someone later decides the opposite, they have to
 // change a test that says why.
 {
+  // Measured as a DIFF against the still, not by looking for a non-zero
+  // offset. Now that the real artwork is Path2D, the wave band translates
+  // each of its units into place, so a raw dy means "positioned", not
+  // "animated" — the still carries the same offsets. Only a call that
+  // DIFFERS from the still is actually moving.
+  const still = draw(stat)
   const frame = draw(stat, 0.25)
-  const chevron = frame.filter(c => c.op === 'fill')
-  const kicker = frame.find(c => c.op === 'text' && c.text === 'T')
-  is(chevron.length === 3, 'the chevron is three shapes')
-  is(!!kicker && chevron.every(c => c.alpha === kicker.alpha && c.dy === kicker.dy),
-    'the chevron travels with its kicker, exactly in step — the one non-text thing that moves')
+  const kicker = frame.find(c => c.op === 'text' && c.text === 'T')!
+  // Identified by the property that DEFINES it: it is in the kicker's
+  // block, so it carries the kicker's alpha and offset exactly. Counting
+  // "calls that differ from the still" over-counts, because once a later
+  // block has not arrived the positional comparison slips by one.
+  // Matched on ALPHA alone. The artwork translates itself into position, so
+  // its dy is the block's offset plus its own placement — alpha is the part
+  // that says which block a call belongs to.
+  const withKicker = frame.filter(c => c.op === 'fill' && c.alpha === kicker.alpha)
+  is(withKicker.length === 3,
+    `the chevron is three shapes, moving exactly with its kicker (found ${withKicker.length})`)
+  is(kicker.alpha > 0 && kicker.alpha < 1,
+    'and it is caught mid-entrance, so this is a real measurement')
+  is(still.filter(c => c.op === 'fill').length > 3,
+    'and the wave and monogram are drawn too, identically in both')
 }
 
 // ── the photograph never moves ─────────────────────────────────────────────

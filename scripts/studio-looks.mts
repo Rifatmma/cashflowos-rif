@@ -1,8 +1,11 @@
 // A contact sheet of the five templates.
 //   npx -y tsx --conditions=react-server scripts/studio-looks.mts
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
-import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas'
+import { createCanvas, loadImage, GlobalFonts, Path2D as NodePath2D } from '@napi-rs/canvas'
 import { drawSlide, CAROUSEL_TEMPLATES, SINGLE_TEMPLATES, SIZE, type Slide, type Format } from '../lib/mw-studio-design'
+import { usePath2D } from '../lib/mw-brand'
+
+usePath2D(NodePath2D as any)
 
 const fontFile = 'C:/Users/MOVING WELLS/mw-social/Poppins-Bold.ttf'
 for (const [f, name] of [['Poppins-Bold.ttf','Poppins'],['Poppins-SemiBold.ttf','Poppins'],['Poppins-Regular.ttf','Poppins'],['Poppins-Medium.ttf','Poppins']] as const) {

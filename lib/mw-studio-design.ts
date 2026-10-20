@@ -2,6 +2,10 @@ import {
   type Surface, type Template, type SlideKind, type FormatFamily,
   DEFAULT_TEMPLATE, wantsPhoto,
 } from './mw-studio-templates'
+import {
+  drawMark as brandMark, drawChevron as brandChevron, drawWaveBand, drawDots,
+  markHeight as brandMarkHeight, chevronHeight as brandChevronHeight,
+} from './mw-brand'
 
 // 👉 The Moving Walls post design, as code.
 //
@@ -243,48 +247,41 @@ function trackedWidth(ctx: CanvasRenderingContext2D, text: string, space: number
   return w
 }
 
-/** The yellow triple chevron that precedes every heading in the guide. */
+/**
+ * The triple chevron, as drawn in the guide.
+ *
+ * This used to be three hand-made triangles. The real artwork is an arrow
+ * followed by two chevrons with quite different proportions — close enough
+ * to fool me from a screenshot, and not close enough to survive being
+ * opened in Illustrator. It is now the actual vector.
+ */
 function chevrons(ctx: CanvasRenderingContext2D, x: number, y: number, h = 22) {
-  const w = h * 0.68
-  const cols = [INK.sun1, '#FFC83D', INK.sun2]
-  for (let i = 0; i < 3; i++) {
-    ctx.fillStyle = cols[i]
-    ctx.beginPath()
-    ctx.moveTo(x, y)
-    ctx.lineTo(x + w, y + h / 2)
-    ctx.lineTo(x, y + h)
-    ctx.closePath()
-    ctx.fill()
-    x += w + 8
-  }
+  const width = (h / brandChevronHeight(100)) * 100
+  ctx.save()
+  brandChevron(ctx, x, y, width, grad(ctx, x, y, x + width, y, INK.sun1, INK.sun2))
+  ctx.restore()
 }
 
 /**
- * The MW zigzag, used as a divider.
+ * The MW wave band, used as a divider.
  *
- * The first attempt ran this across the full frame as a background texture
- * and it fought the headline badly. In the guide it separates things; here
- * it only ever sits at an edge, and never behind type.
+ * It was a plain stroked zigzag. The guide's band is a repeating MW glyph
+ * that ALTERNATES filled and outline units — that alternation is the
+ * pattern, and drawing a generic zigzag instead is the single reason the
+ * output never quite looked like the brand.
+ *
+ * The signature is kept so every call site reads the same: a horizontal
+ * line at `y`, which here becomes a band centred on it.
  */
 function zigzag(
   ctx: CanvasRenderingContext2D,
   y: number, w: number, colour: string, alpha: number, amp = 26, step = 46, width = 9,
 ) {
-  ctx.save()
-  ctx.globalAlpha = alpha
-  ctx.strokeStyle = colour
-  ctx.lineWidth = width
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.beginPath()
-  let up = true
-  ctx.moveTo(-step, y + amp)
-  for (let x = -step; x <= w + step; x += step) {
-    ctx.lineTo(x, up ? y - amp : y + amp)
-    up = !up
-  }
-  ctx.stroke()
-  ctx.restore()
+  const height = amp * 2.1
+  const second = colour === INK.ice ? INK.sky : INK.ice
+  drawWaveBand(ctx, 0, y - height / 2, w, {
+    height, colours: [colour, second], alpha,
+  })
 }
 
 /**
@@ -296,21 +293,11 @@ function zigzag(
  * Bold, neither of which a redrawn path can promise.
  */
 function mark(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, onDark: boolean) {
-  const h = w * 0.34
-  ctx.save()
-  ctx.lineWidth = w * 0.073
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.strokeStyle = onDark ? '#FFFFFF' : grad(ctx, x, y, x + w, y + h, INK.sky, INK.navy)
-  ctx.beginPath()
-  const n = 7
-  for (let i = 0; i <= n; i++) {
-    const px = x + (w / n) * i
-    const py = i % 2 === 0 ? y + h : y
-    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)
-  }
-  ctx.stroke()
-  ctx.restore()
+  const h = brandMarkHeight(w)
+  // The real monogram. On a dark field the guide shows it solid white; on a
+  // light one it carries its own light-to-dark gradient.
+  brandMark(ctx, x, y, w,
+    onDark ? '#FFFFFF' : grad(ctx, x, y, x + w, y, '#55BFEA', '#1C212F'))
 
   ctx.save()
   ctx.font = `500 17px ${FONT}`
@@ -472,6 +459,13 @@ function paintSurface(
   if (s.kind === 'field') {
     ctx.fillStyle = grad(ctx, 0, 0, w, h, INK.blue, INK.navy)
     ctx.fillRect(0, 0, w, h)
+    // The guide's Connection Dots, held well back. "Interconnected nodes
+    // representing collaboration and partnership" — it is a brand element,
+    // not a texture, so it is present but never competes with the words.
+    ctx.save()
+    ctx.globalAlpha = 0.17
+    drawDots(ctx, 0, 0, w, h, { colours: [INK.sky, INK.ice], density: 12, link: 0.15 })
+    ctx.restore()
     if (s.wave !== null) {
       zigzag(ctx, h * s.wave, w, INK.sky, 0.32)
       zigzag(ctx, h * s.wave, w, INK.ice, 0.22, 26, 46, 4)
@@ -482,6 +476,10 @@ function paintSurface(
   if (s.kind === 'light') {
     ctx.fillStyle = grad(ctx, 0, 0, w, h, INK.ice, INK.sky)
     ctx.fillRect(0, 0, w, h)
+    ctx.save()
+    ctx.globalAlpha = 0.22
+    drawDots(ctx, 0, 0, w, h, { colours: ['#2554A2', '#FFFFFF'], density: 12, link: 0.15 })
+    ctx.restore()
     if (s.wave !== null) zigzag(ctx, h * s.wave, w, '#FFFFFF', 0.5)
     return full
   }
