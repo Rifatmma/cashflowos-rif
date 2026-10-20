@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { currentGuest } from '@/lib/guest'
 import { MwHero, Section } from '../_ui'
 import { Studio } from './_studio-ui'
+import { cutoutsConfigured } from '@/lib/mw-cutouts'
 
 // 👉 Moving Walls → Studio. Type a topic, get a post.
 //
@@ -64,7 +65,7 @@ export default async function MwStudio() {
               blue gradient instead. Everything else works.
             </p>
           )}
-          <Studio />
+          <Studio photosReady={cutoutsConfigured()} />
         </Section>
       )}
 

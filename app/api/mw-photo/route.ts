@@ -17,13 +17,24 @@ const ALLOWED = new Set(['images.pexels.com'])
 
 export const runtime = 'edge'
 
+/**
+ * Our own cut-out library (Supabase storage, bucket mw-cutouts) — the brand
+ * video draws these on a canvas too. Exact host from SUPABASE_URL, and only
+ * the public path of that one bucket, so this is not a door into storage.
+ */
+function isOurCutout(u: URL): boolean {
+  let host = ''
+  try { host = new URL((process.env.SUPABASE_URL ?? '').trim()).hostname } catch { return false }
+  return !!host && u.hostname === host && u.pathname.startsWith('/storage/v1/object/public/mw-cutouts/') && !u.pathname.includes('..')
+}
+
 export async function GET(req: Request) {
   const raw = new URL(req.url).searchParams.get('u')
   if (!raw) return new NextResponse('missing u', { status: 400 })
 
   let target: URL
   try { target = new URL(raw) } catch { return new NextResponse('bad url', { status: 400 }) }
-  if (target.protocol !== 'https:' || !ALLOWED.has(target.hostname)) {
+  if (target.protocol !== 'https:' || !(ALLOWED.has(target.hostname) || isOurCutout(target))) {
     return new NextResponse('host not allowed', { status: 403 })
   }
 

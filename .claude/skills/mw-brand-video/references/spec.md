@@ -112,7 +112,7 @@ Then run `node scripts/brandfilm-sync.mjs` in the app repo so /mw/studio gets it
 
 ## Cut-out photos
 
-`SPEC.photos = { key: 'path/in/project.png' }`, each a transparent PNG with the background removed. A panel with `photo: { key, word }` draws it black-and-white, over a flat accent shape, with `word` as a giant cropped outline behind. Keep `art` on those scenes too, so the infographic-only version still works.
+`SPEC.photos = { key: 'path/in/project.png' }`, each a transparent PNG with the background removed. Get them with `scripts/photos.py` (shared library, then Pexels plus a relevance check, keyed locally). In the Studio the same library is used, with an in-browser AI cut-out for busy backgrounds. A panel with `photo: { key, word }` draws it black-and-white, over a flat accent shape, with `word` as a giant cropped outline behind. Keep `art` on those scenes too, so the infographic-only version still works.
 
 ## Subtitles
 

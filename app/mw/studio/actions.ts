@@ -7,6 +7,7 @@ import type { Deck, Format, Segment } from '@/lib/mw-studio-design'
 import { writeBrandFilm } from '@/lib/mw-brandfilm-write'
 import { speakAll, type SpokenLine } from '@/lib/mw-brandfilm-voice'
 import type { Audience, Plan, SubLang } from '@/lib/mw-brandfilm'
+import { candidates, cutoutsConfigured, libraryFind, librarySave, libraryUsed, type Candidate, type Cutout } from '@/lib/mw-cutouts'
 
 // Server actions for the Studio tab. Three steps, each returning on its own,
 // because the whole point of the screen is that you see the facts before a
@@ -90,4 +91,43 @@ export async function speakBrandVideo(lines: string[]): Promise<VoiceResult> {
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e).slice(0, 220) }
   }
+}
+
+// ------------------------------------------------------------- cut-outs
+
+export type ScenePhotoResult =
+  | { ok: true; cutout?: Cutout; candidates: Candidate[] }
+  | { ok: false; error: string }
+
+/** A cut-out for a scene: from the library if one exists, else checked Pexels candidates to cut. */
+export async function findScenePhoto(query: string, word?: string): Promise<ScenePhotoResult> {
+  const q = String(query ?? '').trim().slice(0, 100)
+  if (!q) return { ok: false, error: 'No photo was asked for.' }
+  if (!cutoutsConfigured()) return { ok: false, error: 'Photos need PEXELS_API_KEY, ANTHROPIC_API_KEY and Supabase on this deployment.' }
+  const lib = await libraryFind(q)
+  if (lib.length) return { ok: true, cutout: lib[0], candidates: [] }
+  const c = await candidates(q, word ? String(word).slice(0, 20) : undefined)
+  if ('error' in c) return { ok: false, error: c.error }
+  return { ok: true, candidates: c }
+}
+
+export type SaveCutoutResult = { ok: true; cutout: Cutout } | { ok: false; error: string }
+
+/** Keep a cut-out made in the browser, so the next video can reuse it. */
+export async function saveScenePhoto(meta: {
+  query: string; subject?: string; method: 'key' | 'model'; sourceId?: string
+  credit?: string; creditUrl?: string; width?: number; height?: number
+}, pngBase64: string): Promise<SaveCutoutResult> {
+  const png = Uint8Array.from(Buffer.from(String(pngBase64 ?? ''), 'base64'))
+  const out = await librarySave({
+    query: String(meta.query ?? '').slice(0, 100), subject: meta.subject, method: meta.method === 'model' ? 'model' : 'key',
+    sourceId: meta.sourceId ? String(meta.sourceId).replace(/[^\w-]/g, '').slice(0, 30) : undefined,
+    credit: meta.credit, creditUrl: meta.creditUrl, width: Number(meta.width) || undefined, height: Number(meta.height) || undefined,
+  }, png)
+  if ('error' in out) return { ok: false, error: out.error }
+  return { ok: true, cutout: out }
+}
+
+export async function usedScenePhoto(id: number): Promise<void> {
+  if (Number.isInteger(id)) await libraryUsed(id)
 }

@@ -688,11 +688,16 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     const ar = img.naturalWidth / img.naturalHeight;
     x.save();
     if (ev.word) {
-      const wp = oExpo(P(u, 0, .7)); x.save(); x.globalAlpha = .9 * wp;
-      let s = r.h * .42; x.font = `800 ${s}px Poppins`; const ww = x.measureText(ev.word.toUpperCase()).width;
-      s *= (r.w * 1.35) / ww; x.font = `800 ${s}px Poppins`;
-      x.textAlign = 'center'; x.lineWidth = 3 * U; x.strokeStyle = dark ? 'rgba(191,231,251,.5)' : 'rgba(43,60,146,.25)';
-      x.strokeText(ev.word.toUpperCase(), r.x + r.w / 2 + (1 - wp) * 200 * U - u * 20 * U, r.y + r.h * .72); x.restore();
+      // The giant word behind the subject: readable, slightly wider than the
+      // art box so its ends bleed, drifting slowly — never a texture.
+      const word = ev.word.toUpperCase(), wp = oExpo(P(u, 0, .7));
+      let s = r.h * .34; x.font = `800 ${s}px Poppins`; const ww = x.measureText(word).width;
+      s = Math.min(s * (r.w * 1.08) / ww, r.h * .42); x.font = `800 ${s}px Poppins`;
+      const wx = r.x + r.w / 2 + (1 - wp) * 160 * U - u * 14 * U, wy = r.y + r.h * .5 + s * .36;
+      x.save(); x.textAlign = 'center'; x.globalAlpha = wp;
+      x.fillStyle = dark ? 'rgba(102,201,243,.16)' : 'rgba(43,60,146,.08)'; x.fillText(word, wx, wy);
+      x.lineWidth = 2.5 * U; x.strokeStyle = dark ? 'rgba(191,231,251,.55)' : 'rgba(43,60,146,.35)'; x.strokeText(word, wx, wy);
+      x.restore();
     }
     const sp = oBack(P(u, .05, .5), 1.6), cx = r.x + r.w / 2, cy = r.y + r.h * .52, R = Math.min(r.w, r.h) * .38;
     x.save(); x.translate(cx, cy); x.scale(sp, sp);

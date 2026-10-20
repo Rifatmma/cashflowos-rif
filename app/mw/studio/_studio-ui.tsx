@@ -207,7 +207,7 @@ function blankDeck(format: Format, template: string): Deck {
 
 // -------------------------------------------------------------------- screen
 
-export function Studio() {
+export function Studio({ photosReady = false }: { photosReady?: boolean }) {
   const [format, setFormat] = useState<Format | null>(null)
   /** The third thing it makes: an Ava-voiced motion video, its own flow. */
   const [brand, setBrand] = useState(false)
@@ -447,7 +447,7 @@ export function Studio() {
         </p>
       </section>
 
-      {brand && <BrandFilm />}
+      {brand && <BrandFilm photosReady={photosReady} />}
 
       {/* 2 ──────────────────────────────────── where the words come from */}
       {format && (
