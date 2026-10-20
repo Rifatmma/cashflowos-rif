@@ -423,8 +423,8 @@ function frame(t: number) {
       const land = at(l, 0.1, 0.7, ease.outExpo)
       const mw = W * (WIDE ? 0.22 : 0.42) * lerp(1.15, 1, land)
       layer(ctx, land, 0, 0, () =>
-        drawMark(ctx, (W - mw) / 2, mid - markHeight(mw) - v(0.04), mw, '#FFFFFF'))
-      caption(card.show ?? '', card.start + 0.55, t, dark, u(L.statement), mid + v(0.05))
+        drawMark(ctx, (W - mw) / 2, mid - markHeight(mw) - v(0.015), mw, '#FFFFFF'))
+      caption(card.show ?? '', card.start + 0.55, t, dark, u(L.statement), mid + v(0.07))
     } else if (card.phrases) {
       phrases(card.phrases, card.start + 0.12, card.speech, t, dark, u(L.statement), mid)
     } else {
@@ -438,8 +438,21 @@ function frame(t: number) {
     const icons = card.icons ?? []
     const size = u(L.iconSize)
     const span = W * (WIDE ? 0.62 : 0.80)
-    // Vertical, so measured against height.
-    const y = mid - v(L.iconSize * 0.22)
+
+    // CENTRE THE BLOCK, NOT ITS FIRST ELEMENT.
+    //
+    // The icons were centred on `mid` and the labels and caption left to
+    // hang below them, so the thing a viewer actually sees — icons, labels
+    // and a line of type — had its centre well under the middle of the
+    // frame. In landscape the caption ended up nearly off the bottom.
+    // Measure the whole stack, then place it so ITS centre is the frame's.
+    const capSize = u(WIDE ? 0.034 : 0.056)
+    const capLines = (card.show ?? '').split('\n').length
+    const labelDrop = size * 0.82                       // label baseline below icon centre
+    const capDrop = labelDrop + capSize * 1.1 + v(0.05) // caption centre below icon centre
+    const blockTop = -size / 2
+    const blockBottom = capDrop + (capLines * capSize * 1.12) / 2
+    const y = mid - (blockTop + blockBottom) / 2
     icons.forEach((ic, i) => {
       const cx = W / 2 + (i - (icons.length - 1) / 2) * (span / icons.length)
       const k = at(t, card.start + 0.18 + i * (card.speech * 0.2), 0.55, ease.outQuart)
@@ -461,12 +474,7 @@ function frame(t: number) {
       ctx.restore()
     })
     // Clear of the icon labels, which sit at roughly mid + 0.10W.
-    // Clear of the icon labels, which sit at y + size * 0.82. The caption
-    // is centred on its own y, so the gap has to cover half its height as
-    // well — v(0.075) left the two touching in landscape.
-    const capSize = u(WIDE ? 0.034 : 0.056)
-    caption(card.show ?? '', card.start + card.speech * 0.62, t, dark,
-      capSize, y + size * 0.82 + capSize * 1.1 + v(0.055))
+    caption(card.show ?? '', card.start + card.speech * 0.62, t, dark, capSize, y + capDrop)
   }
 
   else if (card.kind === 'define') {
@@ -488,23 +496,28 @@ function frame(t: number) {
   else if (card.kind === 'bignum') {
     const k = at(l, 0.12, Math.min(1.5, card.speech * 0.8), ease.linear)
     const size = u(L.bignum)
+    // The figure sits on its baseline and the caption hangs below it, so
+    // the pair is centred as a pair rather than the number alone.
+    const bigCap = u(WIDE ? 0.03 : 0.05)
+    const bigCapDrop = size * 0.42 + bigCap * 1.3
+    const numY = mid - bigCapDrop / 2 + size * 0.3
     layer(ctx, at(l, 0.05, 0.3), 0, 0, () => {
       // A counter that stops dead looks switched off, so the figure keeps a
       // slow scale once it has landed.
       const alive = 1 + breathe(t, 0.26, 0.012)
       ctx.save()
-      ctx.translate(W / 2, mid - v(0.02))
+      ctx.translate(W / 2, numY)
       ctx.scale(alive, alive)
-      ctx.translate(-W / 2, -(mid - v(0.02)))
+      ctx.translate(-W / 2, -numY)
       ctx.font = `700 ${size}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark
         ? grad(W * 0.25, 0, W * 0.75, 0, ICE, SKY)
         : grad(W * 0.25, 0, W * 0.75, 0, BLUE, SKY)
-      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + (card.suffix ?? '')), W / 2, mid - v(0.02))
+      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + (card.suffix ?? '')), W / 2, numY)
       ctx.restore()
     })
-    caption(card.show ?? '', card.start + 0.45, t, dark, u(WIDE ? 0.03 : 0.05), mid + v(0.07))
+    caption(card.show ?? '', card.start + 0.45, t, dark, bigCap, numY + bigCapDrop)
   }
 
   else if (card.kind === 'dots') {
@@ -523,7 +536,16 @@ function frame(t: number) {
     const gapX = Math.min(gapY, (W - PAD * 2) / cols)
     const r = gapX * 0.26
     const x0 = W / 2 - (gapX * (cols - 1)) / 2
-    const y0 = v(L.gridTop)
+
+    // Grid, figure and caption are one stack, centred as one. It used to
+    // start at a fixed fraction of the height and let the rest fall where
+    // it fell, which put the block high in some shapes and low in others.
+    const numSize = u(L.bignum * 0.62)
+    const capSize2 = u(WIDE ? 0.028 : 0.046)
+    const numDrop = gapY * rows + v(0.09)
+    const capDrop2 = numDrop + numSize * 0.55 + v(0.045)
+    const stackH = numDrop + (capDrop2 - numDrop) + capSize2 * 1.12
+    const y0 = mid - stackH / 2
     for (let i = 0; i < total; i++) {
       const cx = x0 + (i % cols) * gapX
       const cy = y0 + Math.floor(i / cols) * gapY
@@ -544,10 +566,9 @@ function frame(t: number) {
       ctx.font = `700 ${u(L.bignum * 0.62)}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark ? '#FFFFFF' : NAVY
-      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + '%'), W / 2, y0 + gapY * rows + v(0.1))
+      ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + '%'), W / 2, y0 + numDrop)
     })
-    caption(card.show ?? '', card.start + 0.6, t, dark, u(WIDE ? 0.028 : 0.046),
-      y0 + gapY * rows + v(0.17))
+    caption(card.show ?? '', card.start + 0.6, t, dark, capSize2, y0 + capDrop2)
   }
 
   else if (card.kind === 'bars') {
@@ -555,7 +576,11 @@ function frame(t: number) {
     const k = at(l, 0.2, 1.1, ease.outQuart)
     const bw = u(L.barW)
     const maxH = H * L.barMax
-    const base = mid + v(0.1)
+    // Bars rise from `base`, labels and caption sit under it, so the stack
+    // runs from base - maxH to roughly base + caption. Centre that.
+    const barCap = u(WIDE ? 0.028 : 0.046)
+    const barCapDrop = v(0.105)
+    const base = mid + (maxH - barCapDrop - barCap * 1.12) / 2
     const pairs: [string, number][] = [['TODAY', 6], ['2027', card.value ?? 16]]
     pairs.forEach(([lab, val], i) => {
       const x = W / 2 + (i - 0.5) * bw * 2.1
@@ -575,7 +600,7 @@ function frame(t: number) {
         ctx.fillText(counter(val, k, n => Math.round(n) + '%'), x, base - hgt - v(0.022))
       }
     })
-    caption(card.show ?? '', card.start + 0.55, t, dark, u(WIDE ? 0.028 : 0.046), base + v(0.115))
+    caption(card.show ?? '', card.start + 0.55, t, dark, barCap, base + barCapDrop)
   }
 
   // a wave band at the foot of every card
