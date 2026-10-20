@@ -80,11 +80,11 @@ const LAYOUTS: Record<Fmt, {
   barMax: number       // fraction of HEIGHT
 }> = {
   vertical: { mid: 0.46, statement: 0.082, bignum: 0.26, iconSize: 0.225, iconLabel: 0.026,
-              dotCols: 10, dotRows: 10, gridTop: 0.20, barW: 0.2, barMax: 0.22 },
+              dotCols: 10, dotRows: 10, gridTop: 0.20, barW: 0.115, barMax: 0.26 },
   square:   { mid: 0.47, statement: 0.070, bignum: 0.22, iconSize: 0.185, iconLabel: 0.022,
-              dotCols: 12, dotRows: 8,  gridTop: 0.20, barW: 0.16, barMax: 0.30 },
+              dotCols: 12, dotRows: 8,  gridTop: 0.20, barW: 0.078, barMax: 0.32 },
   wide:     { mid: 0.50, statement: 0.048, bignum: 0.15, iconSize: 0.128, iconLabel: 0.016,
-              dotCols: 20, dotRows: 8,  gridTop: 0.20, barW: 0.075, barMax: 0.38 },
+              dotCols: 20, dotRows: 8,  gridTop: 0.20, barW: 0.045, barMax: 0.40 },
 }
 const L = LAYOUTS[FMT]
 const FPS = 30
@@ -220,9 +220,27 @@ writeFileSync(`${OUT}/mix.wav`, toWav(mixed.left, mixed.right))
 // ── painting ───────────────────────────────────────────────────────────────
 const canvas = createCanvas(W, H)
 const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D
+// THE CONTENT AREA, which is not the frame.
+//
+// Content was being centred on the middle of the FRAME, but the frame is
+// not empty: the running head sits at the top, and the source line, the
+// wave band and the progress rule occupy the bottom. Centring on the frame
+// therefore pushed every stack down into the source line — which is
+// exactly what happened to the bars card — while leaving dead space above.
+//
+// These bounds are derived from where that furniture actually is, so a
+// stack centred in them is centred in the space it may use.
 const u = (n: number) => Math.round(W * n)       // anything horizontal
 const v = (n: number) => Math.round(H * n)       // anything vertical
 const PAD = Math.round(Math.min(W, H) * 0.075)
+
+/** Everything the chrome occupies, so content can keep out of it. */
+const BAND_H = H * (WIDE ? 0.05 : 0.028)
+const NOTE_Y = H - PAD * 2.1                 // where a source line is drawn
+const SAFE_TOP = PAD * 1.9
+const SAFE_BOTTOM = NOTE_Y - Math.round(Math.min(W, H) * 0.045)
+const SAFE_MID = (SAFE_TOP + SAFE_BOTTOM) / 2
+const SAFE_H = SAFE_BOTTOM - SAFE_TOP
 
 const grad = (x0: number, y0: number, x1: number, y1: number, a: string, b: string) => {
   const g = ctx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, a); g.addColorStop(1, b); return g
@@ -362,7 +380,7 @@ function note(text: string | undefined, t0: number, t: number, dark: boolean) {
     ctx.font = `400 ${Math.round(Math.min(W, H) * 0.0165)}px Poppins`
     ctx.textAlign = 'center'
     ctx.fillStyle = dark ? 'rgba(191,231,251,.75)' : 'rgba(27,30,43,.55)'
-    ctx.fillText(text, W / 2, H - PAD * 2.1)
+    ctx.fillText(text, W / 2, NOTE_Y)
   })
 }
 
@@ -416,7 +434,7 @@ function frame(t: number) {
     ctx.fillRect(0, H * wipe, W, H)
   }
 
-  const mid = H * L.mid
+  const mid = SAFE_MID
 
   if (card.kind === 'statement' || card.kind === 'logo') {
     if (card.kind === 'logo') {
@@ -448,8 +466,12 @@ function frame(t: number) {
     // Measure the whole stack, then place it so ITS centre is the frame's.
     const capSize = u(WIDE ? 0.034 : 0.056)
     const capLines = (card.show ?? '').split('\n').length
+    const iconLabelFont = u(L.iconLabel)
     const labelDrop = size * 0.82                       // label baseline below icon centre
-    const capDrop = labelDrop + capSize * 1.1 + v(0.05) // caption centre below icon centre
+    // Same correction as the bars: the clearance has to allow for the
+    // label's descender AND the caption's own cap-height, not a fraction.
+    const capDrop = labelDrop + iconLabelFont * 0.26
+      + Math.round(Math.min(W, H) * 0.055) + capSize * 0.74
     const blockTop = -size / 2
     const blockBottom = capDrop + (capLines * capSize * 1.12) / 2
     const y = mid - (blockTop + blockBottom) / 2
@@ -542,10 +564,15 @@ function frame(t: number) {
     // it fell, which put the block high in some shapes and low in others.
     const numSize = u(L.bignum * 0.62)
     const capSize2 = u(WIDE ? 0.028 : 0.046)
-    const numDrop = gapY * rows + v(0.09)
-    const capDrop2 = numDrop + numSize * 0.55 + v(0.045)
-    const stackH = numDrop + (capDrop2 - numDrop) + capSize2 * 1.12
-    const y0 = mid - stackH / 2
+    const DOT_GAP = Math.round(Math.min(W, H) * 0.05)
+    // The grid's last row sits at gapY*(rows-1); its dots have a radius, so
+    // the figure clears the circle, not the row's centre.
+    const numDrop = gapY * (rows - 1) + r + DOT_GAP + numSize * 0.74
+    const capDrop2 = numDrop + numSize * 0.28 + DOT_GAP + capSize2 * 0.74
+    const capLines2 = (card.show ?? '').split('\n').length
+    const stackTop2 = -r
+    const stackBottom2 = capDrop2 + ((capLines2 - 1) * capSize2 * 1.14) / 2 + capSize2 * 0.26
+    const y0 = mid - (stackTop2 + stackBottom2) / 2
     for (let i = 0; i < total; i++) {
       const cx = x0 + (i % cols) * gapX
       const cy = y0 + Math.floor(i / cols) * gapY
@@ -575,12 +602,35 @@ function frame(t: number) {
     // 2027 against today, as two bars.
     const k = at(l, 0.2, 1.1, ease.outQuart)
     const bw = u(L.barW)
-    const maxH = H * L.barMax
-    // Bars rise from `base`, labels and caption sit under it, so the stack
-    // runs from base - maxH to roughly base + caption. Centre that.
+    // The tallest bar plus its value label plus the axis labels plus the
+    // caption all have to fit the safe area, so the bar is sized from what
+    // is left rather than from a fraction of the frame.
+    const maxH = Math.min(H * L.barMax, SAFE_H * 0.52)
+
+    // SPACING COMPUTED FROM THE TYPE, NOT FROM A FRACTION OF THE FRAME.
+    //
+    // v(0.105) looked like enough room under the bars and was not: the
+    // caption's cap-height started seven pixels ABOVE the axis labels'
+    // descender, so the two sat on each other. A fraction of the height
+    // cannot know how tall the label is, so the gap is now derived from
+    // the fonts actually being drawn.
     const barCap = u(WIDE ? 0.028 : 0.046)
-    const barCapDrop = v(0.105)
-    const base = mid + (maxH - barCapDrop - barCap * 1.12) / 2
+    const labelFont = u(0.022)
+    const valueFont = u(WIDE ? 0.045 : 0.07)
+    const labelDrop = labelFont * 1.5                    // baseline under the base line
+    const labelBottom = labelDrop + labelFont * 0.26     // its descender
+    const GAP = Math.round(Math.min(W, H) * 0.055)       // real air, both shapes
+    const capLines = (card.show ?? '').split('\n').length
+    const capLh = barCap * 1.14
+    // caption() centres on the y it is given, so work back from where the
+    // FIRST line's cap-height has to start.
+    const barCapDrop = labelBottom + GAP + barCap * 0.74 + ((capLines - 1) * capLh) / 2
+
+    // The stack runs from the top of the value label above the tallest bar
+    // down to the bottom of the last caption line.
+    const stackTop = -(maxH + valueFont * 0.5 + v(0.022))
+    const stackBottom = barCapDrop + ((capLines - 1) * capLh) / 2 + barCap * 0.26
+    const base = mid - (stackTop + stackBottom) / 2
     const pairs: [string, number][] = [['TODAY', 6], ['2027', card.value ?? 16]]
     pairs.forEach(([lab, val], i) => {
       const x = W / 2 + (i - 0.5) * bw * 2.1
@@ -589,13 +639,13 @@ function frame(t: number) {
         ? grad(0, base - hgt, 0, base, SKY, BLUE)
         : (dark ? 'rgba(191,231,251,.35)' : 'rgba(37,84,162,.25)')
       ctx.fillRect(x - bw / 2, base - hgt, bw, hgt)
-      ctx.font = `600 ${u(0.022)}px Poppins`
+      ctx.font = `600 ${labelFont}px Poppins`
       ctx.textAlign = 'center'
       // Was .6 alpha navy on near-white: drawn, but not visible.
       ctx.fillStyle = dark ? 'rgba(191,231,251,.9)' : 'rgba(27,30,43,.85)'
-      ctx.fillText(lab, x, base + v(0.038))
+      ctx.fillText(lab, x, base + labelDrop)
       if (i === 1) {
-        ctx.font = `700 ${u(WIDE ? 0.045 : 0.07)}px Poppins`
+        ctx.font = `700 ${valueFont}px Poppins`
         ctx.fillStyle = dark ? '#FFFFFF' : NAVY
         ctx.fillText(counter(val, k, n => Math.round(n) + '%'), x, base - hgt - v(0.022))
       }
@@ -604,7 +654,7 @@ function frame(t: number) {
   }
 
   // a wave band at the foot of every card
-  const bandH = H * (WIDE ? 0.05 : 0.028)
+  const bandH = BAND_H
   drawWaveBand(ctx, 0, H - bandH * 2.6, W, {
     height: bandH, colours: dark ? [SKY, ICE] : [BLUE, '#9EC3E8'],
     reveal: at(l, 0.1, 0.8), alpha: dark ? 0.75 : 0.5, offset: t * 46,
