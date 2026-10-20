@@ -127,7 +127,17 @@ export function drawIcon(
   x: number, y: number, size: number,
   colour: string,
   k = 1,
-  weight = 7,
+  /**
+   * Stroke weight IN ICON UNITS, not pixels.
+   *
+   * It is applied inside the 100x100 space and then scaled with the icon,
+   * so it stays proportional at any size — which is the point. Passing a
+   * pixel value here, or anything derived from the frame width, makes the
+   * stroke heavier on wider frames for no reason: at 1920 a width-derived
+   * weight came out at 13 icon units and drew a 28px stroke, against 14px
+   * for the same icon in a square frame.
+   */
+  weight = 6.5,
 ) {
   const sh = SHAPES[name]
   if (!sh || k <= 0) return
@@ -190,7 +200,7 @@ export function drawIconLabel(
   name: IconName, label: string,
   cx: number, cy: number, size: number,
   colour: string, textColour: string,
-  k: number, font: string, weight = 7,
+  k: number, font: string, weight = 6.5,
 ) {
   if (k <= 0) return
   ctx.save()

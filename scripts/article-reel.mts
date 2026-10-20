@@ -83,7 +83,7 @@ const LAYOUTS: Record<Fmt, {
               dotCols: 10, dotRows: 10, gridTop: 0.20, barW: 0.2, barMax: 0.22 },
   square:   { mid: 0.47, statement: 0.070, bignum: 0.22, iconSize: 0.185, iconLabel: 0.022,
               dotCols: 12, dotRows: 8,  gridTop: 0.20, barW: 0.16, barMax: 0.30 },
-  wide:     { mid: 0.50, statement: 0.048, bignum: 0.15, iconSize: 0.115, iconLabel: 0.0155,
+  wide:     { mid: 0.50, statement: 0.048, bignum: 0.15, iconSize: 0.128, iconLabel: 0.016,
               dotCols: 20, dotRows: 8,  gridTop: 0.20, barW: 0.075, barMax: 0.38 },
 }
 const L = LAYOUTS[FMT]
@@ -453,7 +453,10 @@ function frame(t: number) {
         dark ? SKY : BLUE, dark ? 'rgba(191,231,251,.9)' : 'rgba(27,30,43,.6)',
         // 1.6% of width is 17px at 1080 — drawn, but not readable at a
         // glance, which is the only speed an icon label is read at.
-        k, `700 ${u(L.iconLabel)}px Poppins`, u(0.0068),
+                // A CONSTANT, because the weight is in the icon's own units and is
+        // scaled with it. Deriving it from frame width made the landscape
+        // icons almost twice as heavy as the square ones.
+        k, `700 ${u(L.iconLabel)}px Poppins`, 6.5,
       )
       ctx.restore()
     })
