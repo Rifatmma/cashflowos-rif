@@ -2,6 +2,7 @@
 
 import { research, composeChecked, suggestScript, type Research } from '@/lib/mw-studio'
 import { searchPhotos, type Photo } from '@/lib/mw-photos'
+import { researchArticle } from '@/lib/mw-article'
 import type { Deck, Format, Segment } from '@/lib/mw-studio-design'
 
 // Server actions for the Studio tab. Three steps, each returning on its own,
@@ -41,4 +42,23 @@ export async function suggestFilmScript(r: Research, beats: number): Promise<Scr
   const out = await suggestScript(r, beats)
   if ('error' in out) return { ok: false, error: out.error }
   return { ok: true, segments: out.segments, faults: out.faults }
+}
+
+export type ArticleResult =
+  | { ok: true; research: Research; photos: Photo[] }
+  | { ok: false; error: string }
+
+/**
+ * Build a post from something already published on movingwalls.com.
+ *
+ * Returns the same shape as topic research, so every step after this one —
+ * the fact list, the look, the composer, the film script — is unchanged.
+ * What differs is only where the facts came from, and that shows on the
+ * slides: the source line names the article.
+ */
+export async function researchArticleUrl(url: string): Promise<ArticleResult> {
+  const r = await researchArticle(url)
+  if ('error' in r) return { ok: false, error: r.error }
+  const photos = await searchPhotos(r.topic).catch(() => [] as Photo[])
+  return { ok: true, research: r, photos }
 }

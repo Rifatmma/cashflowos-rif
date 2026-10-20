@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
-import { researchTopic, composeDeck, suggestFilmScript } from './actions'
+import { researchTopic, composeDeck, suggestFilmScript, researchArticleUrl } from './actions'
 import type { Research } from '@/lib/mw-studio'
 import type { Photo } from '@/lib/mw-photos'
 import {
@@ -33,7 +33,7 @@ import {
 //
 // Each step appears only once the one above it has an answer.
 
-type Mode = 'research' | 'own'
+type Mode = 'research' | 'article' | 'own'
 
 // ---------------------------------------------------------------- the canvas
 
@@ -212,6 +212,7 @@ export function Studio() {
   const [mode, setMode] = useState<Mode | null>(null)
 
   const [topic, setTopic] = useState('')
+  const [url, setUrl] = useState('')
   const [res, setRes] = useState<Research | null>(null)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [photo, setPhoto] = useState<string | undefined>()
@@ -258,6 +259,17 @@ export function Studio() {
     setError(''); setDeck(null); setRes(null); setProblems([]); setBeats([])
     start(async () => {
       const r = await researchTopic(topic)
+      if (!r.ok) return setError(r.error)
+      setRes(r.research)
+      setPhotos(r.photos)
+      setPhoto(p => p ?? r.photos[0]?.src)
+    })
+  }
+
+  const doArticle = () => {
+    setError(''); setDeck(null); setRes(null); setProblems([]); setBeats([])
+    start(async () => {
+      const r = await researchArticleUrl(url)
       if (!r.ok) return setError(r.error)
       setRes(r.research)
       setPhotos(r.photos)
@@ -437,6 +449,14 @@ export function Studio() {
                 then writes the post from those and nothing else.
               </small>
             </button>
+            <button type="button" onClick={() => { setMode('article'); setDeck(null); setRes(null) }}
+              aria-current={mode === 'article' ? 'true' : undefined}>
+              <b>Use one of our articles</b>
+              <small>
+                Paste a movingwalls.com link. It reads the post and builds from what the article
+                actually says — nothing added from anywhere else.
+              </small>
+            </button>
             <button type="button" onClick={() => { setMode('own'); setRes(null); startOwn(format) }}
               aria-current={mode === 'own' ? 'true' : undefined}>
               <b>Write it myself</b>
@@ -469,12 +489,28 @@ export function Studio() {
         </div>
       )}
 
+      {/* 2a (article) ──────────────────────────────── paste the link */}
+      {format && mode === 'article' && (
+        <div className="mw-studio-ask">
+          <label htmlFor="arturl">Which article?</label>
+          <input
+            id="arturl" type="url" value={url}
+            placeholder="https://www.movingwalls.com/blog/programmatic-dooh-explained"
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && url.trim()) { e.preventDefault(); doArticle() } }}
+          />
+          <button type="button" onClick={doArticle} disabled={busy || !url.trim()}>
+            {busy && !res ? 'Reading…' : 'Read this article'}
+          </button>
+        </div>
+      )}
+
       {error && <p className="mw-studio-error">{error}</p>}
 
       {/* 2b ───────────────────────── what is true, before any design */}
-      {mode === 'research' && res && (
+      {(mode === 'research' || mode === 'article') && res && (
         <section className="mw-studio-facts">
-          <h3>What I found</h3>
+          <h3>{mode === 'article' ? 'What the article says' : 'What I found'}</h3>
           {res.caveat && <p className="mw-studio-warn">{res.caveat}</p>}
           {res.angle && <p className="lede">{res.angle}</p>}
           <ol>
@@ -493,7 +529,9 @@ export function Studio() {
             </p>
           )}
           <p className="mw-studio-check">
-            Read these before you generate. Everything on the slides comes from this list.
+            {mode === 'article'
+              ? 'Everything on the slides comes from this article and nothing else — no figure is added from outside it.'
+              : 'Read these before you generate. Everything on the slides comes from this list.'}
           </p>
         </section>
       )}
@@ -527,7 +565,7 @@ export function Studio() {
       )}
 
       {/* 4 ──────────────────────────────────────────────── generate it */}
-      {format && mode === 'research' && res && (
+      {format && (mode === 'research' || mode === 'article') && res && (
         <section>
           <button type="button" className="mw-dl" onClick={doCompose} disabled={busy}>
             {busy ? 'Writing…' : `Write the ${format === 'carousel' ? 'carousel' : 'image'}`}
@@ -703,7 +741,7 @@ export function Studio() {
                 {/* Beats: a longer film whose words change on a design that
                     does not. Offered off the back of research, because the
                     first draft of the words comes from the facts. */}
-                {mode === 'research' && res && (
+                {(mode === 'research' || mode === 'article') && res && (
                   <div className="mw-studio-film">
                     <h5>
                       {deck.format === 'single'
