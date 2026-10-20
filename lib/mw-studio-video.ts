@@ -2,6 +2,7 @@ import {
   drawSlide, drawFilmSurface, drawSegmentText, SIZE, SLIDE_SECONDS, SEGMENT_SECONDS,
   type Deck, type Format, type Slide, type Segment, type Template,
 } from './mw-studio-design'
+import { encodeFrames, canEncode, type EncodeOpts } from './mw-studio-encode'
 
 // 👉 Turning the slides into video, in the browser, with nothing installed.
 //
@@ -476,3 +477,90 @@ export async function recordSlidesVideo(
   }
   return { blob, ext: chosen.ext, index: null, seconds: runSeconds }
 }
+
+
+// ───────────────────────────────────────────── frame-exact, not real time
+//
+// Everything above films the canvas with MediaRecorder, in real time. The
+// first clip the owner made was measured frame by frame and came out at an
+// effective 19.6fps with a 2.3-second freeze in the middle, because that is
+// what real-time capture does when the machine hiccups. These two take the
+// same draw calls and hand them to an encoder with explicit timestamps
+// instead, so the result is 30fps by construction and the tab does not have
+// to stay in front.
+//
+// The MediaRecorder path stays as the fallback for browsers without
+// WebCodecs, which today means Firefox.
+
+/** A carousel as one film, each slide dissolving into the next. */
+export async function encodeSlidesVideo(
+  deck: Deck, format: Format, template: Template,
+  photos: Map<number, CanvasImageSource>, opts: RecordOpts = {},
+): Promise<Clip> {
+  const { w, h } = SIZE[format]
+  const seconds = opts.seconds ?? SLIDE_SECONDS
+  const runSeconds = seconds * deck.slides.length
+
+  // Two scratch canvases so the outgoing and incoming slides can overlap —
+  // drawing a slide clears its canvas, so they cannot share one.
+  const mk = () => {
+    const c = document.createElement('canvas')
+    c.width = w; c.height = h
+    return { c, ctx: c.getContext('2d')! }
+  }
+  const A = mk(), B = mk()
+  const photoFor2 = (i: number) => {
+    const p = photos.get(i)
+    return p ? { photo: p } : {}
+  }
+
+  const blob = await encodeFrames(format, runSeconds, (ctx, at) => {
+    const i = Math.min(deck.slides.length - 1, Math.floor(at / seconds))
+    const local = at - i * seconds
+    drawSlide(A.ctx, deck.slides[i], format, photoFor2(i), { at: local, total: seconds }, template)
+    ctx.globalAlpha = 1
+    ctx.clearRect(0, 0, w, h)
+    ctx.drawImage(A.c, 0, 0)
+
+    const into = local - (seconds - CROSSFADE)
+    if (into > 0 && i + 1 < deck.slides.length) {
+      drawSlide(B.ctx, deck.slides[i + 1], format, photoFor2(i + 1), { at: into, total: seconds }, template)
+      ctx.globalAlpha = Math.min(1, into / CROSSFADE)
+      ctx.drawImage(B.c, 0, 0)
+      ctx.globalAlpha = 1
+    }
+  }, { onProgress: opts.onProgress, signal: opts.signal })
+
+  return { blob, ext: 'mp4', index: null, seconds: runSeconds }
+}
+
+/** One design, the words changing every few seconds. */
+export async function encodeFilm(
+  segments: Segment[], format: Format, template: Template,
+  photo: CanvasImageSource | undefined, source: string | undefined,
+  opts: RecordOpts = {},
+): Promise<Clip> {
+  if (!segments.length) throw new Error('There are no beats to record.')
+  const { w, h } = SIZE[format]
+  const seconds = opts.seconds ?? SEGMENT_SECONDS
+  const runSeconds = seconds * segments.length
+
+  // The background is painted ONCE and blitted. This is the literal form of
+  // "most of the element will still be static image": nothing but the type
+  // is ever redrawn.
+  const back = document.createElement('canvas')
+  back.width = w; back.height = h
+  const surface = drawFilmSurface(back.getContext('2d')!, format, template, photo ? { photo } : {}, source)
+
+  const blob = await encodeFrames(format, runSeconds, (ctx, at) => {
+    const i = Math.min(segments.length - 1, Math.floor(at / seconds))
+    ctx.globalAlpha = 1
+    ctx.drawImage(back, 0, 0)
+    drawSegmentText(ctx, segments[i], format, surface, { at: at - i * seconds, total: seconds })
+  }, { onProgress: opts.onProgress, signal: opts.signal })
+
+  return { blob, ext: 'mp4', index: null, seconds: runSeconds }
+}
+
+/** True when video can be produced without the tab staying in front. */
+export { canEncode }

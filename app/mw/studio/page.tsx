@@ -75,8 +75,16 @@ export default async function MwStudio() {
         </p>
         <p className="lede">
           It does not post anything. It produces PNGs at the sizes Instagram and LinkedIn want
-          (1080&nbsp;×&nbsp;1350 for a carousel, 1080&nbsp;×&nbsp;1080 for a single image) and you
-          post them yourself. Animation is not built yet — the static design comes first.
+          (1080&nbsp;×&nbsp;1350 for a carousel, 1080&nbsp;×&nbsp;1080 for a single image) and an
+          MP4 if you want one, at those sizes or 1080&nbsp;×&nbsp;1920 for Reels. You post them
+          yourself.
+        </p>
+        <p className="lede">
+          Video is encoded frame by frame rather than filmed off the screen, so it is 30 frames a
+          second by construction and you can work in another tab while it runs. The earlier
+          version recorded the canvas in real time and a measured clip came back at 19.6 frames a
+          second with a 2.3-second freeze in the middle — which is what screen capture does when
+          the machine hiccups, and why it is no longer used where the browser can encode instead.
         </p>
       </Section>
     </div>

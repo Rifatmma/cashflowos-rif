@@ -11,7 +11,8 @@ import {
   type Deck, type Format, type Slide, type Segment, type FormatFamily,
 } from '@/lib/mw-studio-design'
 import {
-  recordSlidesVideo, recordFilm, pickMime, filmSeconds, type Clip,
+  recordSlidesVideo, recordFilm, encodeSlidesVideo, encodeFilm,
+  canEncode, pickMime, filmSeconds, type Clip,
 } from '@/lib/mw-studio-video'
 
 // The Studio screen.
@@ -364,16 +365,25 @@ export function Studio() {
     const vFormat: Format = reel ? 'reel' : format
     const vTemplate = templateById(template, familyOf(vFormat))
     try {
-      const clip = deck.format === 'carousel' && beats.length === 0
-        ? await recordSlidesVideo(deck, vFormat, vTemplate, images.current,
-            { seconds, onProgress: setRecProgress, signal: abort.current.signal })
-        : await recordFilm(
-            beats.length
-              ? beats
-              : deck.slides.map(s => ({ headline: s.headline, sub: s.kicker, body: s.body })),
-            vFormat, vTemplate, images.current.get(0), deck.slides[0]?.source,
-            { onProgress: setRecProgress, signal: abort.current.signal },
-          )
+      const asSlides = deck.format === 'carousel' && beats.length === 0
+      const asBeats = beats.length
+        ? beats
+        : deck.slides.map(s => ({ headline: s.headline, sub: s.kicker, body: s.body }))
+      // The slider is "seconds per SLIDE" and belongs to the carousel path
+      // only. Passing it to a film overrode SEGMENT_SECONDS and silently
+      // produced a 4-second beat where the screen promised 5.
+      const o = { onProgress: setRecProgress, signal: abort.current.signal }
+      const slideOpts = { ...o, seconds }
+
+      // Frame-exact where the browser allows it. The real-time path stays
+      // for Firefox, and only that path needs the tab in front.
+      const clip = canEncode()
+        ? asSlides
+          ? await encodeSlidesVideo(deck, vFormat, vTemplate, images.current, slideOpts)
+          : await encodeFilm(asBeats, vFormat, vTemplate, images.current.get(0), deck.slides[0]?.source, o)
+        : asSlides
+          ? await recordSlidesVideo(deck, vFormat, vTemplate, images.current, slideOpts)
+          : await recordFilm(asBeats, vFormat, vTemplate, images.current.get(0), deck.slides[0]?.source, o)
       setClips([clip])
       if (clip.ext === 'webm') {
         setRecError(
@@ -657,10 +667,15 @@ export function Studio() {
               One video. {deck.format === 'carousel'
                 ? 'The slides dissolve one into the next, and inside each slide only the words move.'
                 : 'The design holds still and the words change.'}{' '}
-              The photograph, the wave, the logo and the source line never move.{' '}
-              <b>Keep this tab in front while it records</b> — browsers stop drawing in a
-              background tab and the clip would come out nearly empty.
+              The photograph, the wave, the logo and the source line never move.
             </p>
+            {!canEncode() && (
+              <p className="mw-studio-warn">
+                This browser cannot encode frame by frame, so the video is filmed in real time
+                instead. <b>Keep this tab in front while it records</b> — otherwise frames are
+                dropped and the clip stutters. Chrome or Safari encode properly.
+              </p>
+            )}
 
             {!pickMime() ? (
               <p className="mw-studio-warn">
