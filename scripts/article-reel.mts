@@ -25,6 +25,7 @@ import { render as renderAudio, toWav, type Voice } from '../lib/mw-score'
 import { narrate, type Line } from '../lib/mw-voice'
 import { buildNarration, decodePcm, mixUnder } from '../lib/mw-vo-mix'
 import { usePath2D, drawMark, drawWaveBand, drawDots, markHeight } from '../lib/mw-brand'
+import { drawIcon, drawIconLabel, type IconName } from '../lib/mw-icons'
 
 usePath2D(NodePath2D as any)
 for (const f of ['Poppins-Bold.ttf', 'Poppins-SemiBold.ttf', 'Poppins-Regular.ttf', 'Poppins-Medium.ttf']) {
@@ -52,27 +53,41 @@ const PAPER = '#F7FAFD'
 // caption is read in a glance and a sentence is not.
 
 type Card = Line & {
-  kind: 'statement' | 'bignum' | 'dots' | 'bars' | 'define' | 'logo'
+  kind: 'statement' | 'bignum' | 'dots' | 'bars' | 'define' | 'logo' | 'icons'
   dark?: boolean
   value?: number
   suffix?: string
   sub?: string
   note?: string
   chapter?: string
+  /**
+   * Successive lines that appear IN STEP WITH THE READ, spread across the
+   * time she is speaking. A single caption that lands once and then sits
+   * still for three seconds is a slide; this is the sentence arriving as
+   * it is said.
+   */
+  phrases?: string[]
+  /** Named things get drawn as things. */
+  icons?: { name: IconName; label: string }[]
 }
 
 const SCRIPT: Card[] = [
   { kind: 'statement', dark: true, chapter: '01 — THE SHIFT',
     say: 'Okay so, out of home advertising was the last big medium you could not really measure.',
-    show: 'The last medium\nyou couldn’t measure.' },
+    phrases: ['Out of home', 'was the last medium', 'you couldn’t measure.'] },
   { kind: 'statement', dark: false, chapter: '01 — THE SHIFT',
     say: 'That is over.', show: 'That’s over.', pause: 0.15 },
   { kind: 'define', dark: true, chapter: '02 — WHAT IT IS',
     say: 'This is programmatic digital out of home.',
     show: 'Programmatic DOOH', sub: 'pDOOH' },
-  { kind: 'statement', dark: false, chapter: '02 — WHAT IT IS',
+  { kind: 'icons', dark: false, chapter: '02 — WHAT IT IS',
     say: 'Billboards, transit screens, mall displays — bought automatically, in real time.',
-    show: 'Bought automatically.\nIn real time.' },
+    show: 'Bought automatically.\nIn real time.',
+    icons: [
+      { name: 'billboard', label: 'BILLBOARDS' },
+      { name: 'transit', label: 'TRANSIT' },
+      { name: 'mall', label: 'MALLS' },
+    ] },
   { kind: 'dots', dark: true, chapter: '03 — THE NUMBERS', value: 75,
     say: 'The I A B expects digital to reach seventy five percent of all out of home.',
     show: 'of all out-of-home\nwill be digital', note: 'IAB forecast' },
@@ -81,16 +96,23 @@ const SCRIPT: Card[] = [
     show: 'of outdoor spend,\nprogrammatic by 2027', note: 'Moving Walls · Programmatic DOOH Explained' },
   { kind: 'statement', dark: true, chapter: '04 — WHY',
     say: 'Here is why brands are moving.', show: 'Why brands\nare moving.', pause: 0.1 },
-  { kind: 'statement', dark: false, chapter: '04 — WHY',
+  { kind: 'icons', dark: false, chapter: '04 — WHY',
     say: 'You target by audience and context. Not just location.',
-    show: 'Audience.\nNot just location.' },
+    show: 'Audience and context.',
+    icons: [
+      { name: 'target', label: 'AUDIENCE' },
+      { name: 'pin', label: 'CONTEXT' },
+      { name: 'clock', label: 'MOMENT' },
+    ] },
   { kind: 'statement', dark: true, chapter: '04 — WHY',
-    say: 'You change the creative mid flight.', show: 'Change creative\nmid-flight.' },
+    say: 'You change the creative mid flight.',
+    phrases: ['Change the creative', 'mid-flight.'] },
   { kind: 'statement', dark: false, chapter: '04 — WHY',
     say: 'And you measure what actually happened.', show: 'Measure what\nactually happened.' },
   { kind: 'statement', dark: true, chapter: '05 — PROOF',
     say: 'Lancôme ran a Chinese New Year campaign across high footfall malls.',
-    show: 'Lancôme.\nChinese New Year.', note: 'Case study · Moving Walls' },
+    phrases: ['Lancôme.', 'Chinese New Year.', 'High-footfall malls.'],
+    note: 'Case study · Moving Walls' },
   { kind: 'bignum', dark: false, chapter: '05 — PROOF', value: 107, suffix: '%',
     say: 'Impressions came in a hundred and seven percent above estimate.',
     show: 'above estimated\nimpressions', note: 'Lancôme campaign · Moving Walls' },
@@ -102,7 +124,7 @@ const SCRIPT: Card[] = [
     show: 'were repeat visitors\nto target malls', note: 'Lancôme campaign · Moving Walls' },
   { kind: 'statement', dark: true, chapter: '06 — SO',
     say: 'That is not a billboard. That is a performance channel.',
-    show: 'Not a billboard.\nA performance channel.', pause: 0.3 },
+    phrases: ['Not a billboard.', 'A performance channel.'], pause: 0.3 },
   { kind: 'logo', dark: true, chapter: '06 — SO',
     say: 'Moving Walls. Plan it, prove it.', show: 'Plan it. Prove it.', pause: 0.9 },
 ]
@@ -238,6 +260,49 @@ function caption(text: string, t0: number, t: number, dark: boolean, want: numbe
   }
 }
 
+/**
+ * Successive phrases, timed to the read.
+ *
+ * Each phrase gets an equal share of the time she is speaking, holds while
+ * the next arrives beneath it, and the whole stack lifts away at the end.
+ * The earlier version put one caption on screen and left it there: about
+ * half a second of motion followed by three seconds of nothing, which is
+ * what made the film feel like slides.
+ */
+function phrases(
+  list: string[], t0: number, speech: number, t: number, dark: boolean, want: number, yCentre: number,
+) {
+  const each = speech / list.length
+  const size = fitSize(list.join('\n'), want, W - PAD * 2)
+  const lh = size * 1.18
+  const yTop = yCentre - ((list.length - 1) * lh) / 2
+
+  list.forEach((line, i) => {
+    const start = t0 + i * each * 0.86
+    const k = at(t, start, 0.34, ease.outQuart)
+    if (k <= 0) return
+    // Everything already on screen eases up a little as the next arrives,
+    // so the block keeps moving for the whole line rather than freezing.
+    const pushed = list.slice(i + 1).reduce(
+      (n, _, j) => n + at(t, t0 + (i + 1 + j) * each * 0.86, 0.34, ease.outQuart), 0)
+    const y = yTop + i * lh - pushed * lh * 0.16
+    ctx.font = `700 ${size}px Poppins`
+    ctx.textAlign = 'center'
+    layer(ctx, k, 0, lerp(size * 0.38, 0, k), () => {
+      ctx.font = `700 ${size}px Poppins`
+      // The line being spoken is brightest; earlier ones recede.
+      const live = t < start + each * 1.1
+      ctx.fillStyle = dark
+        ? (live ? '#FFFFFF' : 'rgba(255,255,255,.62)')
+        : (live ? NAVY : 'rgba(27,30,43,.5)')
+      ctx.fillText(line, W / 2, y)
+    })
+  })
+}
+
+/** A slow sine, for things that should never be completely still. */
+const breathe = (t: number, hz: number, amount: number) => Math.sin(t * hz * Math.PI * 2) * amount
+
 function note(text: string | undefined, t0: number, t: number, dark: boolean) {
   if (!text) return
   const k = at(t, t0 + 0.5, 0.5)
@@ -254,17 +319,42 @@ function frame(t: number) {
   const l = t - card.start
   const dark = card.dark ?? true
 
-  // ground
+  // GROUND, AND IT NEVER STOPS MOVING.
+  //
+  // The mesh drifts, the whole field creeps slowly across and scales a
+  // fraction, and the brightness breathes. None of it is noticeable on its
+  // own, which is the point: a frame with nothing moving in it reads as a
+  // slide even when the type has only just landed.
+  const driftX = breathe(t, 0.035, W * 0.012)
+  const driftY = breathe(t + 3, 0.028, H * 0.008)
+  const zoom = 1 + 0.016 + breathe(t, 0.021, 0.016)
+
+  ctx.save()
+  ctx.translate(W / 2, H / 2)
+  ctx.scale(zoom, zoom)
+  ctx.translate(-W / 2 + driftX, -H / 2 + driftY)
   if (dark) {
-    ctx.fillStyle = grad(0, 0, W, H, BLUE, NAVY); ctx.fillRect(0, 0, W, H)
-    ctx.globalAlpha = 0.2
-    drawDots(ctx, 0, 0, W, H, { colours: [SKY, ICE], density: WIDE ? 13 : 9, link: 0.16, time: t, seed: 2 })
-    ctx.globalAlpha = 1
+    ctx.fillStyle = grad(0, 0, W, H, BLUE, NAVY); ctx.fillRect(-W, -H, W * 3, H * 3)
+    ctx.globalAlpha = 0.2 + breathe(t, 0.07, 0.05)
+    drawDots(ctx, 0, 0, W, H, { colours: [SKY, ICE], density: WIDE ? 13 : 9, link: 0.16, time: t * 1.6, seed: 2 })
   } else {
-    ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H)
-    ctx.globalAlpha = 0.5
-    drawDots(ctx, 0, 0, W, H, { colours: ['#9EC3E8', '#2554A2'], density: WIDE ? 13 : 9, link: 0.16, time: t, seed: 3 })
-    ctx.globalAlpha = 1
+    ctx.fillStyle = PAPER; ctx.fillRect(-W, -H, W * 3, H * 3)
+    ctx.globalAlpha = 0.5 + breathe(t, 0.07, 0.08)
+    drawDots(ctx, 0, 0, W, H, { colours: ['#9EC3E8', '#2554A2'], density: WIDE ? 13 : 9, link: 0.16, time: t * 1.6, seed: 3 })
+  }
+  ctx.globalAlpha = 1
+  ctx.restore()
+
+  // A light sweep across the cut, so the change of card has direction.
+  const sweep = at(l, 0, 0.55, ease.outQuart)
+  if (sweep < 1) {
+    const sx = -W * 0.5 + sweep * W * 1.9
+    const g2 = ctx.createLinearGradient(sx - W * 0.35, 0, sx + W * 0.35, 0)
+    g2.addColorStop(0, 'rgba(255,255,255,0)')
+    g2.addColorStop(0.5, dark ? 'rgba(102,201,243,.22)' : 'rgba(37,84,162,.14)')
+    g2.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g2
+    ctx.fillRect(0, 0, W, H)
   }
 
   // a wipe on the cut, so cards change rather than crossfade
@@ -283,9 +373,40 @@ function frame(t: number) {
       layer(ctx, land, 0, 0, () =>
         drawMark(ctx, (W - mw) / 2, mid - markHeight(mw) - u(0.05), mw, '#FFFFFF'))
       caption(card.show ?? '', card.start + 0.55, t, dark, u(WIDE ? 0.05 : 0.082), mid + u(0.06))
+    } else if (card.phrases) {
+      phrases(card.phrases, card.start + 0.12, card.speech, t, dark, u(WIDE ? 0.055 : 0.082), mid)
     } else {
       caption(card.show ?? '', card.start + 0.1, t, dark, u(WIDE ? 0.055 : 0.082), mid)
     }
+  }
+
+  else if (card.kind === 'icons') {
+    // Three named things, arriving as she names them, each drawing itself
+    // in and then floating so the row is never static.
+    const icons = card.icons ?? []
+    const size = u(WIDE ? 0.125 : 0.225)
+    const span = W * (WIDE ? 0.56 : 0.78)
+    const y = mid - u(WIDE ? 0.02 : 0.08)
+    icons.forEach((ic, i) => {
+      const cx = W / 2 + (i - (icons.length - 1) / 2) * (span / icons.length)
+      const k = at(t, card.start + 0.18 + i * (card.speech * 0.2), 0.55, ease.outQuart)
+      if (k <= 0) return
+      const float = breathe(t + i * 0.9, 0.3, u(0.008))
+      const pop = 1 + at(t, card.start + 0.18 + i * (card.speech * 0.2), 0.3, ease.outBack) * 0.0
+      ctx.save()
+      ctx.translate(0, float)
+      drawIconLabel(
+        ctx, ic.name, ic.label, cx, y, size * pop,
+        dark ? SKY : BLUE, dark ? 'rgba(191,231,251,.9)' : 'rgba(27,30,43,.6)',
+        // 1.6% of width is 17px at 1080 — drawn, but not readable at a
+        // glance, which is the only speed an icon label is read at.
+        k, `700 ${u(0.026)}px Poppins`, u(0.0078),
+      )
+      ctx.restore()
+    })
+    // Clear of the icon labels, which sit at roughly mid + 0.10W.
+    caption(card.show ?? '', card.start + card.speech * 0.62, t, dark,
+      u(WIDE ? 0.036 : 0.056), mid + u(WIDE ? 0.2 : 0.26))
   }
 
   else if (card.kind === 'define') {
@@ -308,12 +429,20 @@ function frame(t: number) {
     const k = at(l, 0.12, Math.min(1.5, card.speech * 0.8), ease.linear)
     const size = u(WIDE ? 0.17 : 0.26)
     layer(ctx, at(l, 0.05, 0.3), 0, 0, () => {
+      // A counter that stops dead looks switched off, so the figure keeps a
+      // slow scale once it has landed.
+      const alive = 1 + breathe(t, 0.26, 0.012)
+      ctx.save()
+      ctx.translate(W / 2, mid - u(0.02))
+      ctx.scale(alive, alive)
+      ctx.translate(-W / 2, -(mid - u(0.02)))
       ctx.font = `700 ${size}px Poppins`
       ctx.textAlign = 'center'
       ctx.fillStyle = dark
         ? grad(W * 0.25, 0, W * 0.75, 0, ICE, SKY)
         : grad(W * 0.25, 0, W * 0.75, 0, BLUE, SKY)
       ctx.fillText(counter(card.value ?? 0, k, n => Math.round(n) + (card.suffix ?? '')), W / 2, mid - u(0.02))
+      ctx.restore()
     })
     caption(card.show ?? '', card.start + 0.45, t, dark, u(WIDE ? 0.032 : 0.05), mid + u(0.09))
   }
@@ -337,7 +466,15 @@ function frame(t: number) {
       const cy = y0 + Math.floor(i / cols) * gapX
       ctx.beginPath()
       ctx.arc(cx, cy, r, 0, Math.PI * 2)
-      if (i < lit) { ctx.fillStyle = dark ? SKY : BLUE; ctx.fill() }
+      if (i < lit) {
+        // A slow travelling highlight across the lit dots, so the grid is
+        // still alive once it has filled.
+        const wave = Math.sin(t * 2.2 - (i % cols) * 0.35 - Math.floor(i / cols) * 0.2)
+        ctx.fillStyle = dark
+          ? (wave > 0.82 ? '#FFFFFF' : SKY)
+          : (wave > 0.82 ? SKY : BLUE)
+        ctx.fill()
+      }
       else { ctx.strokeStyle = dark ? 'rgba(191,231,251,.3)' : 'rgba(37,84,162,.25)'; ctx.lineWidth = u(0.0018); ctx.stroke() }
     }
     layer(ctx, at(l, 0.3, 0.4), 0, 0, () => {
@@ -381,7 +518,7 @@ function frame(t: number) {
   const bandH = H * (WIDE ? 0.05 : 0.028)
   drawWaveBand(ctx, 0, H - bandH * 2.6, W, {
     height: bandH, colours: dark ? [SKY, ICE] : [BLUE, '#9EC3E8'],
-    reveal: at(l, 0.1, 0.8), alpha: dark ? 0.75 : 0.5, offset: t * 18,
+    reveal: at(l, 0.1, 0.8), alpha: dark ? 0.75 : 0.5, offset: t * 46,
   })
 
   note(card.note, card.start, t, dark)
