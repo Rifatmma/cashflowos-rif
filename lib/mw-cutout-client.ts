@@ -93,9 +93,43 @@ export function keyOut(src: HTMLCanvasElement, kind: 'white' | 'green'): HTMLCan
   return src
 }
 
+/**
+ * Share of the subject that is half-transparent AWAY from its outline.
+ *
+ * A clean cut leaves only a thin soft edge. A key that ate into a white
+ * subject on a white backdrop (the inside of a white megaphone), or kept a
+ * backdrop shadow as a pale halo, leaves broad half-see-through patches —
+ * the first live cut-out did exactly that, at 15%. Clean keys measure
+ * ~0.1%, the model ~3%.
+ */
+function haze(d: Uint8ClampedArray, w: number, h: number): number {
+  const clear = new Uint8Array(w * h)
+  for (let p = 0; p < w * h; p++) clear[p] = d[p * 4 + 3] < 20 ? 1 : 0
+  // grow the transparent area by 3px: softness there is just the outline
+  let near = clear
+  for (let k = 0; k < 3; k++) {
+    const nx = new Uint8Array(near)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = y * w + x
+      if (near[p]) continue
+      if ((x > 0 && near[p - 1]) || (x < w - 1 && near[p + 1]) || (y > 0 && near[p - w]) || (y < h - 1 && near[p + w])) nx[p] = 1
+    }
+    near = nx
+  }
+  let vis = 0, semi = 0
+  for (let p = 0; p < w * h; p++) {
+    const a = d[p * 4 + 3]
+    if (a < 20) continue
+    vis++
+    if (a < 235 && !near[p]) semi++
+  }
+  return vis ? semi / vis : 1
+}
+
 /** Crop to the opaque pixels and sanity-check the result. */
-function trim(c: HTMLCanvasElement): HTMLCanvasElement | null {
+function trim(c: HTMLCanvasElement, maxHaze = 1): HTMLCanvasElement | null {
   const w = c.width, h = c.height, d = c.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, w, h).data
+  if (haze(d, w, h) > maxHaze) return null
   let x0 = w, y0 = h, x1 = -1, y1 = -1, solid = 0
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     if (d[(y * w + x) * 4 + 3] > 40) { solid++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
@@ -164,11 +198,11 @@ export async function cutOut(
   let cut: HTMLCanvasElement | null = null
   if (background !== 'other') {
     const keyed = keyOut(toCanvas(img, w, h), background)
-    cut = keyed && trim(keyed)
+    cut = keyed && trim(keyed, 0.03)          // a hazy key falls through to the model
   }
   if (!cut) {
     method = 'model'
-    try { cut = trim(await modelOut(toCanvas(img, w, h), onStatus)) } catch (e) {
+    try { cut = trim(await modelOut(toCanvas(img, w, h), onStatus), 0.08) } catch (e) {
       throw new Error(`The cut-out model could not run in this browser: ${String((e as any)?.message ?? e).slice(0, 120)}`)
     }
   }

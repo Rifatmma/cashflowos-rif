@@ -68,6 +68,11 @@ def key_out(img, kind):
     solid = alpha > .16
     share = solid.mean()
     if share < .04 or share > .9: return None
+    # Haze gate (same as the Studio): broad half-transparent patches away from
+    # the outline mean the key ate a white subject or kept a shadow. Clean ≈0.1%.
+    vis = alpha > .08
+    near = ndimage.binary_dilation(alpha < .08, iterations=3)
+    if ((vis & (alpha < .92) & ~near).sum() / max(1, vis.sum())) > .03: return None
     ys, xs = np.where(solid)
     pad = round(max(w, h) * .01)
     y0, y1, x0, x1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1), max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
