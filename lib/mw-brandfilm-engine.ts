@@ -257,7 +257,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const sx = lerp(x0, x1, i / (ev.stations.length - 1)); if (sx > lerp(x0, x1, lp) + 1) return;
         const lit = tx > sx;
         x.fillStyle = lit ? C.sky : (dark ? C.navy : C.white); x.strokeStyle = C.sky; x.lineWidth = 6; x.beginPath(); x.arc(sx, ly, 20, 0, 7); x.fill(); x.stroke();
-        x.font = '600 24px Poppins'; x.textAlign = 'center'; x.letterSpacing = '2px'; x.fillStyle = dark ? 'rgba(255,255,255,.75)' : C.type; x.fillText(nm, sx, ly + 72);
+        fitFont(nm, 600, 24, (x1 - x0) / Math.max(1, ev.stations.length - 1) - 12); x.textAlign = 'center'; x.letterSpacing = '2px'; x.fillStyle = dark ? 'rgba(255,255,255,.75)' : C.type; x.fillText(nm, sx, ly + 72);
         const sp = oBack(clamp((tx - sx) / 180), 2);
         if (sp > 0) { x.save(); x.translate(sx, ly - 50); x.scale(sp, sp); const g = x.createLinearGradient(0, -230, 0, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-70, -240, 140, 190, 10); x.fill(); shape('wave_solid', -46, -170, 92, C.white); x.fillStyle = C.blue; x.fillRect(-5, -50, 10, 50); x.restore(); }
       });
@@ -281,7 +281,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.strokeStyle = C.sky; x.lineWidth = 6; x.beginPath(); x.moveTo(500, 500); x.lineTo(lerp(500, hx, p), lerp(500, hy, p)); x.stroke();
         const q = oBack(P(u, t0 + .25, t0 + .6), 2);
         if (q > 0) { x.save(); x.translate(hx, hy); x.scale(q, q); x.fillStyle = dark ? C.white : C.blue; x.beginPath(); x.arc(0, 0, 46, 0, 7); x.fill(); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 16, 0, 7); x.fill(); x.restore();
-          x.font = '700 46px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.white : C.type; x.globalAlpha = q > 1 ? 1 : q; x.fillText(l, hx, hy + (hy > 500 ? 112 : -78)); x.globalAlpha = 1; }
+          fitFont(l, 700, 46, 300); x.textAlign = 'center'; x.fillStyle = dark ? C.white : C.type; x.globalAlpha = q > 1 ? 1 : q; x.fillText(l, hx, hy + (hy > 500 ? 112 : -78)); x.globalAlpha = 1; }
       });
       if (cp > 0) { x.save(); x.translate(500, 500); x.scale(cp, cp); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.arc(0, 0, 110, 0, 7); x.fill(); shape('logo_mark', -78, -28, 156, dark ? 'grad' : C.white); x.restore(); }
       x.restore();
@@ -300,7 +300,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         if (p > 0 && p < 1) { const s = p, px = (1 - s) ** 2 * o[0] + 2 * (1 - s) * s * mx + s * s * d[0], py = (1 - s) ** 2 * o[1] + 2 * (1 - s) * s * my + s * s * d[1]; x.fillStyle = C.sun1; x.beginPath(); x.arc(px, py, 12, 0, 7); x.fill(); }
         const q = oBack(P(u, t0 + .6, t0 + .9), 2);
         if (q > 0) { x.save(); x.translate(d[0], d[1]); x.scale(q, q); x.fillStyle = dark ? C.white : C.blue; x.beginPath(); x.arc(0, 0, 22, 0, 7); x.fill(); x.strokeStyle = C.sky; x.lineWidth = 5; x.beginPath(); x.arc(0, 0, 40 + 8 * Math.sin(u * 5 + i), 0, 7); x.stroke(); x.restore();
-          x.font = '700 38px Poppins'; x.letterSpacing = '2px'; x.textAlign = d[3] || (d[0] < 180 ? 'left' : d[0] > 820 ? 'right' : 'center'); x.fillStyle = dark ? C.white : C.type; x.globalAlpha = clamp(q); x.fillText(d[2], d[0] < 180 ? d[0] - 30 : d[0] > 820 ? d[0] + 30 : d[0], d[1] + 78); x.globalAlpha = 1; }
+          fitFont(d[2], 700, 38, 300); x.letterSpacing = '2px'; x.textAlign = d[3] || (d[0] < 180 ? 'left' : d[0] > 820 ? 'right' : 'center'); x.fillStyle = dark ? C.white : C.type; x.globalAlpha = clamp(q); x.fillText(d[2], d[0] < 180 ? d[0] - 30 : d[0] > 820 ? d[0] + 30 : d[0], d[1] + 78); x.globalAlpha = 1; }
       });
       const op = oBack(P(u, 0, .4), 2);
       x.save(); x.translate(o[0], o[1]); x.scale(op, op); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 30, 0, 7); x.fill(); x.restore();
@@ -309,17 +309,21 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     },
     // media formats: tiles flip in (airport / transit / retail …)
     formats(u, r, dark, ev) {
-      const n = ev.items.length, cols = LAND ? 1 : n, rows = LAND ? n : 1;
-      x.save(); const k = fit(r, cols * 320, rows * (LAND ? 210 : 380));
+      // Landscape stacks wide tiles (icon left, label right); otherwise tall
+      // tiles side by side. Every label is measured to its tile.
+      const n = ev.items.length, cols = LAND ? 1 : n, rows = LAND ? n : 1, TW = LAND ? 640 : 300, TH = LAND ? 180 : 340;
+      x.save(); const k = fit(r, cols * (TW + 20), rows * (TH + 30));
       ev.items.forEach((it, i) => {
         const t0 = ev.at ? ev.at[i] : i * .3, p = oBack(P(u, t0, t0 + .45), 1.6);
-        const cx = (LAND ? 0 : i * 320) + 150, cy = (LAND ? i * 210 : 0) + (LAND ? 100 : 180);
+        const cx = (LAND ? 0 : i * (TW + 20)) + TW / 2 + 10, cy = (LAND ? i * (TH + 30) : 0) + TH / 2 + 15;
         x.save(); x.translate(cx, cy); x.scale(1, clamp(p, 0, 1.2)); x.globalAlpha = clamp(p * 2);
-        const g = x.createLinearGradient(-140, -100, 140, 100); g.addColorStop(0, dark ? C.blue : C.white); g.addColorStop(1, dark ? '#1F2554' : C.mist);
-        x.fillStyle = g; x.beginPath(); x.roundRect(-140, LAND ? -90 : -170, 280, LAND ? 180 : 340, 22); x.fill();
+        const g = x.createLinearGradient(-TW / 2, -TH / 2, TW / 2, TH / 2); g.addColorStop(0, dark ? C.blue : C.white); g.addColorStop(1, dark ? '#1F2554' : C.mist);
+        x.fillStyle = g; x.beginPath(); x.roundRect(-TW / 2, -TH / 2, TW, TH, 22); x.fill();
         x.strokeStyle = dark ? 'rgba(102,201,243,.5)' : 'rgba(43,60,146,.25)'; x.lineWidth = 3; x.stroke();
-        ICON[it[0]]?.(LAND ? -70 : 0, LAND ? 0 : -40, LAND ? .7 : 1, dark);
-        x.font = `700 ${LAND ? 30 : 32}px Poppins`; x.textAlign = LAND ? 'left' : 'center'; x.fillStyle = dark ? C.white : C.type; x.fillText(it[1], LAND ? 10 : 0, LAND ? 12 : 120);
+        ICON[it[0]]?.(LAND ? -TW / 2 + 100 : 0, LAND ? 0 : -40, LAND ? .8 : 1, dark);
+        x.fillStyle = dark ? C.white : C.type;
+        if (LAND) { fitFont(it[1], 700, 46, TW - 230); x.textAlign = 'left'; x.fillText(it[1], -TW / 2 + 200, 16); }
+        else { fitFont(it[1], 700, 34, TW - 40); x.textAlign = 'center'; x.fillText(it[1], 0, 120); }
         x.restore();
       });
       x.restore();
@@ -363,7 +367,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         if (fresh) { const g = x.createLinearGradient(0, 0, 1000, 0); g.addColorStop(0, C.sun1); g.addColorStop(1, C.sun2); x.fillStyle = g; }
         else x.fillStyle = dark ? 'rgba(102,201,243,.28)' : (i % 2 ? C.pale : 'rgba(43,60,146,.16)');
         x.beginPath(); x.roundRect(0, y, wd, 116, 58); x.fill();
-        x.globalAlpha = P(u, t0 + .2, t0 + .4); x.font = `${fresh ? 700 : 600} 44px Poppins`; x.fillStyle = fresh ? C.navy : (dark ? C.white : C.type);
+        x.globalAlpha = P(u, t0 + .2, t0 + .4); fitFont(lab, fresh ? 700 : 600, 44, (fresh ? 1000 : 820 - i * 90) - (fresh ? 150 : 80)); x.fillStyle = fresh ? C.navy : (dark ? C.white : C.type);
         x.fillText(lab, 44, y + 74);
         if (fresh) { x.textAlign = 'right'; x.font = '800 54px Poppins'; x.fillText('+', wd - 44, y + 76); x.textAlign = 'left'; }
         x.globalAlpha = 1;
@@ -488,15 +492,21 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 8; x.lineCap = 'round';
       x.beginPath(); x.moveTo(30, 280); x.lineTo(30 + 940 * lp, 280); x.stroke();
       it.forEach((d, i) => {
-        const px = 30 + 940 * (n === 1 ? .5 : i / (n - 1)) * (n === 1 ? 1 : .92) + (n === 1 ? 0 : 940 * .04), t0 = cue(ev, i, .3, .25);
+        // Nodes sit inset from the ends; a label at either end aligns inward
+        // and every label is sized to the room it actually has — centred
+        // end labels used to hang off the frame.
+        const px = n === 1 ? 500 : lerp(90, 910, i / (n - 1)), t0 = cue(ev, i, .3, .25);
         const q = oBack(P(u, t0, t0 + .4), 2); if (q <= 0) return;
         x.save(); x.translate(px, 280); x.scale(q, q);
         x.fillStyle = i === n - 1 ? C.sun1 : (dark ? C.white : C.blue); x.beginPath(); x.arc(0, 0, 24, 0, 7); x.fill();
         x.restore();
-        const up = i % 2 === 0, slot = 940 / Math.max(2, n) * 1.6;
-        x.globalAlpha = P(u, t0 + .15, t0 + .4); x.textAlign = 'center';
-        fitFont(String(d[0]), 800, 56, slot); x.fillStyle = fg(dark); x.fillText(String(d[0]), px, up ? 200 : 390);
-        if (d[1]) { fitFont(String(d[1]), 600, 32, slot, true); x.fillStyle = dark ? C.sky : C.navy; x.fillText(String(d[1]), px, up ? 140 : 440); }
+        const up = i % 2 === 0, gapW = n === 1 ? 900 : 820 / (n - 1);
+        const align = n > 1 && i === 0 ? 'left' : n > 1 && i === n - 1 ? 'right' : 'center';
+        const ax = align === 'left' ? px - 30 : align === 'right' ? px + 30 : px;
+        const room = align === 'center' ? Math.min(gapW * 1.1, 2 * Math.min(px, 1000 - px)) : Math.min(gapW * 1.1, align === 'left' ? 1000 - ax : ax);
+        x.globalAlpha = P(u, t0 + .15, t0 + .4); x.textAlign = align;
+        fitFont(String(d[0]), 800, 56, room); x.fillStyle = fg(dark); x.fillText(String(d[0]), ax, up ? 200 : 390);
+        if (d[1]) { fitFont(String(d[1]), 600, 32, room, true); x.fillStyle = dark ? C.sky : C.navy; x.fillText(String(d[1]), ax, up ? 140 : 440); }
         x.globalAlpha = 1;
       });
       x.restore();
@@ -578,7 +588,14 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const t0 = cue(ev, i, .4, .3), p = oCub(P(u, t0, t0 + .5));
         const a0 = h0 / 24 * Math.PI * 2 - Math.PI / 2, a1 = a0 + ((h1 - h0 + 24) % 24) / 24 * Math.PI * 2 * p;
         x.strokeStyle = i === it.length - 1 ? C.sun1 : (dark ? C.sky : C.blue); x.lineWidth = 70; x.beginPath(); x.arc(cx, cy, R, a0, a1); x.stroke();
-        if (p > .9 && lab) { const am = (a0 + a1) / 2; fitFont(lab, 700, 34, 260); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(lab, cx + Math.cos(am) * (R + 95), cy + Math.sin(am) * (R + 95) + 12); }
+        if (p > .9 && lab) {
+          // Outside the ring, growing AWAY from it, and only as wide as the
+          // space between the ring and the edge of the box.
+          const am = (a0 + a1) / 2, ca = Math.cos(am), lx = cx + ca * (R + 60), ly = cy + Math.sin(am) * (R + 60) + 12;
+          const align = ca > .35 ? 'left' : ca < -.35 ? 'right' : 'center';
+          const room = align === 'left' ? 1000 - lx : align === 'right' ? lx : 360;
+          fitFont(lab, 700, 34, Math.max(80, room - 10)); x.textAlign = align; x.fillStyle = fg(dark); x.fillText(lab, lx, ly + (align === 'center' ? Math.sign(Math.sin(am)) * 20 : 0));
+        }
       });
       const hand = (u * .6) % 1 * Math.PI * 2 - Math.PI / 2;
       x.strokeStyle = fg(dark); x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(hand) * (R - 120), cy + Math.sin(hand) * (R - 120)); x.stroke();
@@ -617,15 +634,17 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.save(); fit(r, 1000, 640);
       const sides = [ev.left || [], ev.right || []];
       sides.forEach(([lab, val], i) => {
-        const p = oExpo(P(u, .15 + i * .5, .7 + i * .5)), sx = i ? 520 : 0;
-        x.globalAlpha = p; x.fillStyle = i ? accGrad(520, 1000) : soft(dark); x.beginPath(); x.roundRect(sx, 40 + (1 - p) * 60, 480, 560, 30); x.fill();
+        // Boxes 460 wide with an 80 gap for the VS badge; text is centred
+        // in the part of each box the badge cannot reach (it reaches 62 in).
+        const p = oExpo(P(u, .15 + i * .5, .7 + i * .5)), sx = i ? 540 : 0, tx = i ? sx + 230 + 25 : sx + 230 - 25, tw = 330;
+        x.globalAlpha = p; x.fillStyle = i ? accGrad(540, 1000) : soft(dark); x.beginPath(); x.roundRect(sx, 40 + (1 - p) * 60, 460, 560, 30); x.fill();
         x.textAlign = 'center'; x.fillStyle = i ? C.navy : fg(dark);
-        if (val) { fitFont(String(val), 800, 120, 420); x.fillText(String(val), sx + 240, 330); }
-        if (lab) { fitFont(String(lab), 600, 44, 420, true); x.fillText(String(lab), sx + 240, val ? 430 : 340); }
+        if (val) { fitFont(String(val), 800, 110, tw); x.fillText(String(val), tx, 330); }
+        if (lab) { fitFont(String(lab), 600, 44, tw, true); x.fillText(String(lab), tx, val ? 430 : 340); }
         x.globalAlpha = 1;
       });
       const v = oBack(P(u, .5, .8), 2);
-      if (v > 0) { x.save(); x.translate(500, 320); x.scale(v, v); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.arc(0, 0, 62, 0, 7); x.fill(); x.font = '800 44px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('VS', 0, 16); x.restore(); }
+      if (v > 0) { x.save(); x.translate(500, 320); x.scale(v, v); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.arc(0, 0, 58, 0, 7); x.fill(); x.font = '800 40px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('VS', 0, 16); x.restore(); }
       x.restore();
     },
     // rising bars with a trend line
@@ -653,7 +672,10 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.save(); x.translate(500, 240); x.scale(sp, sp);
       x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-470, -210, 940, 420, 26); x.fill();
       x.save(); x.beginPath(); x.roundRect(-450, -190, 900, 380, 14); x.clip();
-      const per = .9, k = Math.max(0, Math.floor((u - .5) / per)) % lines.length, ph = (u - .5) % per, wipe = u < .5 ? 0 : oExpo(clamp(ph / .3));
+      // Each line once, then HOLD the last — looping back to the first read
+      // as the sentence starting again ("DID IT · WORK · DID IT…").
+      const per = ev.per || .9, step = Math.max(0, Math.floor((u - .5) / per)), k = Math.min(lines.length - 1, step);
+      const ph = step > k ? per : (u - .5) - step * per, wipe = u < .5 ? 0 : oExpo(clamp(ph / .3));
       const bgc = [C.blue, C.sky, C.sun2][k % 3];
       x.fillStyle = [C.navy, C.blue, C.sky][k % 3]; x.fillRect(-450, -190, 900, 380);
       x.fillStyle = bgc; x.fillRect(-450, -190, 900 * wipe, 380);
