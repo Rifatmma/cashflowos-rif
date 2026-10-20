@@ -387,3 +387,31 @@ export function estimateSeconds(lines: string[]): number {
   const words = lines.join(' ').split(/\s+/).filter(Boolean).length
   return Math.round(words / 2.6 + lines.length * 0.6 + 1.5)
 }
+
+/**
+ * One scene of a plan, as a still: every element on screen, nothing timed.
+ *
+ * Used for the photo cards, so a person sees the scene they are deciding
+ * about BEFORE Ava has been recorded — without it, swapping a photo
+ * changed nothing visible until the preview existed, which read as broken.
+ */
+export function sceneStillFilm(plan: Plan, sceneIndex: number, withPhoto: boolean): Film {
+  const sc = plan.scenes[sceneIndex]
+  const ev: Record<string, any> = { ...(sc.ev ?? {}) }
+  delete ev.at                                        // word cues: everything has already landed
+  if (sc.art === 'lines') ev.freshAt = 0.2
+  if (sc.art === 'crossing') ev.screens = 0.2
+  if (sc.art === 'network') ev.centre = 0
+  const scene = {
+    ...sc, a: 0, b: 30, artAt: 0, ev, tr: undefined,
+    text: (sc.text ?? []).map((t, i) => ({
+      t: i * 0.05, s: t.s, st: t.st,
+      ...(t.accent ? { color: 'accent' } : {}), ...(t.st === 'b' ? { scale: 0.75 } : {}),
+    })),
+    words: sc.words?.map((w, i) => ({ t: i * 0.05, s: w.s, bg: w.bg })),
+    photo: withPhoto && sc.photo
+      ? { key: photoKey(sc.photo.query), word: sc.photo.word, shape: (['circle', 'bar', 'zig', 'blue'] as const)[sceneIndex % 4] }
+      : undefined,
+  }
+  return { title: plan.title, dur: 30, bpm: 120, starts: [0], scenes: [scene], accent: plan.accent ?? 'sun', cover: plan.cover ?? 'zigzag', burst: plan.burst ?? 'flip' }
+}

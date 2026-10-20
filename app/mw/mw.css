@@ -1012,8 +1012,10 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 }
 .mw-bf-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 14px; }
 .mw-bf-photos figure { margin: 0; border: 1px solid var(--mw-line-strong); border-radius: 12px; overflow: hidden; background: var(--mw-surface); }
-.mw-bf-photos img, .mw-bf-ph { display: grid; place-items: center; width: 100%; height: 170px; object-fit: contain; background: #2B3C92; color: #BFE7FB; font-size: 13px; }
-.mw-bf-photos img { filter: grayscale(1) contrast(1.1); }
+.mw-bf-still { display: block; width: 100%; height: 300px; object-fit: contain; background: #10131f; }
+.mw-bf-still.is-wide { height: auto; }
+.mw-bf-photos .mw-bf-photos-how { grid-column: 1 / -1; margin: 0; }
+.mw-bf-state { font-size: 14px; }
 .mw-bf-photos figcaption { display: grid; gap: 4px; padding: 10px 12px; font-size: 13px; }
 .mw-bf-photos figcaption small { opacity: .75; }
 .mw-bf-photos figcaption span { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }

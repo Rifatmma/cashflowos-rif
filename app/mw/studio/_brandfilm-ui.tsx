@@ -6,7 +6,7 @@ import type { Candidate } from '@/lib/mw-cutouts'
 import { cutOut, loadCutout } from '@/lib/mw-cutout-client'
 import type { Research } from '@/lib/mw-studio'
 import {
-  FILM_FORMATS, resolveFilm, estimateSeconds, pickRecipe, photoKey,
+  FILM_FORMATS, resolveFilm, estimateSeconds, pickRecipe, photoKey, sceneStillFilm,
   type Audience, type Film, type FilmFormat, type Mode, type Plan, type Recipe, type SubLang, type VoiceLine,
 } from '@/lib/mw-brandfilm'
 import { createEngine } from '@/lib/mw-brandfilm-engine'
@@ -108,6 +108,22 @@ async function blobBase64(b: Blob): Promise<string> {
   let s = ''
   for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000))
   return btoa(s)
+}
+
+/** One scene drawn by the real engine, every element in place — what the video will show. */
+function SceneStill({ plan, index, withPhoto, format, assets, photo }: {
+  plan: Plan; index: number; withPhoto: boolean; format: FilmFormat; assets: Assets | null; photo?: HTMLImageElement
+}) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const f = FILM_FORMATS[format]
+  useEffect(() => {
+    const ctx = ref.current?.getContext('2d')
+    if (!ctx || !assets) return
+    const film = sceneStillFilm(plan, index, withPhoto && !!photo)
+    const key = plan.scenes[index].photo ? photoKey(plan.scenes[index].photo!.query) : ''
+    createEngine(ctx, f.w, f.h, film, assets.shapes, { dark: assets.dark, light: assets.light, photos: photo ? { [key]: photo } : {} })(4)
+  }, [plan, index, withPhoto, f, assets, photo])
+  return <canvas ref={ref} width={f.w} height={f.h} className={`mw-bf-still ${f.w > f.h ? 'is-wide' : ''}`} />
 }
 
 export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
@@ -289,7 +305,24 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
     }
     tryCandidate(key, sp, sp.tried + 1)
   }
-  const illustrationInstead = (key: string) => { delete photoImgs.current[key]; patch(key, { status: 'off', note: 'Using the illustration' }) }
+  const illustrationInstead = (key: string) => { delete photoImgs.current[key]; patch(key, { status: 'off', note: '' }) }
+  /** Back to a photo after turning it off: the same one if we still have it, else find again. */
+  const photoAgain = (key: string) => {
+    const sp = photos[key]; if (!sp) return
+    if (sp.candidates.length) { tryCandidate(key, sp, Math.max(0, sp.tried)); return }
+    patch(key, { status: 'finding', note: 'Finding a photo…' })
+    findScenePhoto(sp.query, sp.word).then(async r => {
+      if (!r.ok) return patch(key, { status: 'failed', note: r.error })
+      if (r.cutout) {
+        photoImgs.current[key] = await loadCutout(asProxied(r.cutout.url))
+        return patch(key, { status: 'ready', thumb: asProxied(r.cutout.url), subject: r.cutout.subject, credit: r.cutout.credit, note: 'From the library' })
+      }
+      const next = { ...sp, candidates: r.candidates, tried: 0 }
+      patch(key, next); tryCandidate(key, next, 0)
+    })
+  }
+  const photoScenes = plan ? plan.scenes.map((sc, i) => ({ sc, i })).filter(x => x.sc.photo) : []
+  const working = Object.values(photos).some(p => p.status === 'finding' || p.status === 'cutting')
   const credits = Object.values(photos).filter(p => p.status === 'ready' && p.credit).map(p => p.credit!)
 
   // ------------------------------------------------------------- preview
@@ -485,9 +518,6 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
               )
             })}
           </ol>
-          <button type="button" className="mw-dl" onClick={speak} disabled={busy}>
-            {busy && !voice ? 'Ava is reading…' : voice ? 'Record Ava again' : '🎙 Record Ava'}
-          </button>
         </section>
       )}
 
@@ -512,27 +542,39 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
           </div>
           {mode === 'photos' && (
             <div className="mw-bf-photos">
-              {Object.entries(photos).map(([key, p]) => (
-                <figure key={key} className={`is-${p.status}`}>
-                  {p.thumb && p.status === 'ready'
-                    // eslint-disable-next-line @next/next/no-img-element
-                    ? <img src={p.thumb} alt={p.subject ?? p.query} />
-                    : <span className="mw-bf-ph">{p.status === 'failed' || p.status === 'off' ? 'Illustration' : '…'}</span>}
-                  <figcaption>
-                    <b>{p.word ?? p.query}</b>
-                    <small>{p.subject ?? p.query}</small>
-                    <small>{p.note}</small>
-                    {p.credit && p.status === 'ready' && <small>Photo: {p.credit} / Pexels</small>}
-                    <span>
-                      {(p.status === 'ready' || p.status === 'failed') && <button type="button" onClick={() => nextPhoto(key)}>Try another</button>}
-                      {p.status !== 'off' && <button type="button" onClick={() => illustrationInstead(key)}>Use the illustration</button>}
-                    </span>
-                  </figcaption>
-                </figure>
-              ))}
+              <p className="lede mw-bf-photos-how">
+                <b>Nothing to choose unless you want to.</b> Each card is the scene as it will look in the
+                video. A photo is used automatically; <i>Swap photo</i> tries another, <i>No photo for this
+                scene</i> puts the illustration back.
+              </p>
+              {photoScenes.map(({ sc, i }) => {
+                const key = photoKey(sc.photo!.query), p = photos[key]
+                const on = p?.status === 'ready'
+                return (
+                  <figure key={key + i} className={`is-${p?.status ?? 'finding'}`}>
+                    {format && <SceneStill plan={plan} index={i} withPhoto={on} format={format} assets={assets} photo={on ? photoImgs.current[key] : undefined} />}
+                    <figcaption>
+                      <b className="mw-bf-state">
+                        {!p || p.status === 'finding' ? '⏳ Finding a photo…'
+                          : p.status === 'cutting' ? '✂️ Cutting it out…'
+                          : on ? '✓ Photo in the video'
+                          : p.status === 'off' ? 'Illustration in the video'
+                          : 'No photo found — illustration in the video'}
+                      </b>
+                      {p?.subject && on && <small>{p.subject}</small>}
+                      {p?.note && !on && p.status !== 'off' && <small>{p.note}</small>}
+                      {p?.credit && on && <small>Photo: {p.credit} / Pexels</small>}
+                      <span>
+                        {on && <button type="button" onClick={() => nextPhoto(key)}>Swap photo</button>}
+                        {on && <button type="button" onClick={() => illustrationInstead(key)}>No photo for this scene</button>}
+                        {(p?.status === 'off' || p?.status === 'failed') && <button type="button" onClick={() => (p.status === 'off' ? photoAgain(key) : nextPhoto(key))}>{p.status === 'off' ? 'Use a photo again' : 'Try again'}</button>}
+                      </span>
+                    </figcaption>
+                  </figure>
+                )
+              })}
               <p className="lede">
-                Pick only photos that show the thing. Cut-outs are saved to the shared library, so the
-                next video asking for the same subject reuses them.
+                {working ? 'Still working on some photos — you can carry on; they drop in when ready.' : 'Cut-outs are saved to the shared library, so the next video asking for the same subject reuses them.'}
               </p>
             </div>
           )}
@@ -542,6 +584,21 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
               {plan.cover} opener, {plan.burst} word burst — chosen to differ from your last few videos.
             </p>
           )}
+        </section>
+      )}
+
+      {/* 3c ───────────────────────────────────────────── record Ava */}
+      {plan && (
+        <section>
+          <h3>{voice ? 'Ava has read the script' : 'Next: record Ava'}</h3>
+          <p className="lede">
+            {voice
+              ? 'The preview is below. Changing photos updates it straight away; change any words above and record again.'
+              : 'Ava reads the script, then the preview appears below with sound. Photos can still be changed after.'}
+          </p>
+          <button type="button" className="mw-dl" onClick={speak} disabled={busy}>
+            {busy && !voice ? 'Ava is reading…' : voice ? 'Record Ava again' : '🎙 Record Ava'}
+          </button>
         </section>
       )}
 
