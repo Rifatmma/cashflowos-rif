@@ -364,6 +364,81 @@ export function estimateSeconds(deck: Deck, opts: RecordOpts = {}): number {
 /** Seconds of overlap between one slide and the next. */
 export const CROSSFADE = 0.6
 
+/** One slide on screen at a given moment, with its own animation clock. */
+export type Layer = {
+  index: number
+  /** Seconds since THIS slide began its life — never reset, never rewound. */
+  at: number
+  /** The life it is pacing itself against, for the exit. */
+  total: number
+  /** 1 for the slide underneath, ramping 0→1 for the one dissolving in. */
+  alpha: number
+}
+
+/**
+ * Which slides are visible at `time`, and where each is in its own animation.
+ *
+ * THIS EXISTS BECAUSE THE ENTRANCE USED TO PLAY TWICE.
+ *
+ * The first version treated the cross-fade and the slide's own clock as
+ * separate things. During the last 0.6s of slide 1 it drew slide 2 with an
+ * animation time of 0→0.6, so slide 2's text began arriving. Then the
+ * moment slide 2's own slot started, its local time was recomputed as
+ * `time - i * seconds` — which is zero. The text snapped back to invisible
+ * and animated in all over again. The owner described it exactly: "every
+ * time it changes the slide the animation played twice."
+ *
+ * A slide's clock therefore starts when it first appears, which for every
+ * slide after the first is CROSSFADE early, and simply keeps running. The
+ * entrance (0.7s plus stagger) is deliberately longer than the dissolve, so
+ * it carries on past the join rather than finishing inside it.
+ *
+ * The outgoing slide does not run its own exit, because the dissolve is its
+ * exit — doing both is a double fade. Only the last slide, which has
+ * nothing to dissolve into, animates its text out.
+ */
+/**
+ * Ease the dissolve rather than ramping it linearly.
+ *
+ * Not decoration. A linear fade sampled at 30fps reaches only 0.945 on its
+ * last frame before the hand-over, and the hand-over then draws the new
+ * slide at 1 — a one-frame step of 5.5% at full contrast between a dark
+ * photograph and a white page. Measured, it showed up as a spike of 18.5
+ * grey levels sitting in an otherwise still moment, which is exactly the
+ * kind of thing that reads as a hitch. Smoothstep flattens the tail, so the
+ * final frame lands on 0.991 and the step is under three grey levels.
+ */
+const smoothstep = (k: number) => k * k * (3 - 2 * k)
+
+export function layersAt(time: number, n: number, seconds: number, crossfade = CROSSFADE): Layer[] {
+  const i = Math.max(0, Math.min(n - 1, Math.floor(time / seconds)))
+  // Every slide but the first comes up early, under the one it replaces.
+  const startOf = (j: number) => j * seconds - (j > 0 ? crossfade : 0)
+  const totalOf = (j: number) =>
+    j < n - 1
+      // No self-exit: the dissolve takes it off. A finite total here would
+      // fade the text out AND dissolve the slide, which reads as a stumble.
+      ? Number.MAX_SAFE_INTEGER
+      : n === 1 ? seconds : seconds + crossfade
+
+  const layers: Layer[] = [
+    { index: i, at: time - startOf(i), total: totalOf(i), alpha: 1 },
+  ]
+
+  const nextStart = startOf(i + 1)
+  // Strictly after, not at: on the exact first frame the fade is still at
+  // zero, so including it draws a whole slide that cannot be seen.
+  if (i + 1 < n && time > nextStart) {
+    layers.push({
+      index: i + 1,
+      at: time - nextStart,
+      total: totalOf(i + 1),
+      alpha: smoothstep(Math.min(1, (time - nextStart) / crossfade)),
+    })
+  }
+  return layers
+}
+
 function newCanvas(w: number, h: number) {
   const c = document.createElement('canvas')
   c.width = w
@@ -407,22 +482,18 @@ export async function recordSlidesVideo(
     return p ? { photo: p } : {}
   }
 
+  const scratch = [A, B]
   const paint = (elapsed: number) => {
-    const i = Math.min(deck.slides.length - 1, Math.floor(elapsed / seconds))
-    const local = elapsed - i * seconds
-    drawSlide(A.ctx, deck.slides[i], format, photoFor2(i), { at: local, total: seconds }, template)
-
     out.ctx.globalAlpha = 1
     out.ctx.clearRect(0, 0, w, h)
-    out.ctx.drawImage(A.c, 0, 0)
-
-    const into = local - (seconds - CROSSFADE)
-    if (into > 0 && i + 1 < deck.slides.length) {
-      drawSlide(B.ctx, deck.slides[i + 1], format, photoFor2(i + 1), { at: into, total: seconds }, template)
-      out.ctx.globalAlpha = Math.min(1, into / CROSSFADE)
-      out.ctx.drawImage(B.c, 0, 0)
+    layersAt(elapsed, deck.slides.length, seconds).forEach((L, k) => {
+      const s = scratch[k]
+      drawSlide(s.ctx, deck.slides[L.index], format, photoFor2(L.index),
+        { at: L.at, total: L.total }, template)
+      out.ctx.globalAlpha = L.alpha
+      out.ctx.drawImage(s.c, 0, 0)
       out.ctx.globalAlpha = 1
-    }
+    })
   }
   paint(0)
 
@@ -514,21 +585,20 @@ export async function encodeSlidesVideo(
     return p ? { photo: p } : {}
   }
 
+  const scratch = [A, B]
   const blob = await encodeFrames(format, runSeconds, (ctx, at) => {
-    const i = Math.min(deck.slides.length - 1, Math.floor(at / seconds))
-    const local = at - i * seconds
-    drawSlide(A.ctx, deck.slides[i], format, photoFor2(i), { at: local, total: seconds }, template)
     ctx.globalAlpha = 1
     ctx.clearRect(0, 0, w, h)
-    ctx.drawImage(A.c, 0, 0)
-
-    const into = local - (seconds - CROSSFADE)
-    if (into > 0 && i + 1 < deck.slides.length) {
-      drawSlide(B.ctx, deck.slides[i + 1], format, photoFor2(i + 1), { at: into, total: seconds }, template)
-      ctx.globalAlpha = Math.min(1, into / CROSSFADE)
-      ctx.drawImage(B.c, 0, 0)
+    // One timeline, shared with the real-time path, so the two can never
+    // drift apart on the thing that was wrong in the first place.
+    layersAt(at, deck.slides.length, seconds).forEach((L, k) => {
+      const s = scratch[k]
+      drawSlide(s.ctx, deck.slides[L.index], format, photoFor2(L.index),
+        { at: L.at, total: L.total }, template)
+      ctx.globalAlpha = L.alpha
+      ctx.drawImage(s.c, 0, 0)
       ctx.globalAlpha = 1
-    }
+    })
   }, { onProgress: opts.onProgress, signal: opts.signal })
 
   return { blob, ext: 'mp4', index: null, seconds: runSeconds }
