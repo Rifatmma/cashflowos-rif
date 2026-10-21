@@ -452,8 +452,13 @@ export async function refreshMw(): Promise<{ ok: boolean; message: string }> {
       adUrls: (ads?.adurls ?? []).length ? ads!.adurls : (prev.sem as any).adUrls,
       concentration: concentration.length ? concentration : prev.sem.concentration,
       campaigns: campaigns.length ? campaigns : prev.sem.campaigns,
-      benchmark: prev.sem.benchmark,              // carried — editorial
-      leaks: prev.sem.leaks,                      // carried — editorial
+      // NO LONGER CARRIED (21 Oct 2026). These two were written by hand on
+      // 28 Sep and copied forward every morning since, so the paid tab kept
+      // showing September's "S$495 keywords that never converted" as if it
+      // were today. Editorial that cannot be regenerated does not belong in a
+      // daily snapshot; the keyword worklist answers the same question live.
+      benchmark: [],
+      leaks: [],
     },
     seo: {
       market: prev.seo.market,
@@ -474,7 +479,9 @@ export async function refreshMw(): Promise<{ ok: boolean; message: string }> {
       marketNote: prev.seo.marketNote,
     },
     channels: channels.length ? channels : prev.channels,
-    overview: prev.overview,                      // carried — the three discussion cards
+    // The three hand-written discussion cards from 28 Sep: no longer carried,
+    // for the same reason as `leaks` above.
+    overview: { ...(prev.overview ?? {}), context: [] } as any,
   }
 
   const acted = await refreshActions({

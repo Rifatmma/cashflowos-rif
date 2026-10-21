@@ -226,6 +226,9 @@ export function SeoPlanner({
                     )}
                   </div>
                   <p className="mw-inbox-q">{r.prompt.length > 160 ? `${r.prompt.slice(0, 160)}…` : r.prompt}</p>
+                  {r.status === 'queued' && (
+                    <p className="mw-planner-lab">Nothing runs until Claude Code is open on your PC and you say &ldquo;check the SEO inbox&rdquo;. The result comes back here and to Telegram.</p>
+                  )}
                   {r.result && <p className="mw-inbox-a">{r.result}</p>}
                   {r.error && <p className="mw-inbox-a is-bad">{r.error}</p>}
                   {(r.result_links?.files?.length || r.result_links?.proposals?.length || r.result_links?.docs?.length) ? (

@@ -76,11 +76,18 @@ export async function setProposedDue(formData: FormData) {
 export async function clearDecision(formData: FormData) {
   const id = String(formData.get('id') ?? '')
   if (!id) return
-  await supabase.from('mw_decisions').delete().eq('action_id', id)
+  // A guest may only clear a decision they made themselves. Before 21 Oct 2026
+  // this had no check at all, so any guest could wipe anyone's answer.
+  const who = await actor()
+  let q = supabase.from('mw_decisions').delete().eq('action_id', id)
+  if (who !== 'owner') q = q.eq('decided_by', who)
+  await q
   revalidatePath('/mw'); revalidatePath('/mw/paid'); revalidatePath('/mw/seo'); revalidatePath('/mw/plan')
 }
 
 export async function saveTargets(formData: FormData) {
+  // Rif's paid targets. Owner only: a guest could overwrite them before 21 Oct 2026.
+  if ((await actor()) !== 'owner') return
   const n = (k: string) => {
     const v = Number(formData.get(k))
     return Number.isFinite(v) && v > 0 ? v : 0
@@ -110,6 +117,7 @@ export async function saveTargets(formData: FormData) {
 // writes it any more.
 
 export async function importSemrush(_prev: unknown, formData: FormData): Promise<{ lines: string[]; ok: number; skipped: number }> {
+  if ((await actor()) !== 'owner') return { lines: ['Only the owner can import data.'], ok: 0, skipped: 0 }
   const files = formData.getAll('files').filter((f): f is File => f instanceof File && f.size > 0)
   const pick = String(formData.get('country') ?? '').trim()
 
@@ -277,4 +285,53 @@ export async function cancelInbox(formData: FormData) {
   if (!id) return
   await cancelQueued(id)
   revalidatePath('/mw/seo')
+}
+
+// ---------------------------------------------------------------------------
+// The one ranked list (lib/mw-priorities.ts): Done, and "Can't — here's why"
+// ---------------------------------------------------------------------------
+//
+// One gesture for every kind of task, whatever store it lives in. A guest may
+// only answer their own tasks; the owner may answer any. A reason is required
+// to decline, because a decline without a reason can never be re-raised when
+// the data changes, and that is the whole point of keeping it.
+
+const QUEUE_STAGES = new Set(['done', 'declined', 'not_started', 'in_progress'])
+
+export async function setQueueStage(formData: FormData) {
+  const id = String(formData.get('id') ?? '')
+  const stage = String(formData.get('stage') ?? '')
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 300)
+  if (!id || !QUEUE_STAGES.has(stage)) return
+  if (stage === 'declined' && !reason) return
+
+  const who = await actor()
+  if (who !== 'owner') {
+    const { loadStack } = await import('@/lib/mw-priority-load')
+    const { personByActor } = await import('@/lib/mw-people')
+    const stack = await loadStack()
+    const me = personByActor(stack.people, who)
+    const item = stack.queue.items.find(x => x.id === id)
+    if (!me || !item || (item.owner !== me.name && item.helper !== me.name)) return
+  }
+
+  const now = new Date().toISOString()
+  if (id.startsWith('task:')) {
+    const actionId = id.slice(5)
+    const choice = actionChoiceFor(stage as Stage)
+    if (!choice) await supabase.from('mw_decisions').delete().eq('action_id', actionId)
+    else await supabase.from('mw_decisions').upsert(
+      { action_id: actionId, choice, reason: reason || null, decided_by: who, updated_at: now },
+      { onConflict: 'action_id' },
+    )
+  } else {
+    // Everything the app owns itself — SEO steps, tracking, paid, content,
+    // sales, page reviews — keeps its progress in one table, keyed by id.
+    const key = id.startsWith('seo:') ? id.slice(4) : id
+    await supabase.from('mw_seo_step_state').upsert(
+      { step_id: key, stage, reason: reason || null, updated_by: who, updated_at: now },
+      { onConflict: 'step_id' },
+    )
+  }
+  revalidatePath('/mw'); revalidatePath('/mw/people'); revalidatePath('/mw/seo')
 }

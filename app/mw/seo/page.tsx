@@ -11,6 +11,7 @@ import { THEMES, themeOf, rollUp, type ThemeChild } from '@/lib/mw-themes'
 import { MARKET } from '@/lib/mw-markets'
 import { loadPlanner, viewOf, latestForStep } from '@/lib/mw-seo-planner'
 import { glanceOf } from '@/lib/mw-seo-glance'
+import { keywordsCell, trafficCell } from '@/lib/mw-kw-display'
 import { SeoGlance, SeoPlanner } from './_planner'
 import {
   MarketTabs, BrandByMarket, OpportunitiesByMarket, CompetitorsByMarket,
@@ -226,8 +227,8 @@ function MarketsTable({ live }: { live: MarketSeo[] }) {
             <td>{m.market.owner ?? '—'}</td>
             <td className="num">{num(m.sessions)}</td>
             <td className="num">{m.leads || <span className="mw-zero">0</span>}</td>
-            <td className="num">{num(m.keywordsTotal)}</td>
-            <td className="num">{num(m.traffic)}</td>
+            <td className="num" title={keywordsCell(m.keywordsTotal, m.keywords).title}>{keywordsCell(m.keywordsTotal, m.keywords).text}</td>
+            <td className="num" title={trafficCell(m.traffic, m.keywords).title}>{trafficCell(m.traffic, m.keywords).text}</td>
             <td className="num">{m.keywords.length ? `${m.nonBrandPct}%` : '—'}</td>
           </tr>
         ))}

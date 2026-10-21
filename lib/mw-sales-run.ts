@@ -19,6 +19,8 @@ import { rollUpLead, type Lead, type LeadEvent } from './mw-sales'
 /** Only webform leads. Prospecting-tool imports are not the team's inbound work. */
 export const WEBFORM = 'Website / Webform'
 
+import { burstIds } from './mw-lead-bursts'
+
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v))
 
 type ZohoLead = Record<string, any>
@@ -34,7 +36,12 @@ export async function fetchLeads(since: string, notes: string[]): Promise<ZohoLe
   for (let page = 1; page <= 20; page++) {
     const res = await runTool('ZOHO_SEARCH_LEADS', undefined, {
       criteria: `((Lead_Source:equals:${WEBFORM})and(Created_Time:greater_equal:${since}T00:00:00+08:00))`,
-      fields: 'id,Full_Name,Company,Email,Lead_Status,Owner,Country,Created_Time',
+      // ATTRIBUTION FIELDS (21 Oct 2026). Every lead here is already
+      // "Website / Webform", so Lead_Source can never name the channel -- the
+      // UTM fields Zoho fills from the form do. And this account keeps the
+      // country in Country1 ("Operating Country"), not Country, which is why
+      // all 198 stored leads had no country.
+      fields: 'id,Full_Name,Company,Email,Lead_Status,Owner,Country,Country1,Created_Time,Lead_Source,UTM_Source,UTM_Medium,UTM_Term,UTM_Content,Referrer',
       per_page: PAGE,
       page,
     })
@@ -356,7 +363,7 @@ export async function refreshSales(
           id: String(z.id),
           createdTime: String(z.Created_Time),
           fullName: s(z.Full_Name), company: s(z.Company), email: s(z.Email),
-          leadStatus: s(z.Lead_Status), ownerName: s(z.Owner?.name), country: s(z.Country),
+          leadStatus: s(z.Lead_Status), ownerName: s(z.Owner?.name), country: s(z.Country1) ?? s(z.Country),
         }
         // Every user who might hold this lead's mail. The owner always, plus
         // anyone the team has nominated as a first-touch handler.
@@ -390,6 +397,8 @@ export async function refreshSales(
           lead_source: s(z.Lead_Source), lead_status: lead.leadStatus,
           owner_name: lead.ownerName, owner_email: s(z.Owner?.email),
           country: lead.country,
+          utm_source: s(z.UTM_Source), utm_medium: s(z.UTM_Medium),
+          utm_term: s(z.UTM_Term), utm_content: s(z.UTM_Content), referrer: s(z.Referrer),
           first_response_at: r.firstResponseAt, first_responder: r.firstResponder,
           response_hours: r.responseHours,
           emails_out: r.emailsOut, emails_in: r.emailsIn,
@@ -429,6 +438,17 @@ export async function refreshSales(
     if (ranOut) {
       notes.push(`stopped after ${Math.round((Date.now() - startedAt) / 1000)}s to avoid a timeout — call again to continue`)
     }
+
+    // Batches, not enquiries: flag (never drop) leads that arrived in a burst
+    // to one owner inside one hour. See lib/mw-lead-bursts.ts.
+    try {
+      const { data: recent } = await supabase.from('mw_leads').select('id, created_time, owner_name, suspect_import')
+        .gte('created_time', new Date(Date.now() - 120 * 86_400_000).toISOString())
+      const burst = burstIds((recent ?? []) as any[])
+      const flip = (recent ?? []).filter((r: any) => burst.has(r.id) !== !!r.suspect_import)
+      for (const r of flip as any[]) await supabase.from('mw_leads').update({ suspect_import: burst.has(r.id) }).eq('id', r.id)
+      if (burst.size) notes.push(`${burst.size} leads look like a batch import, flagged`)
+    } catch { /* a flag that could not be set is not worth failing the run for */ }
 
     notes.push(`${withEmail} leads have an email trail, ${withNote} have a written note`)
     notes.push(tlFailed

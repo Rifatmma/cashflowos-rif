@@ -3,7 +3,7 @@ import { getMwData, getMwMonths, getTargets, money, money0, num } from '@/lib/mw
 import { MwHero, Tiles, Section, Bars, SpendLeadChart } from '../_ui'
 import { getActions } from '@/lib/mw-actions'
 
-import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
+import { Targets, PaceChart, Scoreboard } from '../_sections'
 import { MonthPicker, MonthOverMonth } from '../_month-picker'
 import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
 import { AuctionBand, AuctionTable, AuctionActions } from '../_auction-ui'
@@ -237,13 +237,6 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         </Section>
       ) : null}
 
-      {d.sem.benchmark?.length ? (
-        <Section title="Beaten by our own past campaigns"
-          sub="Where a paused campaign still outperforms what is live — and what it did differently.">
-          <Benchmark blocks={d.sem.benchmark} />
-        </Section>
-      ) : null}
-
       <Section
         title="Concentration beats coverage"
         sub="Daily budget divided by live keywords, against conversion rate. The more thinly a campaign spreads its budget, the worse it converts — the clearest pattern in this account."
@@ -270,12 +263,6 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
           when the keywords are tight.
         </p>
       </Section>
-
-      {d.sem.leaks?.length ? (
-        <Section title="Where the money leaks" sub="Four fixable drains.">
-          <Cards rows={d.sem.leaks} />
-        </Section>
-      ) : null}
 
       {/* THE TASK LIST LIVES IN THE MARKET PLAN, NOT HERE.
           It was on this page AND inside the plan, which meant two places to

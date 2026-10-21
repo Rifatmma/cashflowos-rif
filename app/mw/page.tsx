@@ -1,103 +1,152 @@
-import { currentGuest } from '@/lib/guest'
+import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { getMwData, buildAlerts, money0, num } from '@/lib/mw-data'
-import { getActions, tally } from '@/lib/mw-actions'
-import { MwHero, Tiles, Section, Alerts, Bars } from './_ui'
-import { Tracker } from './_actions-ui'
-import { ContextCards } from './_sections'
+import { currentGuest } from '@/lib/guest'
+import { getTargets } from '@/lib/mw-data'
+import { loadStack } from '@/lib/mw-priority-load'
+import { forPerson } from '@/lib/mw-priorities'
+import { personByActor, doers, OWNER_NAME } from '@/lib/mw-people'
+import { seenByPerson } from '@/lib/mw-presence'
+import { glanceOf } from '@/lib/mw-seo-glance'
+import { MwHero } from './_ui'
+import { Signals, DoFirst, TaskList, PeopleCards, peopleRows, type StackSignal } from './_stack-ui'
 
-// 👉 Moving Walls → Overview. The default tab: the whole picture in one screen.
+// 👉 Moving Walls → Today. One look, then the one list of what to do.
+//
+// This replaced the Overview (21 Oct 2026). The Overview answered "what
+// happened" in four sections and asked nobody to do anything; three of its
+// cards had been written by hand on 28 Sep and shown as current ever since.
+//
+//   "I need clear action plans, clear direction based on the data shown."
+//                                                        (owner, 21 Oct 2026)
+//
+// Top to bottom: six numbers, the single most valuable task, the ranked list
+// across every channel (lib/mw-priorities.ts), and a card per person.
 
 export const dynamic = 'force-dynamic'
 
-export default async function MwOverview() {
+type Q = { who?: string; ch?: string; all?: string }
+const CHANNELS = ['Tracking', 'Paid', 'SEO', 'Content', 'Sales'] as const
+
+export default async function MwToday({ searchParams }: { searchParams: Promise<Q> }) {
   const guest = await currentGuest()
   const jar = await cookies()
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
+  // Same rule as actor() in ./actions: anyone who is not a guest is the owner.
+  const isOwner = guest === null
+  const q = await searchParams
 
-  const [snap, rows] = await Promise.all([getMwData(), getActions()])
+  const [stack, seen, targets] = await Promise.all([loadStack(), seenByPerson(), getTargets()])
+  const { queue, people, facts, markets } = stack
+  const me = personByActor(people, isOwner ? 'owner' : guest)
+  const focus = new Set(queue.focus)
 
-  if (!snap) {
-    return (
-      <div className="mw-wrap">
-        <MwHero tab="overview" pulled="—" stale={false} headline="Marketing Command Centre" />
-        <Section title="No snapshot yet">
-          <p className="lede">
-            The <code>mw_snapshots</code> table is empty, so there is nothing to show. The daily
-            refresh writes a row each morning; until one lands this page stays blank rather than
-            inventing numbers.
-          </p>
-        </Section>
-      </div>
-    )
+  // ── the six numbers
+  const enquiries = facts.channels.reduce((t, c) => t + c.sl, 0)
+  const organic = facts.channels.find(c => c.n === 'Organic Search')?.sl ?? 0
+  const paidGa4 = facts.channels.find(c => c.n === 'Paid Search')?.sl ?? 0
+  const nb = glanceOf(markets).find(s => s.key === 'nonbrand')
+  const team = doers(people).filter(p => p.name !== OWNER_NAME)
+  const activeTeam = team.filter(p => (seen.get(p.name)?.visitsThisWeek ?? 0) > 0).length
+  const answered = facts.leads14 - facts.unanswered14
+  const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
+  const signals: StackSignal[] = [
+    { key: 'enq', label: 'Enquiries', value: String(enquiries), note: `this month · GA4 · organic ${organic} · paid ${paidGa4}`, tone: 'plain', href: '/mw/sales' },
+    {
+      key: 'src', label: 'Source known', value: facts.utmFill === null ? '—' : `${Math.round(facts.utmFill * 100)}%`,
+      note: 'CRM leads, last 14 days', tone: facts.utmFill === null ? 'warn' : facts.utmFill >= 0.8 ? 'good' : facts.utmFill >= 0.5 ? 'warn' : 'bad',
+    },
+    {
+      key: 'cpl', label: 'Paid cost / lead', value: facts.paid ? `S$${Math.round(facts.paid.cpl)}` : '—',
+      note: facts.paid ? `Google Ads · ${facts.paid.monthLabel} · ${facts.paid.leads} leads` : 'no snapshot',
+      tone: !facts.paid || !targets.cpa ? 'plain' : facts.paid.cpl <= targets.cpa ? 'good' : 'warn', href: '/mw/paid',
+    },
+    { key: 'nb', label: 'Non-brand', value: nb?.value ?? '—', note: nb?.note ?? '', tone: (nb?.tone ?? 'plain') as StackSignal['tone'], href: '/mw/seo' },
+    {
+      key: 'ans', label: 'Answered', value: `${answered} of ${facts.leads14}`, note: 'CRM · last 14 days',
+      tone: !facts.leads14 ? 'plain' : pct(answered, facts.leads14) >= 80 ? 'good' : pct(answered, facts.leads14) >= 50 ? 'warn' : 'bad', href: '/mw/sales',
+    },
+    {
+      key: 'team', label: 'Team active', value: `${activeTeam} of ${team.length}`, note: 'opened the app this week',
+      tone: activeTeam >= team.length * 0.7 ? 'good' : activeTeam >= team.length * 0.3 ? 'warn' : 'bad', href: '/mw/people',
+    },
+  ]
+
+  // ── the list, filtered
+  const who = q.who && people.some(p => p.name === q.who) ? q.who : null
+  const ch = CHANNELS.find(c => c === q.ch) ?? null
+  let list = who ? forPerson(queue, who) : queue.items
+  if (ch) list = list.filter(x => x.channel === ch)
+  const showAll = q.all === '1' || !!who || !!ch
+  const shown = showAll ? list : list.filter(x => focus.has(x.id) || x.when === 'now').slice(0, 12)
+  const canAnswer = (x: { owner: string; helper?: string }) => isOwner || (!!me && (x.owner === me.name || x.helper === me.name))
+  const href = (o: Partial<Q>) => {
+    const sp = new URLSearchParams()
+    const w = 'who' in o ? o.who : who, c = 'ch' in o ? o.ch : ch
+    if (w) sp.set('who', w)
+    if (c) sp.set('ch', c)
+    if (o.all) sp.set('all', o.all)
+    const s = sp.toString()
+    return `/mw${s ? `?${s}` : ''}#next`
   }
-
-  const d = snap.data
-  const alerts = buildAlerts(d)
-  const totS = d.channels.reduce((a, c) => a + c.s, 0)
-  const totL = d.channels.reduce((a, c) => a + c.sl, 0)
-  const ch = [...d.channels].filter(c => c.s > 0).sort((a, b) => b.sl - a.sl || b.s - a.s)
-  const organic = d.channels.find(c => c.n === 'Organic Search')
-  const paid = d.channels.find(c => c.n === 'Paid Search')
-  const paidRows = rows.filter(r => r.channel === 'paid')
-  const seoRows = rows.filter(r => r.channel === 'seo')
-  const declined = rows.filter(r => r.decision?.choice === 'reject')
+  const first = queue.items[0] ?? null
+  const mine = me && !isOwner ? forPerson(queue, me.name) : []
+  const rows = peopleRows(doers(people), queue, seen, stack.doneThisWeek, () => null)
 
   return (
     <div className="mw-wrap">
-      {/* The headline used to read "Organic search delivers the leads. Paid
-          search delivers the bill." It set GA4's last-click count for paid
-          against organic's and called the difference a verdict. Two problems:
-          the comparison is not like for like, and this page is read by the
-          team -- including the person who runs the ads (owner, 29 Sep 2026). */}
-      <MwHero tab="overview" pulled={d.meta.pulled} stale={snap.stale}
-        headline={`${d.meta.monthLabel}: where the leads came from, and how each channel is counted`}>
+      <MwHero tab="overview" pulled={facts.paid?.monthLabel ?? ''} stale={false}
+        sources="Moving Walls · Google Ads · GA4 · Search Console · Zoho CRM ·"
+        headline={`${queue.focus.length} tasks carry ${Math.round(queue.share * 100)}% of the value this week`}>
         <p>
-          Organic brought <b>{organic?.sl ?? 0} leads from {num(organic?.s ?? 0)} sessions</b> at no media cost.
-          Paid search brought <b>{num(paid?.s ?? 0)} sessions for {money0(d.sem.kpi.spend)}</b>, and the two
-          systems count its leads differently: <b>Google Ads {d.sem.kpi.leads}</b>, <b>GA4 {paid?.sl ?? 0}</b>.
-          Both are right — Google Ads credits a conversion for up to 60 days after the click, wherever it
-          finally lands, so some of what GA4 files under organic or direct began with an ad.
+          One list across tracking, paid search, SEO, content and sales, ranked by expected enquiries per hour of
+          work. Focus markets: India, SEA and the Americas.
           {guest ? ` Signed in as ${guest}.` : ''}
         </p>
       </MwHero>
 
-      {/* No up/down colouring on the channel tiles: green on organic and red
-          on paid is a judgement, and these two are not measured the same way. */}
-      <Tiles items={[
-        { k: 'Site sessions', v: num(totS), d: `${d.meta.monthLabel}, ${d.meta.days} days` },
-        { k: 'Leads, all channels', v: String(totL), d: 'GA4, last click' },
-        { k: 'Organic leads', v: String(organic?.sl ?? 0), d: 'no media cost' },
-        { k: 'Paid leads · Google Ads', v: String(d.sem.kpi.leads), d: '60-day, cross-channel' },
-        { k: 'Paid leads · GA4', v: String(paid?.sl ?? 0), d: 'last click only' },
-        { k: 'Paid cost per lead', v: money0(d.sem.kpi.cpl), d: `${money0(d.sem.kpi.spend)} / ${d.sem.kpi.leads}` },
-      ]} />
+      <Signals items={signals} />
 
-      <Section title="Alerts — what moved"
-        sub="Computed from this month against last, per day, so a part-month isn't read as a decline. Nothing here was chosen by hand.">
-        <Alerts alerts={alerts} />
-      </Section>
+      {mine.length > 0 && (
+        <section className="mw-card" id="mine">
+          <h2 style={{ marginBottom: 10 }}>Your week, {me!.name}</h2>
+          <TaskList items={mine} focus={focus} canAnswer={canAnswer} />
+        </section>
+      )}
 
-      <Section title={`Where the ${totL} leads came from`}
-        sub="Sessions and key events from GA4. Orange marks a channel over 1,000 sessions that converted nobody.">
-        <Bars max={Math.max(...ch.map(c => c.sl), 1)}
-          rows={ch.map(c => ({
-            label: c.n, value: c.sl, display: `${c.sl} · ${num(c.s)} sess`,
-            tone: c.sl > 0 ? 'good' : c.s >= 1000 ? 'bad' : 'dim',
-          }))} />
-      </Section>
+      <DoFirst item={first} href={first ? `#t-${first.id.replace(/[^a-z0-9]/gi, '-')}` : '#next'} />
 
-      {d.overview?.context?.length ? (
-        <Section title="The three the team should discuss first" sub="Context behind the alerts above.">
-          <ContextCards cards={d.overview.context} read={d.overview.read} />
-        </Section>
-      ) : null}
+      <section className="mw-card" id="next">
+        <div className="mw-next-head">
+          <h2>Do next{who ? ` · ${who}` : ''}</h2>
+          <nav className="mw-planner-cut" aria-label="Channel">
+            <Link href={href({ ch: undefined })} aria-current={!ch ? 'true' : undefined} scroll={false}>All</Link>
+            {CHANNELS.map(c => (
+              <Link key={c} href={href({ ch: c })} aria-current={ch === c ? 'true' : undefined} scroll={false}>{c}</Link>
+            ))}
+          </nav>
+        </div>
+        <p className="mw-planner-note">
+          {who
+            ? <>{who}&apos;s tasks, this week first. <Link href={href({ who: undefined })} scroll={false}>Show everyone</Link></>
+            : <>{queue.focus.length} of {queue.items.length} tasks carry {Math.round(queue.share * 100)}% of the expected gain. Each person gets only what fits their week; the rest waits.</>}
+        </p>
+        <TaskList items={shown} focus={focus} canAnswer={canAnswer} empty="Nothing open here." />
+        {!showAll && list.length > shown.length && (
+          <p className="mw-planner-lab" style={{ marginTop: 10 }}>
+            <Link href={href({ all: '1' })} scroll={false}>Show all {list.length} tasks</Link>
+          </p>
+        )}
+      </section>
 
-      <Section title="Action tracker"
-        sub="Status is read from the accounts and refreshes every morning. Decisions are your team's, and stay until you change them.">
-        <Tracker paid={tally(paidRows)} seo={tally(seoRows)} declined={declined} />
-      </Section>
+      <section className="mw-card" id="people">
+        <h2 style={{ marginBottom: 4 }}>People</h2>
+        <p className="mw-planner-note">Click a person to see their tasks. Mehul and Safwaan see this view and get the weekly summary.</p>
+        <PeopleCards rows={rows} active={who} hrefFor={n => href({ who: who === n ? undefined : n })} />
+        <p className="mw-planner-lab" style={{ marginTop: 10 }}>
+          The seven maintenance markets get one top task each. <Link href="/mw/people">Team summary</Link>
+        </p>
+      </section>
     </div>
   )
 }

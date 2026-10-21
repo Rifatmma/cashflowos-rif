@@ -132,10 +132,14 @@ export function Scoreboard({ rows }: { rows: { name: string; sub: string; state:
   return (
     <div className="mw-split">
       {rows.map(c => {
-        const [cls, label] = pill[c.state] ?? ['mw-p-not', c.state]
+        // The refresh stores Google's raw status (ENABLED / PAUSED), which this
+        // pill table never knew, so every campaign showed a red "ENABLED".
+        const state = c.state === 'ENABLED' ? (c.leads > 0 ? 'live' : 'live-bad')
+          : c.state === 'PAUSED' ? 'paused' : c.state
+        const [cls, label] = pill[state] ?? ['mw-p-not', c.state]
         const good = c.cpl != null && c.cpl < 50
         return (
-          <div className="mw-tile" key={c.name} style={{ padding: '17px 18px', boxShadow: c.state.startsWith('live') ? 'inset 3px 0 0 var(--mw-brand)' : 'inset 3px 0 0 var(--mw-line-strong)' }}>
+          <div className="mw-tile" key={c.name} style={{ padding: '17px 18px', boxShadow: state.startsWith('live') ? 'inset 3px 0 0 var(--mw-brand)' : 'inset 3px 0 0 var(--mw-line-strong)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-.3px' }}>{c.name}</div>

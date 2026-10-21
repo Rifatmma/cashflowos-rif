@@ -53,7 +53,7 @@ export function ProposalCard({ p }: { p: ProposalView }) {
 
       {p.was && <p className="mw-prop-ba mw-prop-was">{p.was}</p>}
       <p className="mw-prop-ba mw-prop-now">{p.now.length > 180 ? p.now.slice(0, 180) + '…' : p.now}</p>
-      <p className="mw-prop-why" dangerouslySetInnerHTML={{ __html: p.why }} />
+      <p className="mw-prop-why">{richText(p.why)}</p>
 
       <p className="mw-prop-ev">
         {p.spend > 0 && <>S${p.spend.toFixed(2)} a month · {p.clicks} clicks · {p.conv} conversion{p.conv === 1 ? '' : 's'}</>}
@@ -115,4 +115,27 @@ export function ProposalPage({ slug, url, href, items }: {
       </div>
     </details>
   )
+}
+
+/**
+ * The reason text carries a little emphasis (<b>, <strong>, <em>) and nothing
+ * else. It used to be injected as raw HTML; now every tag except those three is
+ * dropped and the text is rendered as text, so a proposal can never carry script.
+ */
+function richText(html: string): React.ReactNode[] {
+  const out: React.ReactNode[] = []
+  const decode = (t: string) => t.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+  const parts = String(html ?? '').split(/(<\/?(?:b|strong|em)>)/i)
+  let bold = false, em = false
+  parts.forEach((part, i) => {
+    const tag = part.toLowerCase()
+    if (tag === '<b>' || tag === '<strong>') { bold = true; return }
+    if (tag === '</b>' || tag === '</strong>') { bold = false; return }
+    if (tag === '<em>') { em = true; return }
+    if (tag === '</em>') { em = false; return }
+    const text = decode(part.replace(/<[^>]*>/g, ''))
+    if (!text) return
+    out.push(bold ? <b key={i}>{text}</b> : em ? <em key={i}>{text}</em> : text)
+  })
+  return out
 }
