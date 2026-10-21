@@ -748,6 +748,28 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     x.restore();
   };
 
+  // A photo drawn to cover a rect, centred on `focus` ([x, y, w, h], 0–1 of
+  // the photo) as far as the edges allow. Returns the focus rect on canvas.
+  function coverImg(img, r, focus, zoom = 1) {
+    const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height, s = Math.max(r.w / iw, r.h / ih) * zoom, dw = iw * s, dh = ih * s;
+    const fx = (focus[0] + focus[2] / 2) * dw, fy = (focus[1] + focus[3] / 2) * dh;
+    const ox = clamp(r.x + r.w / 2 - fx, r.x + r.w - dw, r.x), oy = clamp(r.y + r.h / 2 - fy, r.y + r.h - dh, r.y);
+    x.save(); x.beginPath(); x.rect(r.x, r.y, r.w, r.h); x.clip(); x.drawImage(img, ox, oy, dw, dh); x.restore();   // never past its rect
+    const map = b => ({ x: ox + b[0] * dw, y: oy + b[1] * dh, w: b[2] * dw, h: b[3] * dh });
+    return Object.assign(map(focus), { map });
+  }
+
+  // A small, blurred, darkened copy of a photo for backdrops, made once
+  // (a per-frame ctx.filter blur of a full photo is slow).
+  const BLUR = new Map();
+  function blurred(img) {
+    if (BLUR.has(img)) return BLUR.get(img);
+    const w = Math.max(8, Math.round(img.naturalWidth / 6)), h = Math.max(8, Math.round(img.naturalHeight / 6));
+    const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const g = c.getContext('2d'); g.filter = 'blur(5px) brightness(.42) saturate(1.15)'; g.drawImage(img, -w * .05, -h * .05, w * 1.1, h * 1.1);
+    BLUR.set(img, c); return c;
+  }
+
   // ---------- transitions ----------
   // Overlay (draws on top of a hard cut): zig.
   // Spanning (needs both scenes): chev, iris, slide, bars.
@@ -880,6 +902,103 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       chevrons(W / 2 + shift - measure(w.s, st, size) / 2 - size * chevK - size * .22, cyMid - size * .66, size * .62, fx.a, P(T, w.t, w.t + .2));
       text(w.s, W / 2 + shift, cyMid, st, size, w.color === 'accent' ? accentText(dark) : (w.color || (dark ? C.white : C.type)), fx, 'center');
     },
+    // one featured inventory site: its real photo, pushed in on the screen,
+    // then name, format, monthly reach / impressions and what is nearby
+    site(sc, T) {
+      const img = TEX.photos && TEX.photos[sc.photo], u = T - sc.a, f = sc.focus || [.3, .2, .4, .5];
+      background('navy', T, false);
+      if (img && img.naturalWidth) {
+        coverImg(blurred(img), { x: -60 * U, y: -60 * U, w: W + 120 * U, h: H + 120 * U }, f, 1.1);
+        const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(27,30,43,.35)'); g.addColorStop(1, 'rgba(27,30,43,.8)');
+        x.fillStyle = g; x.fillRect(0, 0, W, H);
+      }
+      const b = { x: SA.x, y: SA.y, w: SA.w, h: SA.h - SUPER_H };
+      let card, info;
+      if (LAND) {
+        const cw = b.w * .56, ch = Math.min(b.h * .9, cw / 1.5);
+        card = { x: b.x, y: b.y + (b.h - ch) / 2, w: cw, h: ch };
+        info = { x: b.x + cw + b.w * .05, y: b.y + b.h * .08, w: b.w * .39, h: b.h * .84 };
+      } else {
+        const ch = Math.min(b.w / 1.5, b.h * (FMT === '916' ? .45 : .42));
+        card = { x: b.x, y: b.y, w: b.w, h: ch };
+        info = { x: b.x, y: b.y + ch + b.h * .05, w: b.w, h: b.h - ch - b.h * .05 };
+      }
+      // the photo wipes in behind an accent edge, then slowly pushes in on the screen
+      const wp = sc.tr === 'slide' ? 1 : oExpo(P(u, 0, .6)), R = 22 * U;   // when it slides in, the card arrives whole
+      x.save(); x.beginPath(); x.roundRect(card.x, card.y, card.w, card.h, R); x.clip();
+      x.beginPath(); x.rect(card.x, card.y, card.w * wp, card.h); x.clip();
+      let fr = null;
+      if (img && img.naturalWidth) {
+        fr = coverImg(img, card, f, lerp(1.02, 1.16, ioCub(P(T, sc.a, sc.b))));
+        // a quiet spotlight: everything but the screen dims a little
+        const sp = P(u, .7, 1.1) * .32;
+        if (sp > 0) { x.fillStyle = `rgba(15,18,32,${sp})`; x.beginPath(); x.rect(card.x, card.y, card.w, card.h); x.rect(fr.x + fr.w, fr.y, -fr.w, fr.h); x.fill('evenodd'); }
+      } else { x.fillStyle = BG.cover(); x.fillRect(card.x, card.y, card.w, card.h); }
+      x.restore();
+      if (wp < 1) { x.fillStyle = accGrad(card.x, card.x + card.w); x.fillRect(card.x + card.w * wp - 6 * U, card.y, 12 * U, card.h); }
+      // corner brackets snap onto the screen
+      if (fr) {
+        const bp = oBack(P(u, .55, .95), 2.2);
+        if (bp > 0) {
+          const pad = 14 * U * (1 + (1 - bp) * 2.5), L = Math.min(fr.w, fr.h) * .22 + 10 * U;
+          const bx0 = Math.max(card.x + 8 * U, fr.x - pad), by0 = Math.max(card.y + 8 * U, fr.y - pad);
+          const bx1 = Math.min(card.x + card.w - 8 * U, fr.x + fr.w + pad), by1 = Math.min(card.y + card.h - 8 * U, fr.y + fr.h + pad);
+          x.save(); x.globalAlpha = clamp(bp); x.strokeStyle = C.sun1; x.lineWidth = 7 * U; x.lineCap = 'square';
+          x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 12 * U;
+          for (const [cx, cy, dx, dy] of [[bx0, by0, 1, 1], [bx1, by0, -1, 1], [bx0, by1, 1, -1], [bx1, by1, -1, -1]]) {
+            x.beginPath(); x.moveTo(cx, cy + dy * L); x.lineTo(cx, cy); x.lineTo(cx + dx * L, cy); x.stroke();
+          }
+          x.restore();
+        }
+      }
+      // words
+      const tb = { x: info.x, y: info.y, w: info.w, h: info.h * (LAND ? .42 : .4) };
+      let y = textBlock(T, sc.text, tb, true);
+      const chipH = 62 * U, numS = 104 * U, labS = 30 * U, nearS = 40 * U;
+      const need = chipH + 40 * U + numS + 16 * U + labS * 1.3 + 44 * U + nearS * 1.3;
+      const avail = info.y + info.h - y - 20 * U, k = Math.min(1.15, avail / need), gx = Math.max(0, avail - need * k) / 4;
+      y += 26 * U * k + gx;
+      if (sc.chip && T >= sc.chip.t) {
+        const a = P(T, sc.chip.t, sc.chip.t + .3), cs = fitFont(sc.chip.s, 600, 32 * U * k, info.w - 110 * U * k);
+        x.font = `600 ${cs}px Poppins`; const cw = x.measureText(sc.chip.s).width + 104 * U * k, h = chipH * k;
+        x.save(); x.globalAlpha = a; x.translate((1 - oExpo(a)) * -30 * U, 0);
+        x.strokeStyle = 'rgba(191,231,251,.6)'; x.lineWidth = 2.5 * U; x.fillStyle = 'rgba(43,60,146,.55)';
+        x.beginPath(); x.roundRect(info.x, y, cw, h, h / 2); x.fill(); x.stroke();
+        // a small screen icon
+        const ix = info.x + 28 * U * k, iy = y + h / 2;
+        x.strokeStyle = C.sky; x.lineWidth = 3.5 * U * k; x.strokeRect(ix, iy - 13 * U * k, 34 * U * k, 22 * U * k);
+        x.beginPath(); x.moveTo(ix + 17 * U * k, iy + 9 * U * k); x.lineTo(ix + 17 * U * k, iy + 17 * U * k); x.stroke();
+        x.fillStyle = C.white; x.textAlign = 'left'; x.fillText(sc.chip.s, ix + 52 * U * k, iy + cs * .36);
+        x.restore();
+      }
+      y += chipH * k + 40 * U * k + gx;
+      const st = sc.stats || [], gap = 36 * U, colW = (info.w - gap * (st.length - 1)) / Math.max(1, st.length);
+      st.forEach((s, i) => {
+        if (T < s.t) return;
+        const cx = info.x + i * (colW + gap), p = oCub(P(T, s.t, s.t + (s.roll ?? 1.1)));
+        const shown = Math.round(s.value * p).toLocaleString('en-US');
+        const ns = fitFont(s.value.toLocaleString('en-US'), 800, numS * k, colW);
+        x.save(); x.globalAlpha = P(T, s.t, s.t + .2);
+        x.font = `800 ${ns}px Poppins`; x.letterSpacing = -ns * .02 + 'px'; x.textAlign = 'left';
+        x.fillStyle = s.accent ? accGrad(cx, cx + colW) : C.white; x.fillText(shown, cx, y + numS * k * .82);
+        x.letterSpacing = '0px';
+        const ls = fitFont(s.label, 500, labS * k, colW); x.fillStyle = 'rgba(255,255,255,.78)';
+        x.fillText(s.label, cx, y + numS * k + 16 * U * k + ls);
+        x.fillStyle = s.accent ? C.sun1 : C.sky; x.fillRect(cx, y - 16 * U * k, 56 * U * k * oExpo(P(T, s.t, s.t + .4)), 6 * U * k);
+        x.restore();
+      });
+      y += numS * k + 16 * U * k + labS * 1.3 * k + 44 * U * k + gx;
+      if (sc.near && T >= sc.near.t) {
+        const a = P(T, sc.near.t, sc.near.t + .3), ps = nearS * k, pr = ps * .34;
+        const ns = fitFont(sc.near.s, 600, ps, info.w - ps * 1.1, true);
+        x.save(); x.globalAlpha = a; x.translate((1 - oExpo(a)) * -24 * U, 0);
+        const px = info.x + pr, py = y + ps * .1;
+        x.fillStyle = C.sun1; x.beginPath(); x.arc(px, py - pr * 1.2, pr, Math.PI * .85, Math.PI * 2.15); x.lineTo(px, py + pr * .5); x.closePath(); x.fill();
+        x.fillStyle = C.navy; x.beginPath(); x.arc(px, py - pr * 1.25, pr * .4, 0, 7); x.fill();
+        x.font = `italic 600 ${ns}px Poppins`; x.fillStyle = C.sky; x.textAlign = 'left'; x.fillText(sc.near.s, info.x + ps * 1.1, py + ns * .05);
+        x.restore();
+      }
+    },
     logo(sc, T) {
       background('cover', T, true); const u = T - sc.a, lp = oExpo(P(u, 0, .35));
       const lw = Math.min(560 * U, SA.w * .8);
@@ -890,8 +1009,10 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       background('white', T, true);
       const u = T - sc.a, lp = oExpo(P(u, 0, .5));
       const lw = Math.min((LAND ? 620 : 640) * U, SA.w * .82);
-      logo(W / 2, SA.y + SA.h * (LAND ? .3 : .34), lw * lerp(1.12, 1, lp), 'color', P(u, 0, .15), (1 - lp) * 22 * U);
-      textBlock(T, sc.text, { x: SA.x, y: SA.y + SA.h * (LAND ? .5 : .48), w: SA.w, h: SA.h * .42 - SUPER_H }, false, 'center');
+      const ly = SA.y + SA.h * (LAND ? .3 : .34), lbot = ly + lw * SH.logo.h / SH.logo.w / 2 + 40 * U;
+      logo(W / 2, ly, lw * lerp(1.12, 1, lp), 'color', P(u, 0, .15), (1 - lp) * 22 * U);
+      const ty = Math.max(SA.y + SA.h * (LAND ? .5 : .48), lbot);   // never up into the logo
+      textBlock(T, sc.text, { x: SA.x, y: ty, w: SA.w, h: SA.y + SA.h * .92 - SUPER_H - ty }, false, 'center');
       zigStrip(-60 * U, H - 140 * U, 56 * U, Math.ceil(W / (150 * U)) + 2, C.sky, P(u, .3, .8), u * 60 * U);
       x.fillStyle = `rgba(255,255,255,${P(T, sc.b - .5, sc.b)})`; x.fillRect(0, 0, W, H);
     },
@@ -899,7 +1020,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
 
   // ---------- persistent chrome: guidebook footer strip + subtitles ----------
   function chrome(T, sc) {
-    const dark = !!DARK[sc.bg] || sc.kind === 'cover' || sc.kind === 'logo';
+    const dark = !!DARK[sc.bg] || sc.kind === 'cover' || sc.kind === 'logo' || sc.kind === 'site';
     // decoration may sit under platform UI; it carries no meaning
     if (sc.kind !== 'end' && sc.kind !== 'burst') zigStrip(-30 * U, H - 92 * U, 34 * U, Math.ceil(W / (90 * U)) + 2, dark ? 'rgba(102,201,243,.5)' : 'rgba(43,60,146,.28)', 1, T * 30 * U);
     const sub = (SPEC.supers || []).find(s => T >= s.a && T < s.b);

@@ -8,6 +8,8 @@ import { writeBrandFilm } from '@/lib/mw-brandfilm-write'
 import { speakAll, type SpokenLine } from '@/lib/mw-brandfilm-voice'
 import type { Audience, Plan, SubLang } from '@/lib/mw-brandfilm'
 import { candidates, cutoutsConfigured, libraryFind, librarySave, libraryUsed, type Candidate, type Cutout } from '@/lib/mw-cutouts'
+import { readLocation, type LocationRead } from '@/lib/mw-locations'
+import { writeLocationFilm } from '@/lib/mw-locationfilm-write'
 
 // Server actions for the Studio tab. Three steps, each returning on its own,
 // because the whole point of the screen is that you see the facts before a
@@ -130,4 +132,35 @@ export async function saveScenePhoto(meta: {
 
 export async function usedScenePhoto(id: number): Promise<void> {
   if (Number.isInteger(id)) await libraryUsed(id)
+}
+
+// ------------------------------------------------------- location video
+
+export type LocationResult = { ok: true; read: LocationRead } | { ok: false; error: string }
+
+/** Every site on a /locations page (and the pages it links to) with a photo, reach and impressions. */
+export async function readLocationPage(url: string): Promise<LocationResult> {
+  const r = await readLocation(String(url ?? '').slice(0, 300))
+  if ('error' in r) return { ok: false, error: r.error }
+  return { ok: true, read: r }
+}
+
+/**
+ * Ava's script and a card per chosen site. The page is read again here
+ * rather than trusting sites sent from the browser, so the numbers on the
+ * cards are always the page's own.
+ */
+export async function writeLocationVideo(url: string, siteIds: string[]): Promise<BrandPlanResult> {
+  const r = await readLocation(String(url ?? '').slice(0, 300))
+  if ('error' in r) return { ok: false, error: r.error }
+  const all = r.cities.flatMap(c => c.sites)
+  const ids = (Array.isArray(siteIds) ? siteIds : []).map(String).slice(0, 6)
+  const sites = ids.map(id => all.find(s => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s)
+  if (!sites.length) return { ok: false, error: 'None of those sites is on the page any more. Read it again.' }
+  const cities = [...new Set(sites.map(s => s.city))]
+  const label = r.cities.filter(c => cities.includes(c.city)).map(c => c.label).join(' & ')
+  const pages = r.pages.filter(p => p.kind === 'country' || cities.includes(p.city))
+  const out = await writeLocationFilm(label, pages, sites)
+  if ('error' in out) return { ok: false, error: out.error }
+  return { ok: true, plan: out.plan, notes: out.notes }
 }

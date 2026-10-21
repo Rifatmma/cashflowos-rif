@@ -13,7 +13,9 @@ import { NextResponse } from 'next/server'
 // an open proxy: anyone could point it at an internal address and read the
 // response through our server. One host, exact match, no wildcards.
 
-const ALLOWED = new Set(['images.pexels.com'])
+// cdn.sanity.io: the published inventory photos on movingwalls.com/locations
+// pages, drawn by the location video.
+const ALLOWED = new Set(['images.pexels.com', 'cdn.sanity.io'])
 
 export const runtime = 'edge'
 

@@ -1,9 +1,9 @@
 ---
 name: mw-brand-video
-description: Turn a Moving Walls blog article (or any brief) into an on-brand motion-graphics video with Ava's voiceover — beat-synced edit, guidebook zigzags/logo/chevrons, ducked music + sound design, optional Chinese or other-language subtitles — rendered as MP4 in 9:16, 16:9, 1:1 and/or 4:5. Use this whenever the user wants a video, reel, short, animated post, motion graphic, explainer or social video for Moving Walls / movingwalls.com content, mentions "Ava" or "the voiceover", pastes a movingwalls.com/blog link and asks to "make one like the Tokyo/Chinese brands one", or wants a static frame or carousel pulled from such a video — even if they don't say "skill" or name a format.
+description: Turn a Moving Walls blog article (or any brief) into an on-brand motion-graphics video with Ava's voiceover — beat-synced edit, guidebook zigzags/logo/chevrons, ducked music + sound design, optional Chinese or other-language subtitles — rendered as MP4 in 9:16, 16:9, 1:1 and/or 4:5. Use this whenever the user wants a video, reel, short, animated post, motion graphic, explainer or social video for Moving Walls / movingwalls.com content, mentions "Ava" or "the voiceover", pastes a movingwalls.com/blog link and asks to "make one like the Tokyo/Chinese brands one", or wants a static frame or carousel pulled from such a video — even if they don't say "skill" or name a format. For videos about inventory on a /locations/ page (featured sites in a country or city) use mw-location-video instead.
 ---
 
-# Moving Walls brand video
+# Moving Walls brand video (Ava for blog posts)
 
 A spec-driven renderer: the **engine** owns the look (brand assets, colour, type, motion, sound) so every video is consistent; each **project** only supplies Ava's script and a scene list. Two finished examples live in `examples/` (Tokyo DOOH, Overseas OOH for Chinese brands) — read one `spec.js` before writing a new one; matching their structure is the fastest route to a good result.
 

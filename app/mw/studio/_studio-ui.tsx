@@ -209,8 +209,8 @@ function blankDeck(format: Format, template: string): Deck {
 
 export function Studio({ photosReady = false }: { photosReady?: boolean }) {
   const [format, setFormat] = useState<Format | null>(null)
-  /** The third thing it makes: an Ava-voiced motion video, its own flow. */
-  const [brand, setBrand] = useState(false)
+  /** Ava-voiced motion video, its own flow: from a blog post, or from a local page's inventory. */
+  const [brand, setBrand] = useState<null | 'article' | 'location'>(null)
   const family: FormatFamily = format ? familyOf(format) : 'carousel'
   const [mode, setMode] = useState<Mode | null>(null)
 
@@ -253,7 +253,7 @@ export function Studio({ photosReady = false }: { photosReady?: boolean }) {
   const photoFor = (i: number) => slidePhoto[i] ?? photo
 
   const pickFormat = (f: Format) => {
-    setBrand(false)
+    setBrand(null)
     setFormat(f)
     setTemplate(DEFAULT_TEMPLATE[familyOf(f)].id)
     setDeck(null); setClips([]); setBeats([]); setError('')
@@ -423,7 +423,7 @@ export function Studio({ photosReady = false }: { photosReady?: boolean }) {
       {/* 1 ───────────────────────────────────────── what are you making */}
       <section>
         <h3>What are you making?</h3>
-        <div className="mw-studio-choice mw-bf-3">
+        <div className="mw-studio-choice mw-bf-4">
           <button type="button" onClick={() => pickFormat('single')}
             aria-current={format === 'single' && !brand ? 'true' : undefined}>
             <b>A single image</b>
@@ -434,20 +434,27 @@ export function Studio({ photosReady = false }: { photosReady?: boolean }) {
             <b>A carousel</b>
             <small>1080 × 1350, up to 8 slides. Room to lay out an argument.</small>
           </button>
-          <button type="button" onClick={() => { setBrand(true); setFormat(null); setMode(null); setDeck(null) }}
-            aria-current={brand ? 'true' : undefined}>
-            <b>A brand video with Ava</b>
-            <small>From one of our articles: Ava narrates, the brand zigzags and illustrations land on her words. 9:16, 16:9, 1:1 or 4:5.</small>
+          <button type="button" onClick={() => { setBrand('article'); setFormat(null); setMode(null); setDeck(null) }}
+            aria-current={brand === 'article' ? 'true' : undefined}>
+            <b>Ava · blog post</b>
+            <small>A video from one of our articles: Ava narrates, illustrations and data land on her words.</small>
+          </button>
+          <button type="button" onClick={() => { setBrand('location'); setFormat(null); setMode(null); setDeck(null) }}
+            aria-current={brand === 'location' ? 'true' : undefined}>
+            <b>Ava · local page</b>
+            <small>Featured sites from a movingwalls.com/locations page: real photos, format, monthly reach and impressions.</small>
           </button>
         </div>
         <p className="lede" style={{ marginTop: 10 }}>
-          {brand
-            ? 'A narrated motion video with music, built from a movingwalls.com article.'
+          {brand === 'location'
+            ? 'A narrated video with music promoting the inventory on a country or city page. 9:16, 16:9, 1:1 or 4:5.'
+            : brand
+            ? 'A narrated motion video with music, built from a movingwalls.com article. 9:16, 16:9, 1:1 or 4:5.'
             : 'An image or carousel can also become a simple video at the end.'}
         </p>
       </section>
 
-      {brand && <BrandFilm photosReady={photosReady} />}
+      {brand && <BrandFilm key={brand} source={brand} photosReady={photosReady} />}
 
       {/* 2 ──────────────────────────────────── where the words come from */}
       {format && (

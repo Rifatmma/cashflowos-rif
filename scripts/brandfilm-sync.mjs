@@ -2,7 +2,8 @@
 //
 // The brand-video renderer lives in the mw-brand-video skill
 // (.claude/skills/mw-brand-video/engine/core.js), where Claude sessions
-// render with it, and in /mw/studio, where the team does. They must draw
+// render with it, in the mw-location-video skill (a copy), and in
+// /mw/studio, where the team does. They must draw
 // the same pictures, so the Studio's copy is GENERATED from the skill's:
 //
 //   node scripts/brandfilm-sync.mjs
@@ -30,3 +31,9 @@ ${body.replace(/^function createEngine\(/m, 'export function createEngine(')}`
 if (!out.includes('export function createEngine(')) throw new Error('createEngine not found in core.js')
 writeFileSync(join(root, 'lib/mw-brandfilm-engine.ts'), out)
 console.log('lib/mw-brandfilm-engine.ts regenerated from core.js')
+
+// The location-video skill (Ava for local pages) renders with the same engine.
+const loc = join(root, '.claude/skills/mw-location-video/engine')
+writeFileSync(join(loc, 'core.js'), core)
+writeFileSync(join(loc, 'VERSION'), readFileSync(join(root, '.claude/skills/mw-brand-video/engine/VERSION')))
+console.log('.claude/skills/mw-location-video/engine/core.js copied')

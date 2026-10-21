@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { researchArticleUrl, writeBrandVideo, speakBrandVideo, findScenePhoto, saveScenePhoto, usedScenePhoto } from './actions'
+import { researchArticleUrl, writeBrandVideo, speakBrandVideo, findScenePhoto, saveScenePhoto, usedScenePhoto, readLocationPage, writeLocationVideo } from './actions'
+import type { LocationRead, Site } from '@/lib/mw-locations'
 import type { Candidate } from '@/lib/mw-cutouts'
 import { cutOut, loadCutout } from '@/lib/mw-cutout-client'
 import type { Research } from '@/lib/mw-studio'
 import {
   FILM_FORMATS, resolveFilm, estimateSeconds, pickRecipe, photoKey, sceneStillFilm,
-  type Audience, type Film, type FilmFormat, type Mode, type Plan, type Recipe, type SubLang, type VoiceLine,
+  type Audience, type Film, type FilmFormat, type Mode, type Plan, type PlanSite, type Recipe, type SubLang, type VoiceLine,
 } from '@/lib/mw-brandfilm'
 import { createEngine } from '@/lib/mw-brandfilm-engine'
 import { buildMix, SR } from '@/lib/mw-brandfilm-score'
@@ -27,6 +28,12 @@ import { encodeAV, canEncode } from '@/lib/mw-studio-encode'
 //
 // One format per export, on purpose: each one is a full encode, and the
 // owner asked that people choose before spending the time.
+//
+// Two sources, one screen: an article ("Ava · blog post") or a
+// movingwalls.com/locations page ("Ava · local page"), where step 1 reads
+// the page's featured sites and each becomes a card with its real photo,
+// format, monthly reach and impressions. Everything from the script on is
+// shared.
 
 type Assets = { shapes: any; dark: HTMLImageElement; light: HTMLImageElement }
 
@@ -102,6 +109,9 @@ type ScenePhoto = {
 }
 
 const asProxied = (u: string) => (u.startsWith('/api/') ? u : `/api/mw-photo?u=${encodeURIComponent(u)}`)
+/** A published site photo, small enough for a thumbnail or full size for the video. */
+const sitePhoto = (s: Site, w = 1600) => asProxied(`${s.image}?w=${w}&fm=jpg`)
+const MAX_SITES = 6
 
 async function blobBase64(b: Blob): Promise<string> {
   const buf = new Uint8Array(await b.arrayBuffer())
@@ -126,8 +136,12 @@ function SceneStill({ plan, index, withPhoto, format, assets, photo }: {
   return <canvas ref={ref} width={f.w} height={f.h} className={`mw-bf-still ${f.w > f.h ? 'is-wide' : ''}`} />
 }
 
-export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
+export function BrandFilm({ photosReady = false, source = 'article' }: { photosReady?: boolean; source?: 'article' | 'location' }) {
+  const local = source === 'location'
   const [url, setUrl] = useState('')
+  /** Ava · local page: what the page offers, and which sites are in the video. */
+  const [loc, setLoc] = useState<LocationRead | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
   const [res, setRes] = useState<Research | null>(null)
   const [audience, setAudience] = useState<Audience>('agencies')
   const [lang, setLang] = useState<SubLang>('none')
@@ -157,6 +171,8 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
   /** Photos by library key, drawn by the engine when the mode is 'photos'. */
   const [photos, setPhotos] = useState<Record<string, ScenePhoto>>({})
   const photoImgs = useRef<Record<string, HTMLImageElement>>({})
+  /** Bumped when a site photo arrives, so the preview redraws with it. */
+  const [photoTick, setPhotoTick] = useState(0)
   const readyPhotos = useMemo(() => Object.fromEntries(Object.entries(photos).filter(([, p]) => p.status === 'ready').map(([k, p]) => [k, p.thumb ?? ''])), [photos])
 
   const film: Film | null = useMemo(
@@ -174,6 +190,46 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
       if (!r.ok) return setError(r.error)
       setRes(r.research)
     })
+  }
+
+  const readLocal = () => {
+    setError(''); setLoc(null); setPicked([]); setPlan(null); setVoice(null); setClip(null)
+    start(async () => {
+      const r = await readLocationPage(url)
+      if (!r.ok) return setError(r.error)
+      setLoc(r.read)
+      // A city page: its own city's sites, up to six, are the starting choice.
+      const first = r.read.cities[0]
+      setPicked(first ? first.sites.slice(0, MAX_SITES).map(s => s.id) : [])
+    })
+  }
+  const allSites = useMemo(() => (loc ? loc.cities.flatMap(c => c.sites) : []), [loc])
+  const toggleSite = (id: string) => {
+    setPlan(null); setVoice(null); setClip(null)
+    setPicked(p => (p.includes(id) ? p.filter(x => x !== id) : p.length >= MAX_SITES ? p : [...p, id]))
+  }
+
+  const writeLocal = () => {
+    if (!loc || !picked.length) return
+    setError(''); setPlan(null); setVoice(null); setClip(null); setNotes([])
+    start(async () => {
+      const recent = readRecent()
+      const r = await writeLocationVideo(loc.url, picked)
+      if (!r.ok) return setError(r.error)
+      const chosen = pickRecipe(r.plan, recent)
+      remember(chosen.recipe)
+      setPlan(chosen.plan); setNotes(r.notes)
+      // The engine draws each card from its photo, loaded once through our
+      // own origin so the canvas can still be exported.
+      for (const sc of chosen.plan.scenes) {
+        const s = sc.site && allSites.find(x => x.id === sc.site!.id)
+        if (s && !photoImgs.current[s.id]) loadCutout(sitePhoto(s)).then(img => { photoImgs.current[s.id] = img; setPhotoTick(n => n + 1) }).catch(() => setError(`The photo for ${s.name} did not load.`))
+      }
+    })
+  }
+  const editSite = (si: number, patch: Partial<PlanSite>) => {
+    setPlan(p => p && { ...p, scenes: p.scenes.map((sc, j) => (j !== si || !sc.site ? sc : { ...sc, site: { ...sc.site, ...patch } })) })
+    setClip(null)
   }
 
   const write = () => {
@@ -339,7 +395,7 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
     if (!ctx) return
     engineFor(ctx)(Math.min(at, film.dur - 0.01))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [film, assets, format, at, playing])
+  }, [film, assets, format, at, playing, photoTick])
 
   const stop = () => {
     try { audioRef.current?.src.stop() } catch { /* already stopped */ }
@@ -402,13 +458,87 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
     }
   }
 
-  const slug = (res?.topic ?? 'brand-video').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+  const slug = (local ? `featured-sites-${loc?.cities.filter(c => c.sites.some(s => picked.includes(s.id))).map(c => c.city).join('-') ?? ''}` : res?.topic ?? 'brand-video').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
   const fmt = format ? FILM_FORMATS[format] : null
 
   return (
     <div className="mw-studio mw-bf">
+      {/* 1 ─────────────────────────────────────────── the local page */}
+      {local && (
+        <div className="mw-studio-ask">
+          <label htmlFor="bfloc">Which local page?</label>
+          <input
+            id="bfloc" type="url" value={url}
+            placeholder="https://www.movingwalls.com/locations/malaysia/kuala-lumpur"
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && url.trim()) { e.preventDefault(); readLocal() } }}
+          />
+          <button type="button" onClick={readLocal} disabled={busy || !url.trim()}>
+            {busy && !loc ? 'Reading…' : 'Read this page'}
+          </button>
+        </div>
+      )}
+
+      {local && error && <p className="mw-studio-error">{error}</p>}
+
+      {local && loc && (
+        <section className="mw-bf-sites">
+          <h3>Featured sites · choose up to {MAX_SITES}</h3>
+          <p className="lede">
+            Every site on this page{loc.pages.length > 1 ? ` and the ${loc.pages.length - 1} page${loc.pages.length > 2 ? 's' : ''} it links to` : ''} with
+            a photo, reach and impressions. The numbers go on the cards exactly as published, labelled monthly; photos are used as they are on the website.
+          </p>
+          {loc.cities.map(c => (
+            <div key={c.city} className="mw-bf-city">
+              <h4>
+                {c.label} <small>{c.sites.length} site{c.sites.length > 1 ? 's' : ''}</small>
+                <button type="button" onClick={() => { setPicked(c.sites.slice(0, MAX_SITES).map(s => s.id)); setPlan(null); setVoice(null); setClip(null) }}>Feature these</button>
+              </h4>
+              <div className="mw-bf-sitegrid">
+                {c.sites.map(s => {
+                  const on = picked.includes(s.id)
+                  return (
+                    <button key={s.id} type="button" className={`mw-bf-site ${on ? 'is-on' : ''}`} onClick={() => toggleSite(s.id)} aria-pressed={on}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={sitePhoto(s, 480)} alt="" loading="lazy" />
+                      <b>{on ? `${picked.indexOf(s.id) + 1} · ` : ''}{s.name}</b>
+                      <small>{s.area}</small>
+                      <small>{s.reach.toLocaleString('en-US')} reach · {s.impressions.toLocaleString('en-US')} impressions</small>
+                      <small className="mw-bf-src">{s.source}</small>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {loc.doubtful.length > 0 && (
+            <div className="mw-studio-faults">
+              <b>Left out — the page contradicts itself:</b>
+              <ul>{loc.doubtful.map((d, i) => <li key={i}>{d.name}: {d.why}</li>)}</ul>
+            </div>
+          )}
+
+          <h3>Which format?</h3>
+          <p className="lede">Pick one. Each export is a full render, so choose the one you are posting.</p>
+          <div className="mw-studio-choice mw-bf-4">
+            {(Object.keys(FILM_FORMATS) as FilmFormat[]).map(k => (
+              <button key={k} type="button" onClick={() => { setFormat(k); setClip(null) }}
+                aria-current={format === k ? 'true' : undefined}>
+                <b>{FILM_FORMATS[k].label}</b>
+                <small>{FILM_FORMATS[k].w} × {FILM_FORMATS[k].h} · {FILM_FORMATS[k].use}</small>
+              </button>
+            ))}
+          </div>
+
+          <button type="button" className="mw-dl" style={{ marginTop: 18 }} onClick={writeLocal} disabled={busy || !format || !picked.length}>
+            {busy && !plan ? 'Writing Ava’s script and reading the photos…' : plan ? 'Rewrite the script' : `Write Ava’s script · ${picked.length} site${picked.length === 1 ? '' : 's'}`}
+          </button>
+          {!format && <p className="lede">Choose a format first.</p>}
+        </section>
+      )}
+
       {/* 1 ─────────────────────────────────────────────── the article */}
-      <div className="mw-studio-ask">
+      {!local && <div className="mw-studio-ask">
         <label htmlFor="bfurl">Which article?</label>
         <input
           id="bfurl" type="url" value={url}
@@ -419,9 +549,9 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
         <button type="button" onClick={read} disabled={busy || !url.trim()}>
           {busy && !res ? 'Reading…' : 'Read this article'}
         </button>
-      </div>
+      </div>}
 
-      {error && <p className="mw-studio-error">{error}</p>}
+      {!local && error && <p className="mw-studio-error">{error}</p>}
 
       {res && (
         <section className="mw-studio-facts">
@@ -508,6 +638,27 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
                         <input key={ti} value={t.s} title={`${t.st}${t.on ? ` · on “${t.on}”` : ''}`}
                           className={`mw-bf-t mw-bf-${t.st}`} onChange={e => editText(si, ti, e.target.value)} />
                       ))}
+                      {s.site && (() => {
+                        const src = allSites.find(x => x.id === s.site!.id)
+                        const [fx, fy, fw, fh] = s.site.focus
+                        return (
+                          <div className="mw-bf-sitecard">
+                            {src && (
+                              <span className="mw-bf-focus">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={sitePhoto(src, 480)} alt="" />
+                                <i style={{ left: `${fx * 100}%`, top: `${fy * 100}%`, width: `${fw * 100}%`, height: `${fh * 100}%` }} title="Where the card pushes in" />
+                              </span>
+                            )}
+                            <span>
+                              <input value={s.site.name} title="Name on the card" className="mw-bf-t mw-bf-h" onChange={e => editSite(si, { name: e.target.value })} />
+                              <input value={s.site.format} title="Format (read from the photo — check it)" className="mw-bf-t mw-bf-b" onChange={e => editSite(si, { format: e.target.value })} />
+                              <input value={s.site.near} title="Near (check it)" placeholder="Near… (optional)" className="mw-bf-t mw-bf-s" onChange={e => editSite(si, { near: e.target.value })} />
+                              <small>{s.site.reach.toLocaleString('en-US')} monthly reach · {s.site.impressions.toLocaleString('en-US')} monthly impressions · from the page</small>
+                            </span>
+                          </div>
+                        )
+                      })()}
                       {s.words?.map((w, wi) => (
                         <input key={wi} value={w.s} title={`on “${w.on}”`} className="mw-bf-t mw-bf-h"
                           onChange={e => editWord(si, wi, e.target.value)} />
@@ -522,7 +673,7 @@ export function BrandFilm({ photosReady = false }: { photosReady?: boolean }) {
       )}
 
       {/* 3b ─────────────────────────────────────── infographic or photos */}
-      {plan && (
+      {plan && !local && (
         <section>
           <h3>Infographic, or with photos?</h3>
           <div className="mw-studio-choice">

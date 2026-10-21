@@ -1009,6 +1009,31 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
   background: transparent; color: var(--mw-ink); cursor: pointer;
 }
 .mw-bf-preview .mw-studio-clips video { width: 240px; }
+/* Ava · local page: the site picker and the per-site card in the script */
+.mw-bf-city h4 { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; }
+.mw-bf-city h4 small { font-weight: 400; opacity: .6; }
+.mw-bf-city h4 button { font-size: 12px; }
+.mw-bf-city h4 button {
+  margin-left: auto; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--mw-line-strong);
+  background: transparent; color: var(--mw-ink); cursor: pointer;
+}
+.mw-bf-sitegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.mw-bf-site {
+  display: grid; gap: 3px; padding: 0 0 10px; text-align: left; overflow: hidden; cursor: pointer;
+  border: 1px solid var(--mw-line-strong); border-radius: 10px; background: var(--mw-surface); color: var(--mw-ink);
+}
+.mw-bf-site img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; margin-bottom: 6px; }
+.mw-bf-site b, .mw-bf-site small { padding: 0 10px; }
+.mw-bf-site small { font-size: 12px; opacity: .75; }
+.mw-bf-site .mw-bf-src { opacity: .5; font-size: 11px; }
+.mw-bf-site.is-on { border-color: var(--mw-brand); box-shadow: 0 0 0 2px var(--mw-brand) inset; }
+.mw-bf-site:not(.is-on) img { filter: grayscale(.6); opacity: .8; }
+.mw-bf-sitecard { display: flex; gap: 10px; flex: 1 1 100%; align-items: flex-start; }
+.mw-bf-sitecard > span:last-child { display: grid; gap: 5px; flex: 1; }
+.mw-bf-sitecard small { font-size: 12px; opacity: .7; }
+.mw-bf-focus { position: relative; flex: 0 0 180px; line-height: 0; }
+.mw-bf-focus img { width: 180px; border-radius: 8px; }
+.mw-bf-focus i { position: absolute; border: 2px solid #EE2E2D; border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 @media (max-width: 760px) {
   .mw-studio-choice.mw-bf-3, .mw-studio-choice.mw-bf-4 { grid-template-columns: 1fr 1fr; }
   .mw-bf-canvas { height: auto; width: 100%; }

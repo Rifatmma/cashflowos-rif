@@ -50,10 +50,36 @@ export type PlanText = {
   accent?: boolean
   /** Draw a strike-through when this word is spoken. */
   strikeOn?: string
+  scale?: number
+}
+
+/**
+ * One featured inventory site (Ava for local pages). The numbers are copied
+ * from the page by the code, never written by the model.
+ */
+export type PlanSite = {
+  id: string
+  /** Position in the video's run of sites, for the "02 / 06" label. */
+  n: number
+  total: number
+  /** Where it stands, in a word or two: Highway, City road, Mall… */
+  setting: string
+  /** The name to show (the page's own name, or a readable short form of it). */
+  name: string
+  /** What kind of screen, read from the photo: "Portrait LED screen · NPE". */
+  format: string
+  near: string
+  reach: number
+  impressions: number
+  /** The figure Ava says, highlighted and timed to land as she finishes it. */
+  stress: 'reach' | 'impressions' | ''
+  on?: string
+  /** Where the screen is in the photo: [x, y, w, h], fractions. */
+  focus: [number, number, number, number]
 }
 
 export type PlanScene = {
-  kind: 'cover' | 'panel' | 'logo' | 'burst' | 'end'
+  kind: 'cover' | 'panel' | 'logo' | 'burst' | 'end' | 'site'
   /** Index into plan.lines. */
   line: number
   /** Start mid-line, on this word, instead of when the line starts. */
@@ -67,6 +93,8 @@ export type PlanScene = {
   words?: { s: string; on: string; bg?: Bg }[]
   /** A cut-out photo that could stand in for the illustration ("Infographic + photos" mode). */
   photo?: { query: string; word?: string }
+  /** site only. */
+  site?: PlanSite
   /** Chosen by pickRecipe, not the model. */
   layout?: Layout
   variant?: string
@@ -160,6 +188,7 @@ export function resolveFilm(
   const scenes = plan.scenes.map((sc, i) => {
     const v = voice[sc.line]
     const a = i === 0 ? 0 : sc.from ? Math.max(starts[sc.line], at(sc.line, sc.from) - 0.1) : starts[sc.line]
+    if (sc.kind === 'site' && sc.site) return siteScene(sc.site, sc.line, a, starts[sc.line] + v.dur, w => at(sc.line, w))
     let cursor = sc.from ? wordTime(v, sc.from) - 0.01 : -1
     // The headline is on screen as the scene cuts in, so it is readable
     // while Ava says it — landing it on its word put it a second late
@@ -180,7 +209,7 @@ export function resolveFilm(
         t: time, s: t.s, st: t.st,
         ...(t.accent ? { color: 'accent' } : {}),
         ...(t.strikeOn ? { strike: at(sc.line, t.strikeOn, cursor) } : {}),
-        ...(t.st === 'b' ? { scale: 0.75 } : {}),
+        ...(t.st === 'b' ? { scale: 0.75 } : t.scale ? { scale: t.scale } : {}),
       }
     })
     const ev: Record<string, any> = { ...(sc.ev ?? {}) }
@@ -210,6 +239,8 @@ export function resolveFilm(
   let lastTr = ''
   scenes.forEach((sc: any, i) => {
     sc.b = i + 1 < scenes.length ? scenes[i + 1].a : dur
+    // One site to the next swipes, like flicking through the inventory.
+    if (sc.kind === 'site' && scenes[i - 1]?.kind === 'site') { sc.tr = 'slide'; lastTr = 'slide'; return }
     if (i > 0 && sc.kind !== 'burst') {
       const options = pool.filter(t => t !== lastTr)
       sc.tr = options[Math.floor(r() * options.length)]
@@ -239,6 +270,36 @@ export function resolveFilm(
     title: plan.title, dur, bpm: 120, starts, scenes,
     accent: plan.accent ?? 'sun', cover: plan.cover ?? 'zigzag', burst: plan.burst ?? 'flip',
     ...(supers ? { supers } : {}),
+  }
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * A site card on the timeline. The name is on screen as it cuts in, the
+ * format just after, the figure Ava says rolls so its last digit lands as
+ * she finishes saying it, and the "near" line arrives as she ends the line.
+ */
+function siteScene(s: PlanSite, line: number, a: number, end: number, at: (w: string) => number) {
+  const landing = s.on ? at(s.on) + 0.25 : a + 1.8
+  // Both counters appear together, reach first; the one Ava says counts
+  // for as long as it takes her to get to it.
+  const stat = (k: 'reach' | 'impressions') => {
+    const t = a + (k === 'reach' ? 0.6 : 0.85)
+    return {
+      t: +t.toFixed(3), value: s[k], label: k === 'reach' ? 'Monthly reach' : 'Monthly impressions',
+      ...(s.stress === k ? { accent: true, roll: +Math.min(3.5, Math.max(0.8, landing - t)).toFixed(3) } : {}),
+    }
+  }
+  return {
+    kind: 'site', line, a, photo: s.id, focus: s.focus,
+    text: [
+      { t: +(a + 0.08).toFixed(3), s: `${pad2(s.n)} / ${pad2(s.total)}${s.setting ? ` · ${s.setting}` : ''}`, st: 'lab' },
+      { t: +(a + 0.2).toFixed(3), s: s.name, st: 'h', scale: 0.8 },
+    ],
+    chip: s.format ? { t: +(a + 0.45).toFixed(3), s: s.format } : undefined,
+    stats: [stat('reach'), stat('impressions')],
+    near: s.near ? { t: +Math.max(a + 1.4, end - 1.3).toFixed(3), s: s.near } : undefined,
   }
 }
 
@@ -294,10 +355,10 @@ export function pickRecipe(plan: Plan, recent: Recipe[]): { plan: Plan; recipe: 
  * So everything is checked here once, and anything unknown is dropped or
  * replaced with something that cannot fail, and said so.
  */
-export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
+export function sanitizePlan(raw: any, sites?: Record<string, { name: string; reach: number; impressions: number }>): { plan: Plan; notes: string[] } {
   const notes: string[] = []
-  const lines: string[] = (Array.isArray(raw?.lines) ? raw.lines : []).map((l: any) => String(l ?? '').trim()).filter(Boolean).slice(0, 10)
-  const KINDS = ['cover', 'panel', 'logo', 'burst', 'end']
+  const lines: string[] = (Array.isArray(raw?.lines) ? raw.lines : []).map((l: any) => String(l ?? '').trim()).filter(Boolean).slice(0, sites ? 14 : 10)
+  const KINDS = ['cover', 'panel', 'logo', 'burst', 'end', ...(sites ? ['site'] : [])]
   const str = (v: any, n = 60) => String(v ?? '').trim().slice(0, n)
   const bg = (v: any): Bg | undefined => (BACKGROUNDS as readonly string[]).includes(v) ? v : undefined
 
@@ -306,6 +367,24 @@ export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
     const line = Number(s?.line)
     if (!Number.isInteger(line) || line < 0 || line >= lines.length) { notes.push('A scene pointed at a line that does not exist and was dropped.'); continue }
     let kind = KINDS.includes(s?.kind) ? s.kind : 'panel'
+    if (kind === 'site') {
+      const d = sites?.[String(s?.site ?? '')]
+      if (!d) { notes.push(`A site card pointed at "${String(s?.site ?? '').slice(0, 40)}", which is not one of the chosen sites, and was dropped.`); continue }
+      const f = Array.isArray(s?.focus) ? s.focus.map(Number) : []
+      const ok = f.length === 4 && f.every((v: number) => Number.isFinite(v)) && f[2] > 0.03 && f[3] > 0.03
+      const [fx, fy] = ok ? [Math.min(0.97, Math.max(0, f[0])), Math.min(0.97, Math.max(0, f[1]))] : [0.3, 0.2]
+      const focus: PlanSite['focus'] = ok ? [fx, fy, Math.min(1 - fx, f[2]), Math.min(1 - fy, f[3])] : [0.3, 0.2, 0.4, 0.5]
+      if (!ok) notes.push(`Where the screen is in the ${d.name} photo was not given; the card centres on the photo instead.`)
+      scenes.push({
+        kind: 'site', line, text: [],
+        site: {
+          id: String(s.site), n: 0, total: 0, setting: str(s?.setting, 18), name: str(s?.name, 34) || d.name,
+          format: str(s?.format, 40), near: str(s?.near, 44), reach: d.reach, impressions: d.impressions,
+          stress: s?.stress === 'reach' || s?.stress === 'impressions' ? s.stress : '', ...(s?.on ? { on: str(s.on, 30) } : {}), focus,
+        },
+      })
+      continue
+    }
     let art: Art | undefined = (ARTS as readonly string[]).includes(s?.art) ? s.art : undefined
     if (s?.art && !art) notes.push(`Unknown illustration "${s.art}" was left out.`)
     const ev = s?.ev && typeof s.ev === 'object' ? s.ev : {}
@@ -347,6 +426,7 @@ export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
     if (art === 'globe') ev.labels = ev.labels.slice(0, 4).map((q: any) => str(q, 14).toUpperCase())
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({
+      ...(Number.isFinite(+t?.scale) && +t.scale >= 0.5 && +t.scale <= 1 ? { scale: +t.scale } : {}),
       s: str(t?.s, 48), st: ['lab', 'h', 'hx', 's', 'b'].includes(t?.st) ? t.st : 'h',
       ...(t?.on ? { on: str(t.on, 30) } : {}), ...(t?.accent ? { accent: true } : {}),
       ...(t?.strikeOn ? { strikeOn: str(t.strikeOn, 30) } : {}),
@@ -366,6 +446,8 @@ export function sanitizePlan(raw: any): { plan: Plan; notes: string[] } {
 
   // Scenes must be in spoken order or the timeline folds back on itself.
   scenes.sort((p, q) => p.line - q.line)
+  const siteScenes = scenes.filter(s => s.site)
+  siteScenes.forEach((s, k) => { s.site!.n = k + 1; s.site!.total = siteScenes.length })
   // The film needs an opening and a close; make sure it has both.
   if (scenes.length && scenes[0].kind !== 'cover') scenes[0].kind = 'cover'
   if (scenes.length && scenes[scenes.length - 1].kind !== 'end') {

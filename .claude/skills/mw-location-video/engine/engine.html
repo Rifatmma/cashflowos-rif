@@ -1,0 +1,36 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Poppins;font-weight:400;src:url(node_modules/@fontsource/poppins/files/poppins-latin-400-normal.woff2)}
+@font-face{font-family:Poppins;font-weight:600;src:url(node_modules/@fontsource/poppins/files/poppins-latin-600-normal.woff2)}
+@font-face{font-family:Poppins;font-weight:700;src:url(node_modules/@fontsource/poppins/files/poppins-latin-700-normal.woff2)}
+@font-face{font-family:Poppins;font-weight:800;src:url(node_modules/@fontsource/poppins/files/poppins-latin-800-normal.woff2)}
+@font-face{font-family:Poppins;font-weight:600;font-style:italic;src:url(node_modules/@fontsource/poppins/files/poppins-latin-600-italic.woff2)}
+@font-face{font-family:Poppins;font-weight:400;font-style:italic;src:url(node_modules/@fontsource/poppins/files/poppins-latin-400-italic.woff2)}
+html,body{margin:0;background:#000}canvas{display:block}
+</style>
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/700.css">
+<script src="shapes.js"></script>
+<script src="core.js"></script>
+</head><body>
+<canvas id="c"></canvas>
+<script>
+// Host page for the skill: loads a project (spec.js + vo.js + optional cut-outs)
+// and exposes render(t) for render.js. All drawing lives in core.js.
+const Q = new URLSearchParams(location.search);
+const FORMATS = { '916': [1080, 1920], '169': [1920, 1080], '11': [1080, 1080], '45': [1080, 1350] };
+const [W, H] = FORMATS[Q.get('f') || '916'];
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const PDIR = Q.get('dir');   // file:// URL of the project folder
+const load = src => new Promise(res => { const e = document.createElement('script'); e.src = src; e.onload = res; e.onerror = res; document.head.appendChild(e); });
+const img = src => new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+window.ready = load(`${PDIR}/vo.js`).then(() => load(`${PDIR}/spec.js`)).then(async () => {
+  const TEX = { dark: await img('connection_dots_1.png'), light: await img('connection_dots_4.png'), photos: {} };
+  // cut-outs: SPEC.photos = { key: 'relative/path.png' } inside the project folder
+  for (const [k, p] of Object.entries(SPEC.photos || {})) TEX.photos[k] = await img(`${PDIR}/${p}`);
+  await Promise.all([...['400', '600', '700', '800', 'italic 600', 'italic 400'].map(w => document.fonts.load(`${w} 20px Poppins`)),
+    document.fonts.load("700 20px 'Noto Sans SC'", '中文').catch(() => 0)]);
+  window.render = createEngine(cv.getContext('2d'), W, H, SPEC, SHAPES, TEX);
+  return true;
+});
+</script></body></html>
