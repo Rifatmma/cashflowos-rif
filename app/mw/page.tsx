@@ -7,9 +7,9 @@ import { loadStack } from '@/lib/mw-priority-load'
 import { forPerson } from '@/lib/mw-priorities'
 import { personByActor, doers, OWNER_NAME } from '@/lib/mw-people'
 import { seenByPerson } from '@/lib/mw-presence'
-import { glanceOf } from '@/lib/mw-seo-glance'
+import { stackSignals } from '@/lib/mw-stack-signals'
 import { MwHero } from './_ui'
-import { Signals, DoFirst, TaskList, PeopleCards, peopleRows, type StackSignal } from './_stack-ui'
+import { Signals, DoFirst, TaskList, PeopleCards, peopleRows } from './_stack-ui'
 
 // 👉 Moving Walls → Today. One look, then the one list of what to do.
 //
@@ -41,36 +41,12 @@ export default async function MwToday({ searchParams }: { searchParams: Promise<
   const me = personByActor(people, isOwner ? 'owner' : guest)
   const focus = new Set(queue.focus)
 
-  // ── the six numbers
-  const enquiries = facts.channels.reduce((t, c) => t + c.sl, 0)
-  const organic = facts.channels.find(c => c.n === 'Organic Search')?.sl ?? 0
-  const paidGa4 = facts.channels.find(c => c.n === 'Paid Search')?.sl ?? 0
-  const nb = glanceOf(markets).find(s => s.key === 'nonbrand')
+  // ── the six numbers (lib/mw-stack-signals.ts, shared with the Monday email)
   const team = doers(people).filter(p => p.name !== OWNER_NAME)
-  const activeTeam = team.filter(p => (seen.get(p.name)?.visitsThisWeek ?? 0) > 0).length
-  const answered = facts.leads14 - facts.unanswered14
-  const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
-  const signals: StackSignal[] = [
-    { key: 'enq', label: 'Enquiries', value: String(enquiries), note: `this month · GA4 · organic ${organic} · paid ${paidGa4}`, tone: 'plain', href: '/mw/sales' },
-    {
-      key: 'src', label: 'Source known', value: facts.utmFill === null ? '—' : `${Math.round(facts.utmFill * 100)}%`,
-      note: 'CRM leads, last 14 days', tone: facts.utmFill === null ? 'warn' : facts.utmFill >= 0.8 ? 'good' : facts.utmFill >= 0.5 ? 'warn' : 'bad',
-    },
-    {
-      key: 'cpl', label: 'Paid cost / lead', value: facts.paid ? `S$${Math.round(facts.paid.cpl)}` : '—',
-      note: facts.paid ? `Google Ads · ${facts.paid.monthLabel} · ${facts.paid.leads} leads` : 'no snapshot',
-      tone: !facts.paid || !targets.cpa ? 'plain' : facts.paid.cpl <= targets.cpa ? 'good' : 'warn', href: '/mw/paid',
-    },
-    { key: 'nb', label: 'Non-brand', value: nb?.value ?? '—', note: nb?.note ?? '', tone: (nb?.tone ?? 'plain') as StackSignal['tone'], href: '/mw/seo' },
-    {
-      key: 'ans', label: 'Answered', value: `${answered} of ${facts.leads14}`, note: 'CRM · last 14 days',
-      tone: !facts.leads14 ? 'plain' : pct(answered, facts.leads14) >= 80 ? 'good' : pct(answered, facts.leads14) >= 50 ? 'warn' : 'bad', href: '/mw/sales',
-    },
-    {
-      key: 'team', label: 'Team active', value: `${activeTeam} of ${team.length}`, note: 'opened the app this week',
-      tone: activeTeam >= team.length * 0.7 ? 'good' : activeTeam >= team.length * 0.3 ? 'warn' : 'bad', href: '/mw/people',
-    },
-  ]
+  const signals = stackSignals({
+    channels: facts.channels, utmFill: facts.utmFill, paid: facts.paid, cpaTarget: targets.cpa,
+    leads14: facts.leads14, unanswered14: facts.unanswered14, markets, team, seen,
+  })
 
   // ── the list, filtered
   const who = q.who && people.some(p => p.name === q.who) ? q.who : null

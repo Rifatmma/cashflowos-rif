@@ -10,8 +10,8 @@ import type { Person } from '@/lib/mw-people'
 import type { Seen } from '@/lib/mw-presence'
 import { setQueueStage } from './actions'
 
-export type Tone = 'good' | 'warn' | 'bad' | 'plain'
-export type StackSignal = { key: string; label: string; value: string; note: string; tone: Tone; href?: string }
+import type { StackSignal, SignalTone as Tone } from '@/lib/mw-stack-signals'
+export type { StackSignal }
 
 export function Signals({ items }: { items: StackSignal[] }) {
   return (

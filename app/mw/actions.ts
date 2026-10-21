@@ -315,23 +315,30 @@ export async function setQueueStage(formData: FormData) {
     if (!me || !item || (item.owner !== me.name && item.helper !== me.name)) return
   }
 
-  const now = new Date().toISOString()
-  if (id.startsWith('task:')) {
-    const actionId = id.slice(5)
-    const choice = actionChoiceFor(stage as Stage)
-    if (!choice) await supabase.from('mw_decisions').delete().eq('action_id', actionId)
-    else await supabase.from('mw_decisions').upsert(
-      { action_id: actionId, choice, reason: reason || null, decided_by: who, updated_at: now },
-      { onConflict: 'action_id' },
-    )
-  } else {
-    // Everything the app owns itself — SEO steps, tracking, paid, content,
-    // sales, page reviews — keeps its progress in one table, keyed by id.
-    const key = id.startsWith('seo:') ? id.slice(4) : id
-    await supabase.from('mw_seo_step_state').upsert(
-      { step_id: key, stage, reason: reason || null, updated_by: who, updated_at: now },
-      { onConflict: 'step_id' },
-    )
+  const { writeStage } = await import('@/lib/mw-queue-write')
+  await writeStage(id, stage as Stage, reason || null, who)
+}
+
+// ---------------------------------------------------------------------------
+// The Monday emails (lib/mw-digest-send.ts). Owner only.
+// ---------------------------------------------------------------------------
+
+/** Send this week's emails to Rif alone, as a preview. */
+export async function sendDigestPreview(_prev: unknown): Promise<{ message: string }> {
+  if ((await actor()) !== 'owner') return { message: 'Only the owner can send the emails.' }
+  const { sendDigests } = await import('@/lib/mw-digest-send')
+  try {
+    const r = await sendDigests({ previewOnly: true, force: true })
+    return { message: `Preview: ${r.notes[r.notes.length - 1]}${r.notes.length > 1 ? ` — ${r.notes.slice(0, -1).join('; ')}` : ''}` }
+  } catch (e: any) {
+    return { message: `Nothing sent: ${String(e?.message ?? e).slice(0, 200)}` }
   }
-  revalidatePath('/mw'); revalidatePath('/mw/people'); revalidatePath('/mw/seo')
+}
+
+/** Switch the Monday emails on (or back off) for the team. */
+export async function setDigestEnabled(formData: FormData) {
+  if ((await actor()) !== 'owner') return
+  const { saveDigestSettings } = await import('@/lib/mw-digest-send')
+  await saveDigestSettings({ enabled: String(formData.get('enabled') ?? '') === '1' })
+  revalidatePath('/mw/import')
 }
