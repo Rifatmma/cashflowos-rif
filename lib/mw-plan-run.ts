@@ -678,7 +678,7 @@ export async function refreshPlan(opts: { save?: boolean; competitors?: boolean 
     // Which sources actually answered. Only kinds a working source can
     // produce are eligible for retirement.
     const KINDS_BY_SOURCE = {
-      ranking: ['strike', 'no-clicks', 'city', 'city-build', 'orphan', 'cannibal'],
+      ranking: ['strike', 'no-clicks', 'city', 'city-build', 'orphan', 'links', 'cannibal'],
       analytics: ['no-page', 'page-build', 'convert'],
       audit: ['health'],
       gap: ['gap'],

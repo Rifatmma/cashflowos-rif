@@ -11,6 +11,9 @@ import { RivalsPanel } from './_rivals-ui'
 import { MarketInsight } from './_insight-ui'
 import { supabase, supabaseConfigured } from '@/lib/supabase'
 import { fetchPages } from '@/lib/mw-plan-run'
+import { newContentValue } from '@/lib/mw-priority-sources'
+import { enquiries } from '@/lib/mw-priorities'
+import { sendToClaude } from '../actions'
 
 // 👉 Moving Walls → Content gap. What competitors win and we do not.
 //
@@ -27,6 +30,7 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
   const { c } = await searchParams
+  const isOwner = guest === null
   const [gaps, rivals, seo, pages] = await Promise.all([
     getGaps(), getRivals(),
     // The market's own Search Console rows, which is what every number in the
@@ -97,7 +101,7 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
   return (
     <div className="mw-wrap">
       <MwHero tab="gaps" pulled={quarter} stale={false}
-        headline={totalTopics ? `${totalTopics} pages our competitors have and we do not` : 'Content gap'}>
+        headline={totalTopics ? `${totalTopics} topics rivals rank for and we don't` : 'Content'}>
         <p>
           Searches a named competitor ranks for and we do not, grouped into pages somebody can actually write.
           Pulled once a quarter — a gap pull costs about sixteen times a keyword pull, and rivals do not
@@ -181,8 +185,8 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                   </p>
                 </Section>
               ) : (
-                <Section title={`${topics.length} pages to write for ${active.country.label}`}
-                  sub="Each block is one page. Ranked by the demand behind it.">
+                <Section title={`${topics.length} blog posts worth writing for ${active.country.label}`}
+                  sub="Each block is one blog post — never a new location page for a keyword. Ranked by the demand behind it; the value is a modest estimate, because blog readers rarely enquire.">
                   {topics.length === 0 ? (
                     <p className="lede">
                       Nothing worth a page this quarter — {active.gap.keptCount} relevant searches came back but
@@ -201,19 +205,19 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                               {num(t.vol)} a month · {e.size} · {t.rivals.join(', ') || 'a rival'}
                             </small>
                           </span>
-                          {t.cpc > 0 && <span className="cpc">${t.cpc.toFixed(2)}/click</span>}
+                          <span className="cpc">{enquiries(newContentValue(t.vol, t.kd))}</span>
                         </summary>
                         <div className="mw-task-body">
                           <p className="mw-why">
                             {t.rivals.length === 1 ? `${t.rivals[0]} ranks` : `${t.rivals.join(' and ')} rank`} for{' '}
                             {t.keywords.length === 1 ? 'this search' : `these ${t.keywords.length} searches`}, worth{' '}
                             {num(t.vol)} a month in {active.country.label}.{' '}
-                            {t.keywords.length === 1 ? 'We do not rank for it at all' : 'We rank for none of them'} — {e.says}.
+                            {t.keywords.length === 1 ? 'We are not on page one for it' : 'We are not on page one for any of them'} — {e.says}.
                             {t.cpc > 0 && <> Buying this traffic costs ${t.cpc.toFixed(2)} a click.</>}
                           </p>
                           <h4>What to do</h4>
                           <ol className="mw-steps">
-                            <li>Write one page answering all of these, not a page per search — they are the same question asked differently.</li>
+                            <li>Write one blog post answering all of these, not a post per search — they are the same question asked differently. Not a new location page.</li>
                             <li>Lead with &ldquo;{t.head}&rdquo; in the title and H1; give the others their own H2.</li>
                             <li>
                               See how it is answered today:{' '}
@@ -232,6 +236,14 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
                             </li>
                             <li>Link it from /locations/{active.country.key} and from the related blog posts.</li>
                           </ol>
+                          {isOwner && (
+                            <form action={sendToClaude} className="mw-planner-row" style={{ margin: '10px 0' }}>
+                              <input type="hidden" name="step_id" value={`gap:${active.country.key}:${t.head.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}`} />
+                              <input type="hidden" name="prompt" value={`Write a blog brief (not a new location page) for "${t.head}" in ${active.country.label}: the searches it must answer (${t.keywords.slice(0, 8).map(k => k.q).join(', ')}), an outline with the keyword in its own short H2, what we can say that ${t.rivals[0] ?? 'rivals'} cannot, and which existing pages should link to it. Save under docs/proposals/.`} />
+                              <button className="mw-planner-btn is-small">Brief from Claude</button>
+                              <span className="mw-planner-lab">Queued in the SEO inbox; picked up when Claude Code checks it.</span>
+                            </form>
+                          )}
                           <h4>The searches</h4>
                           <table className="mw-kw">
                             <thead><tr><th>Search</th><th>Their best</th><th>Searches/mo</th><th>Difficulty</th></tr></thead>
@@ -283,5 +295,5 @@ export default async function MwGaps({ searchParams }: { searchParams: Promise<{
   )
 }
 
-export const metadata = { title: 'Content gap' }
+export const metadata = { title: 'Content' }
 export const _markets = MARKETS

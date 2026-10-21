@@ -274,7 +274,9 @@ export async function sendToClaude(formData: FormData) {
   const id = String(formData.get('step_id') ?? '')
   const prompt = String(formData.get('prompt') ?? '').trim().slice(0, 4000)
   const parent = Number(formData.get('parent_id') ?? 0) || null
-  if (!prompt || (id && !STEP[id])) return
+  // Plan steps, and since 21 Oct 2026 any task in the one list (a content
+  // brief, a paid review, a tracking fix) — those carry a prefixed id.
+  if (!prompt || (id && !STEP[id] && !/^(gap|trk|paid|sales|prop|task):[^<>]{1,160}$/.test(id))) return
   await queuePrompt({ stepId: id || null, prompt, by: 'owner', source: 'web', parentId: parent })
   revalidatePath('/mw/seo')
 }
