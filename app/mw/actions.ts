@@ -9,8 +9,15 @@ import { decide, undecide } from '@/lib/mw-proposals'
 import { setCityStatus } from '@/lib/mw-board'
 import { actionChoiceFor, cityStatusFor, proposalStatusFor, stagesFor, type Stage } from '@/lib/mw-status'
 import { revalidatePath } from 'next/cache'
+import { STEP } from '@/lib/mw-seo-plan'
+import { queuePrompt, cancelQueued, saveStepState } from '@/lib/mw-seo-planner'
 
 // Recording a decision. The ONLY writes /mw makes.
+//
+// Since 20 Oct 2026 that includes the SEO planner card: mw_seo_step_state
+// (Rif's own progress on plan-owned steps) and mw_claude_inbox (prompts for
+// Claude Code to pick up). Both are owner-only — the plan is Rif's, and an
+// inbox row is work done with his authority.
 //
 // Two rules the daily refresh must never break, enforced here rather than trusted:
 //  • decisions are keyed on the action id, which is never renumbered or reused
@@ -224,4 +231,50 @@ export async function setStage(formData: FormData) {
   }
 
   revalidatePath('/mw'); revalidatePath('/mw/paid'); revalidatePath('/mw/seo'); revalidatePath('/mw/plan')
+}
+
+// ---------------------------------------------------------------------------
+// SEO planner card (app/mw/seo/_planner.tsx)
+// ---------------------------------------------------------------------------
+
+const PLAN_STAGES = new Set(['not_started', 'in_progress', 'done'])
+const isOwner = async () => (await currentGuest()) === null
+
+/** The done-when checkbox. Linked steps are refused: their stage is their tasks'. */
+export async function setPlanStep(formData: FormData) {
+  if (!(await isOwner())) return
+  const id = String(formData.get('id') ?? '')
+  const stage = String(formData.get('stage') ?? '')
+  if (!STEP[id] || STEP[id].links || !PLAN_STAGES.has(stage)) return
+  await saveStepState(id, { stage }, 'owner')
+  revalidatePath('/mw/seo')
+}
+
+/** Who applies a website step. Kept on the step so the applier prompt names them. */
+export async function setStepAssignee(formData: FormData) {
+  if (!(await isOwner())) return
+  const id = String(formData.get('id') ?? '')
+  const who = String(formData.get('assignee') ?? '').trim().slice(0, 60)
+  if (!STEP[id]) return
+  await saveStepState(id, { assignee: who || null }, 'owner')
+  revalidatePath('/mw/seo')
+}
+
+/** Send to Claude: the prompt plus a frozen context pack, into the inbox. */
+export async function sendToClaude(formData: FormData) {
+  if (!(await isOwner())) return
+  const id = String(formData.get('step_id') ?? '')
+  const prompt = String(formData.get('prompt') ?? '').trim().slice(0, 4000)
+  const parent = Number(formData.get('parent_id') ?? 0) || null
+  if (!prompt || (id && !STEP[id])) return
+  await queuePrompt({ stepId: id || null, prompt, by: 'owner', source: 'web', parentId: parent })
+  revalidatePath('/mw/seo')
+}
+
+export async function cancelInbox(formData: FormData) {
+  if (!(await isOwner())) return
+  const id = Number(formData.get('id') ?? 0)
+  if (!id) return
+  await cancelQueued(id)
+  revalidatePath('/mw/seo')
 }

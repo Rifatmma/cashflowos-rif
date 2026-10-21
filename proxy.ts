@@ -55,12 +55,14 @@ export function proxy(req: NextRequest) {
 //     (owner, 29 Sep 2026).
 //   • /api/mw-cutouts         — the cut-out library for the mw-brand-video skill
 //     (Bearer MW_STUDIO_TOKEN checked inside the route; closed if unset).
+//   • /api/mw-inbox-notify    — posts Claude's finished SEO jobs to Telegram (Bearer
+//     CRON_SECRET or owner cookie, checked inside). Same trap as mw-refresh.
 //   • /manifest.webmanifest   — the REAL PWA manifest (app/manifest.ts serves HERE);
 //     /manifest.json          — belt-and-braces extra so install never silently breaks
 //   • /icons/*, /favicon.ico, /_next/* — static assets the install/render needs
 // A single missed exclusion here = a locked webhook on class day, so this list is tested.
 export const config = {
   matcher: [
-    '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|api/mw-refresh|api/mw-cutouts|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
+    '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|api/mw-refresh|api/mw-cutouts|api/mw-inbox-notify|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
   ],
 }

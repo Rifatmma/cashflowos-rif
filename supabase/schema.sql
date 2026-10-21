@@ -236,3 +236,43 @@ create table if not exists mw_settings (
   value       jsonb       not null,
   updated_at  timestamptz not null default now()
 );
+
+-- SEO planner card on /mw/seo, and the inbox Claude Code picks work up from.
+-- Plan CONTENT lives in lib/mw-seo-plan.ts; only progress is stored. Steps
+-- linked to mw_actions are derived and never written here. (20 Oct 2026)
+create table if not exists mw_seo_step_state (
+  step_id     text primary key,
+  stage       text not null default 'not_started'
+              check (stage in ('not_started','in_progress','done','declined')),
+  reason      text,
+  assignee    text,
+  updated_by  text not null,
+  updated_at  timestamptz not null default now()
+);
+
+create table if not exists mw_claude_inbox (
+  id               bigserial primary key,
+  step_id          text,
+  prompt           text not null check (length(prompt) between 1 and 4000),
+  context          jsonb not null default '{}'::jsonb,   -- frozen context pack
+  context_version  int not null default 1,
+  status           text not null default 'queued'
+                   check (status in ('queued','claimed','done','failed','cancelled')),
+  result           text check (result is null or length(result) <= 8000),
+  result_links     jsonb,                                -- {files, proposals, docs, next:[{label,prompt}]}
+  error            text,
+  created_by       text not null,                        -- 'owner' | 'telegram:<chat id>'
+  source           text not null check (source in ('web','telegram')),
+  telegram_chat_id bigint,
+  idempotency_key  text unique,
+  parent_id        bigint references mw_claude_inbox(id), -- a follow-up's previous job
+  claimed_by       text,
+  claimed_at       timestamptz,
+  finished_at      timestamptz,
+  notified_at      timestamptz,
+  created_at       timestamptz not null default now()
+);
+create index if not exists mw_claude_inbox_status on mw_claude_inbox (status, created_at);
+create index if not exists mw_claude_inbox_step on mw_claude_inbox (step_id, created_at desc);
+alter table mw_seo_step_state enable row level security;
+alter table mw_claude_inbox   enable row level security;

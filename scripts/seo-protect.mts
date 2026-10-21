@@ -12,8 +12,7 @@
 
 import { writeFileSync, mkdirSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
-import { protectionDoc, type PageRanks, type RankedTerm } from '../lib/mw-seo-protect'
-import { isBrand } from '../lib/mw-markets'
+import { protectionDoc, rankedByPage, type PageRanks, type RankedTerm } from '../lib/mw-seo-protect'
 
 const url = process.env.SUPABASE_URL
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -26,42 +25,9 @@ if (error) { console.error('read failed:', error.message); process.exit(1) }
 const cycle = (rows ?? []).map((r: any) => String(r.cycle)).sort().pop() ?? '—'
 console.log(`newest cycle: ${cycle}`)
 
-// Group every ranked term by the URL Semrush attributes it to.
-const byUrl = new Map<string, RankedTerm[]>()
-for (const r of (rows ?? []) as any[]) {
-  if (String(r.cycle) !== cycle) continue
-  for (const k of (Array.isArray(r.keywords) ? r.keywords : [])) {
-    const u = String(k?.url ?? '').trim()
-    const q = String(k?.q ?? '').trim()
-    if (!u || !q) continue
-    // NOT OUR OWN NAME. The doc was listing "moving walls" at #1 as a phrase
-    // that "must survive any edit", which is advice nobody needs: nothing is
-    // going to outrank us for our own company name, and a protection list full
-    // of brand terms hides the non-brand ones that are the actual constraint.
-    //
-    //   "I don't think we should do anything on the brand terms part... what I
-    //    want to focus more on is non-brand terms I actually mentioned this
-    //    already since we started creating this page."   (owner, 14 Oct 2026)
-    if (isBrand(q)) continue
-    const list = byUrl.get(u) ?? []
-    // The same term can arrive from several country pulls. Keep the best
-    // position: that is the one with traffic to lose.
-    const seen = list.find(t => t.q === q)
-    const pos = Number(k.pos) || 0
-    if (seen) {
-      if (pos > 0 && (seen.pos === 0 || pos < seen.pos)) seen.pos = pos
-      seen.traffic = Math.max(seen.traffic, Number(k.traffic) || 0)
-      seen.vol = Math.max(seen.vol, Number(k.vol) || 0)
-      continue
-    }
-    list.push({
-      q, pos, vol: Number(k.vol) || 0, traffic: Number(k.traffic) || 0,
-      market: r.market ? String(r.market) : undefined,
-      country: r.country ? String(r.country) : undefined,
-    })
-    byUrl.set(u, list)
-  }
-}
+// Group every ranked term by the URL Semrush attributes it to. The grouping
+// lives in lib/mw-seo-protect.ts so the planner's context pack shares it.
+const byUrl = rankedByPage((rows ?? []) as any[], cycle)
 console.log(`${byUrl.size} pages, ${[...byUrl.values()].flat().length} terms`)
 
 /** Visible text of a page: no nav, no script, no markup. */

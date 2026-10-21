@@ -9,6 +9,9 @@ import { worthWriting } from '@/lib/mw-gap'
 import { COUNTRIES } from '@/lib/mw-markets'
 import { THEMES, themeOf, rollUp, type ThemeChild } from '@/lib/mw-themes'
 import { MARKET } from '@/lib/mw-markets'
+import { loadPlanner, viewOf, latestForStep } from '@/lib/mw-seo-planner'
+import { glanceOf } from '@/lib/mw-seo-glance'
+import { SeoGlance, SeoPlanner } from './_planner'
 import {
   MarketTabs, BrandByMarket, OpportunitiesByMarket, CompetitorsByMarket,
   PageHealthBoard, FunnelLeaks, Momentum, WinningByMarket, ThemeChain, GapSummary,
@@ -33,16 +36,36 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-type Q = { brand?: string; opp?: string; comp?: string; move?: string; win?: string }
+type Q = { brand?: string; opp?: string; comp?: string; move?: string; win?: string; step?: string; ch?: string; from?: string; cut?: string }
+const KEEP = ['brand', 'opp', 'comp', 'move', 'win'] as const
 
 const pickMarket = (all: MarketSeo[], want?: string) =>
   all.find(m => m.market.key === want) ?? all[0]
 
 export default async function MwSeo({ searchParams }: { searchParams: Promise<Q> }) {
-  await currentGuest()
+  const guest = await currentGuest()
   const q = await searchParams
   const [snap, rows, markets, gaps] = await Promise.all([getMwData(), getActions('seo'), getMarketSeo(), getGaps()])
   const live = withData(markets)
+
+  // ── the planner card: the plan scored on today's numbers ─────────────────
+  const planner = await loadPlanner({ rows, markets })
+  const cut = q.cut === 'all' ? 'all' : 'focus'
+  // Two pickers share one GET form; the chapter one wins only if it changed.
+  const want = q.ch && q.ch !== q.from ? q.ch : q.step
+  const view = viewOf(planner, cut, want)
+  const replies = await latestForStep(view.step.id)
+  const keep = Object.fromEntries(KEEP.filter(k => q[k]).map(k => [k, String(q[k])]))
+  const planHref = (o: { step?: string; cut?: 'focus' | 'all' }) => {
+    const sp = new URLSearchParams(keep)
+    const c = o.cut ?? cut
+    if (c === 'all') sp.set('cut', 'all')
+    if (o.step) sp.set('step', o.step)
+    const s = sp.toString()
+    return `/mw/seo${s ? `?${s}` : ''}#planner`
+  }
+  const firstId = planner.focus.ids.find(id => !planner.prog.get(id)?.stage || !['done', 'moot'].includes(planner.prog.get(id)!.stage))
+  const first = firstId ? { step: planner.steps.find(s => s.id === firstId)!, leads: planner.scored.get(firstId)!.gain.leads, href: planHref({ step: firstId, cut: 'focus' }) } : null
 
   if (!snap) {
     return <div className="mw-wrap"><MwHero tab="seo" pulled="—" stale={false} headline="SEO & organic" /><p className="lede">No snapshot yet.</p></div>
@@ -97,7 +120,12 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
         { k: 'Authority score', v: String(k.authority), d: `${num(k.refDomains)} ref. domains`, tone: 'up' },
       ]} />
 
-      {/* ── 1. the chain, at the top, because everything else explains it ── */}
+      {/* ── 0. one look, then the plan: what to do first ─────────────────── */}
+      <SeoGlance signals={glanceOf(live)} top={first} />
+      <SeoPlanner p={planner} cut={cut} list={view.list} step={view.step} nav={view.nav} inList={view.inList}
+        replies={replies} isOwner={guest === null} href={planHref} keep={keep} />
+
+      {/* ── 1. the chain, because everything else explains it ── */}
       <Section title="SEO actions — what we are doing and who is doing it"
         sub="Each action is the strategy; the tasks under it are the delivery, spread across the market leads. An action closes when its tasks are done, and stays open if somebody declines.">
         <ThemeChain rolls={rolls} />
@@ -150,12 +178,12 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
             }).sort((a, b) => b.vol - a.vol)} />
           </Section>
 
-          <Section title="Page health — every live location page, graded"
+          <Section id="health" title="Page health — every live location page, graded"
             sub="Title, meta description, one H1, structured data, canonical, internal links and body length. This is the website operator's board.">
             <PageHealthBoard all={live} />
           </Section>
 
-          <Section title="Where the funnel leaks"
+          <Section id="leaks" title="Where the funnel leaks"
             sub="Traffic against enquiries, by market. A market with sessions and no leads has a page problem, not a ranking problem.">
             <FunnelLeaks all={live} />
           </Section>

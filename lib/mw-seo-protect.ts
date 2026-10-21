@@ -20,6 +20,8 @@
 // PURE. No network, no database — rows in, Markdown out — so the banding and
 // the wording can be tested without a Semrush pull.
 
+import { isBrand } from './mw-markets'
+
 export type RankedTerm = {
   q: string
   pos: number
@@ -34,6 +36,53 @@ export type PageRanks = {
   terms: RankedTerm[]
   /** The page's visible copy, when it could be fetched. null = not checked. */
   copy?: string | null
+}
+
+/**
+ * Every ranked non-brand term, grouped by the URL it ranks on, for one cycle.
+ *
+ * The same term can arrive from several country pulls; the best position is
+ * kept, because that is the one with traffic to lose. Shared by the
+ * protection doc (scripts/seo-protect.mts) and the SEO planner's context
+ * pack, so the two can never disagree about what a page holds.
+ */
+export function rankedByPage(rows: { cycle: unknown; market?: unknown; country?: unknown; keywords?: unknown }[], cycle: string): Map<string, RankedTerm[]> {
+  const byUrl = new Map<string, RankedTerm[]>()
+  for (const r of rows as any[]) {
+    if (String(r.cycle) !== cycle) continue
+    for (const k of (Array.isArray(r.keywords) ? r.keywords : [])) {
+      const u = String(k?.url ?? '').trim()
+      const q = String(k?.q ?? '').trim()
+      if (!u || !q) continue
+      // NOT OUR OWN NAME. The doc was listing "moving walls" at #1 as a phrase
+      // that "must survive any edit", which is advice nobody needs: nothing is
+      // going to outrank us for our own company name, and a protection list full
+      // of brand terms hides the non-brand ones that are the actual constraint.
+      //
+      //   "I don't think we should do anything on the brand terms part... what I
+      //    want to focus more on is non-brand terms I actually mentioned this
+      //    already since we started creating this page."   (owner, 14 Oct 2026)
+      if (isBrand(q)) continue
+      const list = byUrl.get(u) ?? []
+      // The same term can arrive from several country pulls. Keep the best
+      // position: that is the one with traffic to lose.
+      const seen = list.find(t => t.q === q)
+      const pos = Number(k.pos) || 0
+      if (seen) {
+        if (pos > 0 && (seen.pos === 0 || pos < seen.pos)) seen.pos = pos
+        seen.traffic = Math.max(seen.traffic, Number(k.traffic) || 0)
+        seen.vol = Math.max(seen.vol, Number(k.vol) || 0)
+        continue
+      }
+      list.push({
+        q, pos, vol: Number(k.vol) || 0, traffic: Number(k.traffic) || 0,
+        market: r.market ? String(r.market) : undefined,
+        country: r.country ? String(r.country) : undefined,
+      })
+      byUrl.set(u, list)
+    }
+  }
+  return byUrl
 }
 
 /** How binding the term is. */
