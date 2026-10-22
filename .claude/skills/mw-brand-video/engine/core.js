@@ -1231,6 +1231,123 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       if (ev.label) { fitFont(ev.label, 700, 40, 460); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 1.8, 2.1); x.fillText(ev.label, 770, 770); x.globalAlpha = 1; }
       x.restore();
     },
+    // ---------- batch 3 ----------
+    // one named outdoor format in its street, lit up: shelter, truck, bridge, facade, unipole, bunting
+    formatscene(u, r, dark, ev) {
+      const f = ev.format || 'shelter';
+      x.save(); fit(r, 1000, 760);
+      const city = dark ? 'rgba(191,231,251,.14)' : 'rgba(43,60,146,.09)', post = dark ? '#3A4170' : '#B8C6D8', on = oExpo(P(u, .6, 1.0));
+      [[20, 260, 150], [190, 180, 120], [330, 300, 170], [520, 220, 110], [650, 140, 160], [830, 260, 150]].forEach(([bx, by, bw], i) => { const p = oExpo(P(u, i * .05, .4 + i * .05)); x.fillStyle = city; x.fillRect(bx, by + (1 - p) * 300, bw, 640 - by); });
+      x.fillStyle = soft(dark); x.fillRect(0, 640, 1000, 14);
+      const lit = (bx, by, bw, bh, rr = 10) => { x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(bx - 10, by - 10, bw + 20, bh + 20, rr + 4); x.fill(); x.fillStyle = C.blue; x.beginPath(); x.roundRect(bx, by, bw, bh, rr); x.fill(); x.save(); x.globalAlpha = on; x.fillStyle = accGrad(bx, bx + bw); x.beginPath(); x.roundRect(bx, by, bw, bh, rr); x.fill(); x.restore(); shape('wave_solid', bx + bw * .25, by + bh * .38, bw * .5, on > .5 ? C.navy : C.white); };
+      if (f === 'shelter') { x.fillStyle = post; x.fillRect(300, 380, 14, 260); x.fillRect(700, 380, 14, 260); x.fillRect(290, 370, 440, 24); lit(560, 420, 120, 200); x.fillStyle = soft(dark); x.fillRect(340, 560, 180, 20); }
+      else if (f === 'truck') { const tx = lerp(-460, 260, oCub(P(u, .1, 1.1))); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(tx + 400, 470, 150, 150, 18); x.fill(); lit(tx, 380, 390, 220); x.fillStyle = post; [tx + 80, tx + 300, tx + 470].forEach(wx => { x.beginPath(); x.arc(wx, 640, 34, 0, 7); x.fill(); }); }
+      else if (f === 'bridge') { x.fillStyle = post; x.fillRect(80, 300, 40, 340); x.fillRect(880, 300, 40, 340); x.fillRect(60, 260, 880, 50); lit(250, 320, 500, 110); }
+      else if (f === 'facade') { x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.fillRect(300, 80, 400, 560); for (let k = 0; k < 6; k++) for (let j = 0; j < 3; j++) { x.fillStyle = soft(dark); x.fillRect(330 + j * 120, 470 + (k % 2) * 70, 90, 46); } lit(330, 110, 340, 330); }
+      else if (f === 'unipole') { x.fillStyle = post; x.fillRect(486, 300, 28, 340); lit(300, 120, 400, 190); }
+      else { [180, 500, 820].forEach((px, i) => { x.fillStyle = post; x.fillRect(px - 8, 200, 16, 440); x.beginPath(); x.arc(px + 50, 200, 44, Math.PI, 0); x.lineWidth = 12; x.strokeStyle = post; x.stroke(); lit(px + 14, 270, 70, 170, 6); }); }
+      if (ev.label) { fitFont(ev.label, 700, 44, 900); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 1.0, 1.3); x.fillText(ev.label, 500, 730); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // signals flow into an intelligence core; decisions flow out to the screens
+    ai(u, r, dark, ev) {
+      const ins = (ev.inputs && ev.inputs.length ? ev.inputs : ['Location', 'Weather', 'Audience']).slice(0, 4), n = ins.length;
+      x.save(); fit(r, 1000, 760);
+      ins.forEach((lab, i) => { const y = 380 + (i - (n - 1) / 2) * 150, t0 = cue(ev, i, .25, .2), p = oExpo(P(u, t0, t0 + .4)); if (p <= 0) return;
+        x.globalAlpha = p; x.fillStyle = dark ? '#262C52' : C.white; x.beginPath(); x.roundRect(0, y - 46, 300, 92, 46); x.fill(); fitFont(String(lab), 700, 40, 250); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(String(lab), 150, y + 14);
+        x.strokeStyle = soft(dark); x.lineWidth = 6; x.beginPath(); x.moveTo(300, y); x.lineTo(410, 380); x.stroke(); const f = (u * .8 + i * .3) % 1; if (u > .8) { x.fillStyle = C.sun1; x.beginPath(); x.arc(lerp(300, 410, f), lerp(y, 380, f), 9, 0, 7); x.fill(); } x.globalAlpha = 1; });
+      const cp = oBack(P(u, .3, .7), 1.6), pulse = 1 + .04 * Math.sin(u * 6); x.save(); x.translate(500, 380); x.scale(cp * pulse, cp * pulse);
+      x.fillStyle = `rgba(254,218,36,${.22 + .1 * Math.sin(u * 6)})`; x.beginPath(); x.arc(0, 0, 130, 0, 7); x.fill(); ICON.chip(0, 0, 1.2, dark); x.restore();
+      [0, 1, 2].forEach(i => { const y = 380 + (i - 1) * 200, on = P(u, 1.2 + i * .2, 1.4 + i * .2); x.strokeStyle = soft(dark); x.lineWidth = 6; x.beginPath(); x.moveTo(590, 380); x.lineTo(780, y); x.stroke();
+        x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(780, y - 70, 220, 140, 14); x.fill(); if (on > 0) { x.globalAlpha = on; x.fillStyle = i === 2 ? accGrad(790, 990) : C.sky; x.beginPath(); x.roundRect(792, y - 58, 196, 116, 10); x.fill(); shape('wave_solid', 850, y - 22, 80, C.white); x.globalAlpha = 1; } });
+      x.restore();
+    },
+    // hyperlocal: a ring grows from the store; screens inside it light, those outside dim
+    radius(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 800);
+      const cx = 500, cy = 400, R = 280 * oCub(P(u, .4, 1.3)), rr = rnd(77);
+      x.strokeStyle = soft(dark); x.lineWidth = 8; for (let k = 0; k < 6; k++) { x.beginPath(); x.moveTo(0, 60 + k * 140 + rr() * 30); x.lineTo(1000, 60 + k * 140 + rr() * 30); x.stroke(); x.beginPath(); x.moveTo(80 + k * 170, 0); x.lineTo(60 + k * 170 + rr() * 40, 800); x.stroke(); }
+      if (R > 0) { x.fillStyle = 'rgba(254,218,36,.12)'; x.strokeStyle = C.sun1; x.lineWidth = 6; x.setLineDash([18, 12]); x.beginPath(); x.arc(cx, cy, R, 0, 7); x.fill(); x.stroke(); x.setLineDash([]); }
+      for (let k = 0; k < 16; k++) { const a = rr() * Math.PI * 2, d = 90 + rr() * 380, sx = cx + Math.cos(a) * d, sy = cy + Math.sin(a) * d * .85; if (sx < 30 || sx > 970 || sy < 30 || sy > 770) continue; const inside = Math.hypot(sx - cx, sy - cy) < 280, lit = inside && R > Math.hypot(sx - cx, sy - cy);
+        x.fillStyle = lit ? C.sun1 : (dark ? 'rgba(191,231,251,.35)' : 'rgba(43,60,146,.3)'); x.beginPath(); x.roundRect(sx - 22, sy - 16, 44, 32, 6); x.fill(); }
+      const pp = oBack(P(u, .05, .4), 2); x.save(); x.translate(cx, cy); x.scale(pp, pp); ICON.pin(0, -40, 1.1, dark); x.restore();
+      if (ev.label && R > 0) { fitFont(ev.label, 800, 52, 300); x.textAlign = 'left'; x.fillStyle = accentText(dark); x.globalAlpha = P(u, 1.1, 1.4); x.fillText(ev.label, cx + Math.cos(-.6) * 280 + 20, cy + Math.sin(-.6) * 280); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // emissions measured, then cut: the CO2 cloud shrinks as the leaf gauge fills
+    carbon(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      const sh = 1 - .45 * oCub(P(u, 1.0, 2.0)), gp = oCub(P(u, 1.0, 2.0));
+      x.save(); x.translate(300, 330); x.scale(sh * oBack(P(u, .05, .45), 1.4), sh * oBack(P(u, .05, .45), 1.4)); x.fillStyle = dark ? 'rgba(191,231,251,.35)' : '#B8C6D8';
+      x.beginPath(); x.arc(-110, 40, 110, Math.PI * .5, Math.PI * 1.5); x.arc(0, -40, 150, Math.PI, 0); x.arc(120, 40, 110, -Math.PI * .5, Math.PI * .5); x.closePath(); x.fill();
+      x.font = '800 110px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('CO₂', 0, 70); x.restore();
+      const val = gp < .5 ? String(ev.from || '12 t') : String(ev.to || '7 t'); fitFont(val, 800, 60, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .4, .7); x.fillText(val, 300, 640); x.globalAlpha = 1;
+      x.strokeStyle = soft(dark); x.lineWidth = 34; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * 2.25); x.stroke();
+      x.strokeStyle = C.sun1; x.lineCap = 'round'; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * .75 + Math.PI * 1.5 * gp); x.stroke(); ICON.leaf(760, 330, 1.1, dark);
+      if (ev.label) { fitFont(ev.label, 700, 40, 380); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = gp; x.fillText(ev.label, 760, 640); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // privacy: people pass behind the shield and come out as anonymous dots; the compliance badge lands
+    shield(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      for (let k = 0; k < 8; k++) { const f = ((u * .35 + k / 8) % 1), px = lerp(-40, 1040, f), py = 260 + (k % 3) * 110;
+        if (px < 500) person(px, py + 30, 64, dark ? C.sky : C.blue); else { x.fillStyle = k % 3 ? (dark ? 'rgba(191,231,251,.6)' : 'rgba(43,60,146,.45)') : C.sun1; x.beginPath(); x.arc(px, py, 14, 0, 7); x.fill(); } }
+      const sp = oBack(P(u, .1, .5), 1.5); x.save(); x.translate(500, 350); x.scale(sp * 2.3, sp * 2.3);
+      x.fillStyle = dark ? C.navy : C.white; x.beginPath(); x.moveTo(0, -120); x.lineTo(100, -84); x.quadraticCurveTo(104, 60, 0, 124); x.quadraticCurveTo(-104, 60, -100, -84); x.closePath(); x.fill(); x.restore();
+      ICON.lock(500, 350, 1.6 * sp, dark);
+      const bp = oBack(P(u, 1.4, 1.8), 2.2); if (bp > 0) { x.save(); x.translate(500, 690); x.rotate(-.06); x.scale(bp, bp); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -48, 340, 96, 48); x.fill(); fitFont(ev.label || 'Privacy-first', 800, 44, 290); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.label || 'Privacy-first', 0, 16); x.restore(); }
+      x.restore();
+    },
+    // interactive: a post flies from the phone to the big screen; a tap ripples on a touch screen
+    interactive(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(690, 450, 26, 300);
+      x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(480, 80, 440, 380, 22); x.fill(); x.fillStyle = C.blue; x.beginPath(); x.roundRect(498, 98, 404, 344, 12); x.fill();
+      const pp = oBack(P(u, .05, .4), 1.5); x.save(); x.translate(180, 470); x.rotate(-.1); x.scale(pp, pp); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-110, -200, 220, 400, 34); x.fill(); x.fillStyle = C.sky; x.beginPath(); x.roundRect(-92, -176, 184, 300, 18); x.fill(); ICON.heart(0, -30, .8, false); x.restore();
+      const fl = ioCub(P(u, .8, 1.6)), fx = lerp(180, 700, fl), fy = lerp(440, 270, fl) - Math.sin(fl * Math.PI) * 160, fsz = lerp(150, 330, fl);
+      if (u > .8) { x.save(); x.globalAlpha = fl < 1 ? 1 : 1; x.fillStyle = accGrad(fx - fsz / 2, fx + fsz / 2); x.beginPath(); x.roundRect(fx - fsz / 2, fy - fsz * .4, fsz, fsz * .8, 14); x.fill(); ICON.heart(fx, fy, fsz / 220, false); x.restore(); }
+      const tp = P(u, 1.8, 2.4); if (tp > 0) { const hx = 820, hy = 380; for (let k = 0; k < 3; k++) { x.strokeStyle = `rgba(255,255,255,${(1 - tp) * .8})`; x.lineWidth = 6; x.beginPath(); x.arc(hx, hy, 20 + tp * 90 + k * 26, 0, 7); x.stroke(); } x.fillStyle = C.sun1; x.beginPath(); x.arc(hx, hy, 18, 0, 7); x.fill(); }
+      if (ev.label) { fitFont(ev.label, 700, 42, 520); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 1.6, 1.9); x.fillText(ev.label, 700, 520 + 200); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // one play × the people who saw it = impressions
+    multiplier(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(330, 20, 340, 220, 18); x.fill(); x.fillStyle = accGrad(345, 655); x.beginPath(); x.roundRect(346, 36, 308, 188, 10); x.fill(); shape('wave_solid', 430, 100, 140, C.navy);
+      x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(488, 240, 24, 120);
+      const pass = P(u, .4, 1.8), cnt = Math.floor(pass * 12);
+      for (let k = 0; k < 12; k++) { const shown = k < cnt; if (!shown) continue; const col = k % 6, row = Math.floor(k / 6); person(170 + col * 132, 470 + row * 100, 60, k === cnt - 1 ? C.sun1 : (dark ? C.sky : C.blue)); }
+      const eq = [ev.plays || '1 play', ev.people || '× 240 people', ev.total || '= 240 impressions'];
+      x.textAlign = 'center';
+      eq.forEach((s, i) => { const p = P(u, 1.8 + i * .3, 2.1 + i * .3); fitFont(String(s), i === 2 ? 800 : 700, i === 2 ? 52 : 40, 320); x.fillStyle = i === 2 ? accentText(dark) : fg(dark); x.globalAlpha = p; x.fillText(String(s), 170 + i * 330, 740); });
+      x.globalAlpha = 1; x.restore();
+    },
+    // a live moment in the stadium; screens across the city react in sync
+    stadium(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.ellipse(500, 380, 300, 170, 0, 0, 7); x.fill();
+      x.fillStyle = dark ? 'rgba(109,223,106,.45)' : 'rgba(31,122,69,.35)'; x.beginPath(); x.ellipse(500, 380, 200, 100, 0, 0, 7); x.fill(); x.strokeStyle = dark ? 'rgba(255,255,255,.6)' : C.white; x.lineWidth = 4; x.beginPath(); x.moveTo(500, 280); x.lineTo(500, 480); x.stroke(); x.beginPath(); x.arc(500, 380, 34, 0, 7); x.stroke();
+      const go = ev.at != null ? +ev.at : 1.0, flash = P(u, go, go + .15) * (1 - P(u, go + .5, go + 1.2));
+      if (flash > 0) { x.fillStyle = `rgba(254,218,36,${.5 * flash})`; x.beginPath(); x.ellipse(500, 380, 300, 170, 0, 0, 7); x.fill(); }
+      fitFont(String(ev.moment || 'GOAL!'), 800, 70, 320); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, go, go + .2); x.fillText(String(ev.moment || 'GOAL!'), 500, 160); x.globalAlpha = 1;
+      [[110, 140], [890, 140], [110, 620], [890, 620], [500, 690]].forEach(([sx, sy], i) => { const on = P(u, go + .2 + i * .08, go + .4 + i * .08), ring = P(u, go + .2 + i * .08, go + .9 + i * .08);
+        if (ring > 0 && ring < 1) { x.strokeStyle = `rgba(254,218,36,${1 - ring})`; x.lineWidth = 6; x.beginPath(); x.arc(sx, sy, 40 + ring * 80, 0, 7); x.stroke(); }
+        x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.beginPath(); x.roundRect(sx - 70, sy - 45, 140, 90, 10); x.fill(); if (on > 0) { x.globalAlpha = on; x.fillStyle = accGrad(sx - 60, sx + 60); x.beginPath(); x.roundRect(sx - 60, sy - 35, 120, 70, 8); x.fill(); x.globalAlpha = 1; } });
+      x.restore();
+    },
+    // plan → run → measure → optimise, round and round; each lap the result bar grows
+    loop(u, r, dark, ev) {
+      const st = (ev.steps && ev.steps.length ? ev.steps : ['Plan', 'Run', 'Measure', 'Optimise']).slice(0, 5), n = st.length;
+      x.save(); fit(r, 1000, 820);
+      const cx = 500, cy = 410, R = 270, lp = P(u, .1, .8);
+      x.strokeStyle = soft(dark); x.lineWidth = 16; x.beginPath(); x.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * lp); x.stroke();
+      const dot = -Math.PI / 2 + (u > .8 ? (u - .8) * 2.2 : 0); if (u > .8) { x.fillStyle = C.sun1; x.beginPath(); x.arc(cx + Math.cos(dot) * R, cy + Math.sin(dot) * R, 20, 0, 7); x.fill(); }
+      st.forEach((s, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / n, px = cx + Math.cos(a) * R, py = cy + Math.sin(a) * R, p = oBack(P(u, .2 + i * .15, .5 + i * .15), 1.8); if (p <= 0) return;
+        x.save(); x.translate(px, py); x.scale(p, p); x.fillStyle = dark ? C.white : C.navy; fitFont(String(s), 700, 40, 220); const w = Math.min(250, x.measureText(String(s)).width + 56); x.beginPath(); x.roundRect(-w / 2, -40, w, 80, 40); x.fill(); x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText(String(s), 0, 14); x.restore(); });
+      const laps = Math.max(0, (u - .8) * 2.2 / (Math.PI * 2)), gh = Math.min(1, .3 + laps * .35) * oExpo(P(u, .8, 1.2));
+      x.fillStyle = soft(dark); x.beginPath(); x.roundRect(cx - 50, cy - 110, 100, 220, 16); x.fill(); x.fillStyle = accGrad(cx - 50, cx + 50); x.beginPath(); x.roundRect(cx - 50, cy + 110 - 220 * gh, 100, 220 * gh, 16); x.fill();
+      x.restore();
+    },
     // a cut-out photo (phase 2) — until one is supplied, the scene's
     // fallback illustration draws instead (see KIND.panel)
   });

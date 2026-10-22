@@ -42,6 +42,8 @@ export const ARTS = [
   'icons',
   // batch 2
   'dwell', 'planner', 'lift', 'yield', 'proof', 'forecast', 'dco', 'festive',
+  // batch 3
+  'formatscene', 'ai', 'radius', 'carbon', 'shield', 'interactive', 'multiplier', 'stadium', 'loop',
 ] as const
 
 /** The engine's icon library (formats tiles, the icons grid). Kept in step with ICON in core.js. */
@@ -463,11 +465,15 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
     if (art === 'cms' && Array.isArray(ev.venues)) ev.venues = ev.venues.slice(0, 4).map((q: any) => str(q, 12))
     if (art === 'trigger') for (const k of ['from', 'to', 'signalLabel']) if (ev[k]) ev[k] = str(ev[k], 22)
     if (art === 'planner' && Array.isArray(ev.chips)) ev.chips = ev.chips.slice(0, 3).map((q: any) => str(q, 14))
-    if (art === 'lift') { ev.exposed = Math.max(1, Math.min(100, +ev.exposed || 0)) || undefined; ev.control = Math.max(1, Math.min(100, +ev.control || 0)) || undefined }
+    if (art === 'lift') for (const k of ['exposed', 'control']) ev[k] = Number.isFinite(+ev[k]) && +ev[k] > 0 ? Math.min(100, +ev[k]) : undefined
     if (art === 'proof' && Array.isArray(ev.rows)) ev.rows = ev.rows.slice(0, 5).map((q: any) => str(q, 14))
     if (art === 'forecast') for (const k of ['forecast', 'actual']) if (ev[k]) ev[k] = Array.isArray(ev[k]) && ev[k].length >= 3 && ev[k].every((v: any) => Number.isFinite(+v)) ? ev[k].slice(0, 10).map(Number) : undefined
     if (art === 'dco' && Array.isArray(ev.versions)) ev.versions = ev.versions.slice(0, 3).map((q: any) => str(q, 24))
     if (art === 'festive' && !['diwali', 'ramadan', 'raya', 'lunar', 'cny', 'christmas', 'sale'].includes(ev.festival)) ev.festival = 'sale'
+    if (art === 'formatscene' && !['shelter', 'truck', 'bridge', 'facade', 'unipole', 'bunting'].includes(ev.format)) ev.format = 'unipole'
+    if (art === 'ai' && Array.isArray(ev.inputs)) ev.inputs = ev.inputs.slice(0, 4).map((q: any) => str(q, 14))
+    if (art === 'loop' && Array.isArray(ev.steps)) ev.steps = ev.steps.slice(0, 5).map((q: any) => str(q, 12))
+    for (const k of ['label', 'from', 'to', 'plays', 'people', 'total', 'moment']) if (typeof ev[k] === 'string') ev[k] = str(ev[k], 30)
     if (art === 'flows' && ev.counter) ev.counter = String(ev.counter).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({

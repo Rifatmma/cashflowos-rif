@@ -145,6 +145,16 @@ scene using "from"):
            one template, versions per place / time / weather.
   festive  {"festival":"diwali"|"ramadan"|"raya"|"lunar"|"cny"|"christmas"|"sale","month":"NOV","day":"8",
            "label":"Searches peak"}  a festival or season driving demand.
+  formatscene {"format":"shelter"|"truck"|"bridge"|"facade"|"unipole"|"bunting","label":"LED truck"}  one named
+           outdoor format in its street (bus shelter, mobile LED truck, overhead bridge, wall facade, unipole, e-bunting).
+  ai       {"inputs":["Location","Weather","Audience"]}  AI / automation: signals into a core, decisions to screens.
+  radius   {"label":"2 km"}  hyperlocal targeting around a store or venue.
+  carbon   {"from":"12 t","to":"7 t","label":"42% less CO₂"}  sustainability, emissions measured and reduced.
+  shield   {"label":"SOC 2 compliant"}  privacy, anonymised data, compliance.
+  interactive {"label":"Your post, on the big screen"}  UGC, social to screen, touch / interactive screens.
+  multiplier {"plays":"1 play","people":"× 240 people","total":"= 240 impressions"}  spots vs impressions.
+  stadium  {"moment":"GOAL!"}  live sport moments triggering screens across the city.
+  loop     {"steps":["Plan","Run","Measure","Optimise"]}  a feedback loop that improves each cycle.
 VARIETY: pick the illustration that shows THIS line's idea most specifically — a number about
 people is "people" or "compare", not a street. Use each illustration at most once per video.
 ${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}

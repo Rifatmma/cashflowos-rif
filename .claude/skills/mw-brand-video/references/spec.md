@@ -119,6 +119,15 @@ Pick the one that shows **this line's** idea most specifically. A number about p
 | `forecast` | `forecast: [...], actual: [...], label?` | forecast line, delivered line meets it |
 | `dco` | `versions: [≤3], slot?` | one template, localised versions to three screens |
 | `festive` | `festival, month, day, values?, label?` | calendar flips to the festival, motif blooms, demand climbs |
+| `formatscene` | `format: shelter/truck/bridge/facade/unipole/bunting, label?` | one named outdoor format in its street, lit |
+| `ai` | `inputs: [≤4]` | signals into an AI core, decisions out to screens |
+| `radius` | `label?` | hyperlocal: ring grows from a store, screens inside light |
+| `carbon` | `from, to, label?` | CO₂ measured then cut; leaf gauge fills |
+| `shield` | `label?` | privacy: people become anonymous dots behind a shield; compliance badge |
+| `interactive` | `label?` | a post flies from phone to the big screen; touch ripple |
+| `multiplier` | `plays, people, total` | one play × people passing = impressions |
+| `stadium` | `moment?, at?` | a live moment in the stadium; city screens react in sync |
+| `loop` | `steps: [≤5]` | plan → run → measure → optimise cycle; result grows each lap |
 
 Most items take `at: [t, ...]` cue times; without them they stagger automatically.
 

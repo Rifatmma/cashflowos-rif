@@ -123,6 +123,7 @@ Progress:
 - [x] Batch 1 illustrations (11): dashboard, hub, exchange, auction, segments, catalog, attribution, store, flows, cms, trigger — audited in 4 formats (no off-frame / unsafe / overlap), registered in ARTS, sanitizePlan, writer menu, spec.md.
 - [x] Icon set: 71 new line icons (76 with the 5 originals) + `icons` grid scene; `formats` accepts any icon; ICON_NAMES in lib/mw-brandfilm.ts; listed in spec.md.
 - [x] Batch 2 (8): dwell, planner, lift, yield, proof, forecast, dco, festive — audited, registered. Audit now judges overlap and size on settled frames only.
-- [ ] Rest (9) + variants
+- [x] Batch 3 (9): formatscene (6 formats), ai, radius, carbon, shield, interactive, multiplier, stadium, loop — audited, registered.
+- [ ] Variants of the busiest (dashboard, exchange, store, formatscene) — ~25 to reach the ~120 target
 - [ ] Label wrapFit (A)
 - [ ] Export audit email + inbox button (B)
