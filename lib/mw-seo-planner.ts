@@ -162,13 +162,16 @@ export async function contextFor(p: Planner, stepId: string, prompt: string): Pr
  */
 export async function queuePrompt(o: {
   stepId: string | null; prompt: string; by: string; source: 'web' | 'telegram'; chatId?: number | null; parentId?: number | null
+  /** Data the task works from (a video audit's plan and findings), frozen into the context. Data, never instructions. */
+  extra?: Record<string, unknown>
 }): Promise<{ id: number | null; duplicate: boolean }> {
   const prompt = o.prompt.trim().slice(0, 4000)
   if (!prompt) return { id: null, duplicate: false }
   const p = await loadPlanner()
   // Tasks outside the SEO plan (content briefs, paid reviews…) still carry the guardrails.
-  const context = o.stepId && STEP[o.stepId] ? await contextFor(p, o.stepId, prompt)
+  const base = o.stepId && STEP[o.stepId] ? await contextFor(p, o.stepId, prompt)
     : { v: 1, task: withGuardrails(prompt), ownerPrompt: prompt, guardrails: GUARDRAILS, taskId: o.stepId }
+  const context = o.extra ? { ...base, ...o.extra } : base
   const minute = new Date().toISOString().slice(0, 16)
   const { createHash } = await import('node:crypto')
   const key = createHash('sha1').update(`${o.stepId}|${prompt}|${minute}|${o.source}`).digest('hex')

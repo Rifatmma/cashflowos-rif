@@ -344,3 +344,49 @@ export async function setDigestEnabled(formData: FormData) {
   await saveDigestSettings({ enabled: String(formData.get('enabled') ?? '') === '1' })
   revalidatePath('/mw/import')
 }
+
+// ---------------------------------------------------------------------------
+// The Studio's check before an export (lib/mw-video-audit.ts, in the browser):
+// the video into a private bucket, the audit emailed to Rif, and "Send to
+// Claude to fix" into the inbox.
+// ---------------------------------------------------------------------------
+
+/** A signed upload URL for one export; the browser uploads the MP4 itself. */
+export async function videoUploadTarget(slug: string, fmt: string): Promise<{ ok: true; path: string; url: string } | { ok: false; error: string }> {
+  try {
+    const { uploadTarget } = await import('@/lib/mw-video-audit-send')
+    return { ok: true, ...(await uploadTarget(slug, fmt)) }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e).slice(0, 200) }
+  }
+}
+
+/** The audit email to Rif, with a 30-day link to the export. */
+export async function sendVideoAudit(m: import('@/lib/mw-video-audit-send').AuditMail): Promise<{ ok: true; link: string | null } | { ok: false; error: string }> {
+  try {
+    const { sendAuditMail } = await import('@/lib/mw-video-audit-send')
+    return { ok: true, ...(await sendAuditMail({ ...m, findings: m.findings.slice(0, 60), fixed: m.fixed.slice(0, 60), changed: m.changed.slice(0, 30) })) }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e).slice(0, 200) }
+  }
+}
+
+/** Send to Claude to fix: the findings, the plan and the film into the inbox, for the mw-video-audit skill. Owner only. */
+export async function sendVideoToClaude(v: {
+  title: string; slug: string; format: string; findings: unknown[]; plan: unknown; film: unknown; video: string | null; article: string
+}): Promise<{ ok: true; id: number | null } | { ok: false; error: string }> {
+  if (!(await isOwner())) return { ok: false, error: 'Only the owner can send work to Claude.' }
+  const slug = String(v.slug ?? '').replace(/[^a-z0-9-]/g, '').slice(0, 60) || 'video'
+  const prompt = `Video audit: fix what is still open in “${String(v.title).slice(0, 120)}” (${String(v.format).slice(0, 8)}) — use the mw-video-audit skill: reproduce from the plan, run the loop, fix in the engine, add the lessons, and reply with what changed.`
+  const extra = {
+    kind: 'video-audit', title: String(v.title).slice(0, 200), format: v.format, article: String(v.article ?? '').slice(0, 300),
+    video: v.video, findings: (v.findings ?? []).slice(0, 60), plan: v.plan, film: v.film,
+  }
+  if (JSON.stringify(extra).length > 400_000) return { ok: false, error: 'The video is too large to send as context.' }
+  try {
+    const r = await queuePrompt({ stepId: `video:${slug}`, prompt, by: 'owner', source: 'web', extra })
+    return { ok: true, id: r.id }
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e).slice(0, 200) }
+  }
+}

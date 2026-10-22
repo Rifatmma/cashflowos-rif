@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
-import { researchArticleUrl, writeBrandVideo, speakBrandVideo, findScenePhoto, saveScenePhoto, usedScenePhoto, readLocationPage, writeLocationVideo } from './actions'
+import { researchArticleUrl, writeBrandVideo, speakBrandVideo, findScenePhoto, saveScenePhoto, usedScenePhoto, readLocationPage, writeLocationVideo, videoSourceText, reviewExport } from './actions'
+import { videoUploadTarget, sendVideoAudit, sendVideoToClaude } from '../actions'
 import type { LocationRead, Site } from '@/lib/mw-locations'
 import type { Candidate } from '@/lib/mw-cutouts'
 import { cutOut, loadCutout } from '@/lib/mw-cutout-client'
@@ -12,7 +13,8 @@ import {
 } from '@/lib/mw-brandfilm'
 import { createEngine } from '@/lib/mw-brandfilm-engine'
 import { buildMix, SR } from '@/lib/mw-brandfilm-score'
-import { encodeAV, canEncode } from '@/lib/mw-studio-encode'
+import { encodeAV, canEncode, audioCodec } from '@/lib/mw-studio-encode'
+import { auditAndFix, normaliseMix, verdict, type Finding } from '@/lib/mw-video-audit'
 
 // 👉 Studio → Brand video. An article in, an Ava-voiced motion video out.
 //
@@ -24,7 +26,10 @@ import { encodeAV, canEncode } from '@/lib/mw-studio-encode'
 //   2  who, what language, which ONE format, how long
 //   3  write Ava's script          one model call — read it before going on
 //   4  Ava reads it                one voice call — the timings come from her
-//   5  preview, then export         in this browser; nothing is uploaded
+//   5  preview, then export         checked first (every frame, the timing, the
+//                                   audio, a Claude review), fixed where it is
+//                                   design or timing, then encoded here; the MP4
+//                                   goes to a private bucket and the audit to Rif
 //
 // One format per export, on purpose: each one is a full encode, and the
 // owner asked that people choose before spending the time.
@@ -100,6 +105,54 @@ const AUD: { id: Audience; label: string; note: string }[] = [
 ]
 
 /** One scene's photo, as it is being found, cut and checked. */
+/** The check before an export: what it found, what it fixed, where it sent it. */
+type Check = {
+  findings: Finding[]
+  fixed: Finding[]
+  changed: string[]
+  rounds: number
+  loud: { before: number; after: number } | null
+  codec: string
+  reviewError?: string
+  film: Film
+  /** set once the upload and the email have run */
+  link?: string | null
+  sent?: string
+  inbox?: string
+}
+
+const SEV_ORDER = { blocker: 0, 'should fix': 1, 'nice to have': 2 } as const
+const sceneLabel = (sc: any, i: number) => `${i + 1} ${sc.kind}${sc.art ? ` · ${sc.art}` : ''}`
+/** The words a scene puts on screen, for Claude's review. */
+const sceneWords = (sc: any): string[] => [
+  ...(sc.text ?? []).map((t: any) => t.s), ...(sc.words ?? []).map((w: any) => w.s),
+  ...(sc.site ? [sc.site.name, sc.site.format, sc.site.near].filter(Boolean) : []),
+]
+
+/** One frame per scene, once it has settled (80% through), as small JPEGs for the review. */
+function settledFrames(film: Film, engine: (ctx: CanvasRenderingContext2D, f: Film) => (t: number) => void, size: { w: number; h: number }): string[] {
+  const big = document.createElement('canvas'); big.width = size.w; big.height = size.h
+  const draw = engine(big.getContext('2d')!, film)
+  const k = (size.w > size.h ? 960 : 540) / size.w                       // 540 wide, 960 for 16:9 — enough to read the text
+  const small = document.createElement('canvas'); small.width = Math.round(size.w * k); small.height = Math.round(size.h * k)
+  const sctx = small.getContext('2d')!
+  return film.scenes.slice(0, 16).map((sc: any) => {
+    draw(sc.a + (sc.b - sc.a) * 0.8)
+    sctx.drawImage(big, 0, 0, small.width, small.height)
+    return small.toDataURL('image/jpeg', 0.75).split(',')[1]
+  })
+}
+
+/** Straight to the private bucket with a signed upload URL (the file is too big for a server action). */
+async function uploadExport(blob: Blob, slug: string, fmt: string): Promise<string | null> {
+  const t = await videoUploadTarget(slug, fmt)
+  if (!t.ok) return null
+  const body = new FormData()
+  body.append('cacheControl', '3600'); body.append('', blob, 'video.mp4')
+  const r = await fetch(t.url, { method: 'PUT', body, headers: { 'x-upsert': 'false' } }).catch(() => null)
+  return r?.ok ? t.path : null
+}
+
 type ScenePhoto = {
   query: string; word?: string
   status: 'finding' | 'cutting' | 'ready' | 'failed' | 'off'
@@ -162,6 +215,9 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
   const [encoding, setEncoding] = useState(false)
   const [progress, setProgress] = useState(0)
   const [clip, setClip] = useState<{ blob: Blob; url: string } | null>(null)
+  /** What the check before the export found, fixed and sent (lib/mw-video-audit.ts). */
+  const [check, setCheck] = useState<Check | null>(null)
+  const [stage, setStage] = useState('')
   const abort = useRef<AbortController | null>(null)
   const preview = useRef<HTMLCanvasElement>(null)
   const audioRef = useRef<{ ctx: AudioContext; src: AudioBufferSourceNode } | null>(null)
@@ -445,27 +501,102 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
 
   // -------------------------------------------------------------- export
 
+  /** The article or the location pages, for the audit's figure and cut-off checks. */
+  const sourceText = async (): Promise<string> => {
+    if (local) return (loc?.pages ?? []).map(p => p.text).join('\n\n')
+    const u = res?.facts.find(f => f.url)?.url || url
+    const r = u ? await videoSourceText(u) : null
+    return r?.ok ? r.text : (res?.facts ?? []).map(f => f.claim).join('\n')
+  }
+  const articleUrl = local ? (loc?.url ?? url) : (res?.facts.find(f => f.url)?.url || url)
+
+  // The check comes first: every frame audited, the timing fixed and audited
+  // again, the audio set to −14 LUFS; Claude reviews the frames while it
+  // encodes. What changes the words is never touched — it is listed for Rif.
   const exportMp4 = async () => {
-    if (!film || !mix || !assets || !format) return
+    if (!film || !assets || !format || !voice || !plan) return
     stop()
-    setError(''); setClip(null); setProgress(0); setEncoding(true)
+    setError(''); setClip(null); setCheck(null); setProgress(0); setEncoding(true)
     abort.current = new AbortController()
+    const f = FILM_FORMATS[format]
+    const engineAt = (ctx: CanvasRenderingContext2D, fl: Film) =>
+      createEngine(ctx, f.w, f.h, fl, assets.shapes, { dark: assets.dark, light: assets.light, photos: photoImgs.current })
     try {
       await loadFonts(lang === 'zh')
+      setStage('Checking every frame…')
+      const source = await sourceText()
+      const vo = voice.lines.map((l, i) => ({ t: film.starts[i], words: l.words }))
+      const audited = auditAndFix(film, { w: f.w, h: f.h }, engineAt, vo, source)
+      const final = audited.film
+      const frames = settledFrames(final, engineAt, { w: f.w, h: f.h })
+      const reviewing = reviewExport({
+        title: plan.title, format: f.label, lines: plan.lines, frames, source,
+        scenes: final.scenes.map((sc: any, i: number) => ({ label: sceneLabel(sc, i), words: sceneWords(sc) })),
+      }).catch((e: any) => ({ error: String(e?.message ?? e) }))
+      const norm = normaliseMix(buildMix(final, voice.pcm))
+      const codec = (await audioCodec(SR)) ?? 'none'
+
+      setStage('Encoding…')
       let draw: ((t: number) => void) | null = null
-      const f = FILM_FORMATS[format]
       const blob = await encodeAV(
-        { w: f.w, h: f.h }, film.dur,
-        (ctx, t) => { draw ??= engineFor(ctx); draw(t) },
-        { left: mix.left, right: mix.right, sampleRate: SR },
+        { w: f.w, h: f.h }, final.dur,
+        (ctx, t) => { draw ??= engineAt(ctx, final); draw(t) },
+        { left: norm.left, right: norm.right, sampleRate: SR },
         { onProgress: setProgress, signal: abort.current.signal },
       )
       setClip({ blob, url: URL.createObjectURL(blob) })
+
+      setStage('Claude is reviewing the frames…')
+      const review = await reviewing
+      const media: Finding[] = []
+      if (codec !== 'aac') media.push({ severity: 'should fix', kind: 'container', source: 'media', fix: 'auto', scene: '', t: null, text: '',
+        detail: `audio encoded as ${codec} — this browser has no AAC encoder`, rule: 'AAC-LC audio plays everywhere: export from Chrome or Edge' })
+      if (Number.isFinite(norm.after) && norm.after < -15) media.push({ severity: 'nice to have', kind: 'loudness', source: 'media', fix: 'auto', scene: '', t: null, text: '',
+        detail: `${norm.after.toFixed(1)} LUFS — held under −14 so its loudest moment does not clip`, rule: '−14 LUFS ±1 for social' })
+      const findings = [...audited.findings, ...media, ...('findings' in review ? review.findings : [])]
+        .sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || (p.t ?? 0) - (q.t ?? 0))
+      const result: Check = {
+        findings, fixed: audited.fixed, changed: audited.changed, rounds: audited.rounds, codec, film: final,
+        loud: Number.isFinite(norm.before) ? { before: norm.before, after: norm.after } : null,
+        reviewError: 'error' in review ? review.error : undefined,
+      }
+      setCheck(result)
+      deliver(blob, result, f.label)
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
-      setEncoding(false); abort.current = null
+      setEncoding(false); setStage(''); abort.current = null
     }
+  }
+
+  /** The MP4 into the private bucket, then the audit emailed to Rif with its 30-day link. */
+  const deliver = async (blob: Blob, c: Check, label: string) => {
+    setCheck(x => x && { ...x, sent: 'Uploading and emailing the audit…' })
+    const path = await uploadExport(blob, slug, label).catch(() => null)
+    const m = await sendVideoAudit({
+      title: plan?.title ?? slug, format: label, path, article: articleUrl, findings: c.findings, fixed: c.fixed, changed: c.changed,
+      rounds: c.rounds, loudness: c.loud, audioCodec: c.codec, reviewError: c.reviewError,
+    })
+    setCheck(x => x && {
+      ...x, link: m.ok ? m.link : null,
+      sent: m.ok ? `Audit emailed to Rif${path ? ' with a private 30-day link' : ' (the upload failed — no link)'}.` : `Audit not emailed: ${m.error}`,
+    })
+  }
+
+  const toClaude = async () => {
+    if (!check || !fmt) return
+    setCheck(x => x && { ...x, inbox: 'Sending…' })
+    const r = await sendVideoToClaude({
+      title: plan?.title ?? slug, slug, format: fmt.label, findings: check.findings.filter(q => q.severity !== 'nice to have'),
+      plan, film: check.film, video: check.link ?? null, article: articleUrl,
+    })
+    setCheck(x => x && { ...x, inbox: r.ok ? `In Claude’s inbox${r.id ? ` (#${r.id})` : ''} — a session picks it up with the mw-video-audit skill.` : r.error })
+  }
+
+  /** "Fix in script": to the scene's words in step 3. */
+  const jumpTo = (scene: string) => {
+    const si = Number(/^(\d+)/.exec(scene)?.[1] ?? 0) - 1
+    document.getElementById(`bf-scene-${si}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
 
   const slug = (local ? `featured-sites-${loc?.cities.filter(c => c.sites.some(s => picked.includes(s.id))).map(c => c.city).join('-') ?? ''}` : res?.topic ?? 'brand-video').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
@@ -642,7 +773,7 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
                   <textarea rows={2} value={line} onChange={e => editLine(i, e.target.value)} />
                   {plan.supers?.[i]?.length ? <small className="mw-bf-zh">{plan.supers[i].join(' ')}</small> : null}
                   {scenes.map(({ s, si }) => (
-                    <div key={si} className="mw-bf-scene">
+                    <div key={si} id={`bf-scene-${si}`} className="mw-bf-scene">
                       <span className="mw-bf-tag">{s.kind}{s.art ? ` · ${s.art}` : ''}{s.bg ? ` · ${s.bg}` : ''}</span>
                       {s.text?.map((t, ti) => (
                         <input key={ti} value={t.s} title={`${t.st}${t.on ? ` · on “${t.on}”` : ''}`}
@@ -791,10 +922,11 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
           {encoding && (
             <div className="mw-studio-rec">
               <progress value={progress} max={1} />
-              <span>Encoding… {Math.round(progress * 100)}% — you can use another tab meanwhile.</span>
+              <span>{stage === 'Encoding…' ? `Encoding… ${Math.round(progress * 100)}% — you can use another tab meanwhile.` : stage || 'Working…'}</span>
               <button type="button" onClick={() => abort.current?.abort()}>Stop</button>
             </div>
           )}
+          {!encoding && stage && <p className="lede">{stage}</p>}
           {clip && (
             <div className="mw-studio-clips">
               <figure>
@@ -803,9 +935,45 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
                 <figcaption>
                   <small>MP4 · {film.dur.toFixed(1)}s · {(clip.blob.size / 1e6).toFixed(1)} MB</small>
                   {mode === 'photos' && credits.length > 0 && <small>For the caption: Photos by {credits.join(', ')} on Pexels</small>}
+                  {check && check.findings.some(q => q.severity === 'blocker') && (
+                    <small className="mw-va-block">⚠ {check.findings.filter(q => q.severity === 'blocker').length} blocker{check.findings.filter(q => q.severity === 'blocker').length > 1 ? 's' : ''} — see the check below before posting</small>
+                  )}
                   <button type="button" onClick={() => saveBlob(clip.blob, `${slug}_${fmt.label.replace(':', 'x')}.mp4`)}>Download</button>
                 </figcaption>
               </figure>
+            </div>
+          )}
+          {clip && check && (
+            <div className={`mw-va is-${verdict(check.findings).toLowerCase().replace(' ', '-')}`}>
+              <h4>Checked before export: {verdict(check.findings)}</h4>
+              <p className="lede">
+                Every frame, the timing against Ava, the audio{check.reviewError ? '' : ' and a Claude review of the frames against the source'} · {check.rounds} round{check.rounds === 1 ? '' : 's'}
+                {check.loud ? ` · audio ${check.loud.before.toFixed(1)} → ${check.loud.after.toFixed(1)} LUFS` : ''}
+                {check.reviewError ? ` · Claude review did not run: ${check.reviewError}` : ''}
+              </p>
+              {check.findings.length > 0 && (
+                <ul>
+                  {check.findings.map((q, i) => (
+                    <li key={i} className={`is-${q.severity.replace(' ', '-')}`}>
+                      <b>{q.severity}</b>{q.fix === 'approve' && <em> · needs your OK</em>}
+                      <span>{q.scene && `${q.scene} · `}{q.text && `“${q.text}” `}{q.detail}</span>
+                      {/^\d+ /.test(q.scene) && <button type="button" onClick={() => jumpTo(q.scene)}>Fix in script</button>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {(check.fixed.length > 0 || check.changed.length > 0) && (
+                <details>
+                  <summary>Fixed before you saw it ({Math.max(check.fixed.length, check.changed.length)})</summary>
+                  <ul>{check.changed.map((c, i) => <li key={i}>{c}</li>)}</ul>
+                </details>
+              )}
+              <p className="mw-va-foot">
+                <span>{check.sent}</span>
+                {check.findings.some(q => q.severity !== 'nice to have') && (
+                  <button type="button" onClick={toClaude} disabled={!!check.inbox}>{check.inbox ?? 'Send to Claude to fix'}</button>
+                )}
+              </p>
             </div>
           )}
           <p className="lede">

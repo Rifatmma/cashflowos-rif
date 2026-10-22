@@ -105,9 +105,11 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
   };
 
   const found = new Map(), seen = [];
-  const add = (sev, kind, scene, t, s, detail, rule) => {
+  // `extra` carries what a fixer needs without parsing `detail`: the scene index (si), and for
+  // timing the offset from Ava's word (d), when she says it (wordAt), and the hold measured / needed
+  const add = (sev, kind, scene, t, s, detail, rule, extra = {}) => {
     const key = `${kind}|${scene}|${s}`;
-    if (!found.has(key)) found.set(key, { severity: sev, kind, scene, t: +t.toFixed(2), text: s, detail, rule });
+    if (!found.has(key)) found.set(key, { severity: sev, kind, scene, t: +t.toFixed(2), text: s, detail, rule, ...extra });
   };
   const words = s => String(s).trim().split(/\s+/).filter(Boolean).length;
   const norm = w => String(w).toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '');
@@ -156,7 +158,7 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
       if (sc.kind === 'burst') (sc.words || []).forEach((w, i, all) => items.push({ t: w.t, s: w.s, st: 'w', end: sc.variant === 'stack' ? sc.b : (all[i + 1]?.t ?? sc.b) }));
       for (const it of items) {
         const readable = it.end - (it.t + 0.3), need = it.st === 'w' ? Math.max(0.35, 0.3 * words(it.s)) : Math.max(1, 0.33 * words(it.s));
-        if (it.st !== 'lab' && readable < need - 0.05) add('should fix', 'hold', label, it.t, it.s, `readable for ${readable.toFixed(1)}s, needs ${need.toFixed(1)}s (${words(it.s)} words)`, 'Reading pace 160–180 wpm (BBC subtitle guidelines); ≥1s');
+        if (it.st !== 'lab' && readable < need - 0.05) add('should fix', 'hold', label, it.t, it.s, `readable for ${readable.toFixed(1)}s, needs ${need.toFixed(1)}s (${words(it.s)} words)`, 'Reading pace 160–180 wpm (BBC subtitle guidelines); ≥1s', { si, readable: +readable.toFixed(2), need: +need.toFixed(2), burst: it.st === 'w' });
         if (!said.length || it.st === 'h' || it.st === 'hx' || it.st === 'lab' || /[./@]\w/.test(it.s)) continue;   // headlines open their scene; URLs are not said
         // the first word of the item Ava actually says in this scene
         const toks = String(it.s).split(/\s+/).map(norm).filter(w => w.length > 2 || /\d/.test(w));
@@ -169,8 +171,9 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
         }
         if (!hit) continue;
         const d = (it.t + 0.1) - hit[1];          // visible ~0.1s after its cue time
-        if (d > 0.25) add('should fix', 'late', label, it.t, it.s, `appears ${d.toFixed(2)}s after Ava says “${hit[0]}”`, 'Text with or just before its word (−0.2…+0.04s, from ITU-R BT.1359 sync limits; inferred)');
-        else if (d < -0.6) add('should fix', 'early', label, it.t, it.s, `appears ${(-d).toFixed(2)}s before Ava says “${hit[0]}”`, 'Text with or just before its word (inferred)');
+        const timing = { si, d: +d.toFixed(2), word: hit[0], wordAt: +hit[1].toFixed(3), burst: it.st === 'w' };
+        if (d > 0.25) add('should fix', 'late', label, it.t, it.s, `appears ${d.toFixed(2)}s after Ava says “${hit[0]}”`, 'Text with or just before its word (−0.2…+0.04s, from ITU-R BT.1359 sync limits; inferred)', timing);
+        else if (d < -0.6) add('should fix', 'early', label, it.t, it.s, `appears ${(-d).toFixed(2)}s before Ava says “${hit[0]}”`, 'Text with or just before its word (inferred)', timing);
       }
     });
     // ---- across the film: numbered labels run without gaps (Feature 1, 2, 4)

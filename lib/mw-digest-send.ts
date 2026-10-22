@@ -27,7 +27,7 @@ import { personEmail, bossEmail, scorecardEmail, asPreview, type Email, type Tea
 
 export const SENDER = 'rif-at.wanwang@movingwalls.com'
 /** The Composio alias of Rif's work Gmail (checked against SENDER before every run). */
-const ACCOUNT = (process.env.MW_GMAIL_ACCOUNT || 'gmail_conics-abode').trim()
+export const ACCOUNT = (process.env.MW_GMAIL_ACCOUNT || 'gmail_conics-abode').trim()
 
 export type DigestSettings = { enabled: boolean; lastWeek: string | null }
 

@@ -164,3 +164,23 @@ export async function writeLocationVideo(url: string, siteIds: string[]): Promis
   if ('error' in out) return { ok: false, error: out.error }
   return { ok: true, plan: out.plan, notes: out.notes }
 }
+
+// ---------------------------------------------------------------------------
+// The check before an export (lib/mw-video-audit.ts runs in the browser; these
+// two read). Nothing is written here — the upload, the email and the inbox row
+// are in app/mw/actions.ts.
+// ---------------------------------------------------------------------------
+
+/** The article's text, for the audit's figure and cut-off checks. */
+export async function videoSourceText(url: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const { fetchArticle } = await import('@/lib/mw-article')
+  const got = await fetchArticle(url)
+  return 'error' in got ? { ok: false, error: got.error } : { ok: true, text: got.text.slice(0, 40_000) }
+}
+
+/** Claude looks at one settled frame per scene and reads the script against the source. */
+export async function reviewExport(input: import('@/lib/mw-video-review').ReviewInput) {
+  const { reviewVideo } = await import('@/lib/mw-video-review')
+  if (input.frames.length > 16) return { error: 'Too many frames.' }
+  return reviewVideo(input)
+}
