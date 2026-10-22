@@ -118,8 +118,8 @@ scene using "from"):
   trend    {"values":[2,3,5,9],"labels":["22","23","24","25"]}  growth over time (sourced numbers only).
   billboard {"lines":["PLAN","BUY"]}  a roadside digital screen showing words.
   heat     {"label":"…"}  where audiences gather, attention, targeting.
-  dashboard {"tiles":[["Impressions","1.56M"],["Reach","363K"],["Frequency","4.3"],["CPM","$4.20"]]}  measurement,
-           reporting, campaign results (figures from the article only; omit tiles it has no number for).
+  dashboard {"tiles":[["Impressions","1.56M"],["Reach","363K"]]}  measurement, reporting, campaign results. 1–4 tiles,
+           EVERY value from the article (never invent; no tiles without a figure → use another art).
   hub      {"items":["Spreadsheets","Email","Ad server","CMS"],"label":"One operating system"}  scattered
            tools consolidating into one platform.
   exchange {"left":"Media owners","mid":"Platform","right":["DSPs","Agencies","Brands"]}  programmatic

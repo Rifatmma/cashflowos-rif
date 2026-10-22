@@ -438,7 +438,8 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
       trend: () => Array.isArray(ev.values) && ev.values.length >= 3 && ev.values.every((v: any) => Number.isFinite(+v)),
       billboard: () => Array.isArray(ev.lines) && ev.lines.length > 0,
       icons: () => Array.isArray(ev.items) && ev.items.length >= 2,
-      dashboard: () => !ev.tiles || (Array.isArray(ev.tiles) && ev.tiles.every((q: any) => Array.isArray(q) && q.length >= 2)),
+      dashboard: () => Array.isArray(ev.tiles) && ev.tiles.length > 0 && ev.tiles.every((q: any) => Array.isArray(q) && q.length >= 2),
+      lift: () => +ev.exposed > 0 && +ev.control > 0,
       trigger: () => !ev.signal || ['rain', 'temp', 'score'].includes(ev.signal),
     }
     if (art && need[art] && !need[art]!()) { notes.push(`The ${art} illustration was missing its details and was left out.`); art = undefined }

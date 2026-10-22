@@ -16,13 +16,17 @@
 // ===================================================================
 function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   // ---------- format + safe area ----------
-  // Platform-safe zones. In 9:16 the top ~13% (account name, close button)
-  // and bottom ~20% (caption, like/share rail) are covered on Reels, TikTok
-  // and Shorts, so nothing that has to be read goes there. Everything that
+  // Platform-safe zones. In 9:16 the top ~15% (account name, close button),
+  // the bottom ~35% (caption, CTA, ad label) and the right-hand button rail
+  // are covered on Reels, TikTok and Shorts, so nothing that has to be read
+  // goes there. Everything that
   // carries meaning is laid out inside SA; only decoration bleeds.
   const FMT = W > H * 1.2 ? '169' : H > W * 1.5 ? '916' : H > W * 1.1 ? '45' : '11';
   const LAND = FMT === '169', SQ = FMT === '11' || FMT === '45';
-  const SAFE = { '916': [.13, .075, .20, .075], '45': [.07, .075, .08, .075], '11': [.07, .07, .08, .07], '169': [.09, .06, .1, .06] }[FMT];
+  // 9:16 uses the strictest of the platforms' AD templates (Meta Reels ads,
+  // TikTok, YouTube Shorts ads): text inside x 120–888, y 288–1248 on
+  // 1080×1920, so a post can be boosted without its words under the UI.
+  const SAFE = { '916': [.15, .178, .35, .111], '45': [.07, .075, .08, .075], '11': [.07, .07, .08, .07], '169': [.09, .06, .1, .06] }[FMT];
   const SA = { x: W * SAFE[3], y: H * SAFE[0], w: W * (1 - SAFE[1] - SAFE[3]), h: H * (1 - SAFE[0] - SAFE[2]) };
   const U = Math.min(W, H * (LAND ? .8 : 1)) / 1080;   // type unit
 
@@ -40,6 +44,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     sun1: ACC[0], sun2: ACC[1], accDeep: ACC[2],
   };
   const accentText = dark => (dark ? C.sun1 : C.accDeep);
+  // text ON an accent fill: navy on Sunburst / Emerald, white on Crimson (navy on crimson is 3.8:1)
+  const onAcc = SPEC.accent === 'crimson' ? C.white : C.navy;
 
   // ---------- helpers ----------
   const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -51,7 +57,11 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   const ioCub = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const oBack = (t, s = 1.7) => 1 + (s + 1) * Math.pow(t - 1, 3) + s * Math.pow(t - 1, 2);
   function rnd(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
-  const accGrad = (x0, x1) => { const g = x.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, C.sun1); g.addColorStop(1, C.sun2); return g; };
+  // Accent fills. Crimson Blend (#EE2E2D → #E03A36) carries white text at only
+  // 4.2–4.4:1, under WCAG's 4.5:1, so crimson FILLS run a little deeper; crimson
+  // text and strokes keep the guidebook red.
+  const FILL = SPEC.accent === 'crimson' ? ['#D42A29', '#B32322'] : [ACC[0], ACC[1]];
+  const accGrad = (x0, x1) => { const g = x.createLinearGradient(x0, 0, x1, 0); g.addColorStop(0, FILL[0]); g.addColorStop(1, FILL[1]); return g; };
 
   // ---------- vector brand shapes ----------
   const SH = {};
@@ -162,7 +172,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   // Sizes for every item: each fits the block width, and the whole stack
   // fits the block height — one scale for all, so the hierarchy holds.
   function blockSizes(items, blk) {
-    const sizes = items.map(it => { const st = STY[it.st || 'h']; let s = st.size * U * (it.scale || 1); const w = measure(it.s, st, s) + (it.st === 'lab' ? s * 2.6 : 0); if (w > blk.w) s *= blk.w / w; return s; });
+    // italic lines overhang their advance width by the slant (~5% of the size)
+    const sizes = items.map(it => { const st = STY[it.st || 'h']; let s = st.size * U * (it.scale || 1); const w = measure(it.s, st, s) + (it.st === 'lab' ? s * 2.6 : 0) + (st.italic ? s * .12 : 0); if (w > blk.w) s *= blk.w / w; return s; });
     if (blk.h) {
       const total = items.reduce((a, it, i) => a + sizes[i] * STY[it.st || 'h'].lead, 0);
       if (total > blk.h) { const k = blk.h / total; for (let i = 0; i < sizes.length; i++) sizes[i] *= k; }
@@ -186,7 +197,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
           const lx = align === 'center' ? ax - (lw + cwid + size * .5) / 2 : ax;
           chevrons(lx, y - size * .78, size * .8, fx.a, P(T, it.t, it.t + .35));
           text(it.s, lx + cwid + size * .5, y, st, size, dark ? C.white : C.type, { a: fx.a }, 'left');
-        } else text(it.s, ax, y, st, size, col, fx, align);
+        } else text(it.s, ax + (st.italic && align === 'left' ? size * .06 : 0), y, st, size, col, fx, align);   // italic j/f/y swing left of their origin
         if (it.strike != null && T > it.strike) {
           const w = measure(it.s, st, size), p = oCub(P(T, it.strike, it.strike + .3)), sx = align === 'center' ? ax - w / 2 : ax;
           x.fillStyle = accGrad(sx, sx + w); x.fillRect(sx - 6 * U, y - size * .36, (w + 12 * U) * p, size * .1);
@@ -355,7 +366,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
           x.save(); x.beginPath(); x.rect(cx - 4, base - size * .78, dw + 8, size * .92); x.clip();
           if (roll > .05) x.filter = `blur(${Math.min(12, roll * 5)}px)`;
           x.fillStyle = dark ? C.white : C.type;
-          x.fillText(String(Math.floor(cur) % 10), cx, base - fr * size); if (fr > .001) x.fillText(String((Math.floor(cur) + 1) % 10), cx, base - fr * size + size);   // the next digit only while rolling
+          x.__clipped = fr > .001; x.fillText(String(Math.floor(cur) % 10), cx, base - fr * size); if (fr > .001) x.fillText(String((Math.floor(cur) + 1) % 10), cx, base - fr * size + size); x.__clipped = false;   // rolling digits are clipped to their row; the audit skips them
           x.restore();
         } else { x.fillStyle = dark ? C.sky : C.blue; x.globalAlpha *= P(u, .5, .8); x.fillText(ch, cx, base); x.globalAlpha = P(u, 0, .15); }
         cx += dw;
@@ -556,7 +567,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const inside = fitFont(lab, 800, 70, 960) + 80 <= Math.max(110, wmax);
         const fs = inside ? fitFont(lab, 800, 70, Math.max(110, wmax) - 80) : fitFont(lab, 800, 70, Math.max(120, 960 - Math.max(110, wmax) - 24));
         x.globalAlpha *= P(u, t0 + .45, t0 + .7);
-        if (inside) { x.fillStyle = last ? C.navy : C.white; x.textAlign = 'right'; x.fillText(lab, bw - 40, y + 79 + fs * .35); }
+        // bars are light blue on dark grounds, so the figure inside goes navy there
+        if (inside) { x.fillStyle = last ? onAcc : dark ? C.navy : C.white; x.textAlign = 'right'; x.fillText(lab, bw - 40, y + 79 + fs * .35); }
         else { x.fillStyle = last ? accentText(dark) : fg(dark); x.textAlign = 'left'; x.fillText(lab, Math.min(bw + 24, 960 - x.measureText(lab).width), y + 79 + fs * .35); }
         x.globalAlpha = 1;
       });
@@ -688,7 +700,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const t0 = cue(ev, i, .3, .15), p = oExpo(P(u, t0, t0 + .5)), w0 = 1000 - i * (560 / n), w1 = 1000 - (i + 1) * (560 / n), y = i * 150;
         x.globalAlpha = p; x.fillStyle = i === n - 1 ? accGrad(0, 1000) : (i % 2 ? (dark ? C.sky : C.pale) : (dark ? C.blue : C.blue));
         x.beginPath(); x.moveTo(500 - w0 / 2, y); x.lineTo(500 + w0 / 2, y); x.lineTo(500 + w1 / 2, y + 130); x.lineTo(500 - w1 / 2, y + 130); x.closePath(); x.fill();
-        fitFont(lab, 700, 44, w1 - 60); x.textAlign = 'center'; x.fillStyle = i === n - 1 || (i % 2 && !dark) ? C.navy : C.white; x.fillText(lab, 500, y + 80);
+        fitFont(lab, 700, 44, w1 - 60); x.textAlign = 'center'; x.fillStyle = i === n - 1 ? onAcc : (i % 2 && !dark) ? C.navy : C.white; x.fillText(lab, 500, y + 80);
         x.globalAlpha = 1;
       });
       x.restore();
@@ -829,7 +841,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.fillStyle = last ? accGrad(-TW / 2, TW / 2) : (dark ? '#262C52' : C.white); x.beginPath(); x.roundRect(-TW / 2, -TH / 2, TW, TH, 24); x.fill();
         if (!last) { x.strokeStyle = dark ? 'rgba(102,201,243,.4)' : 'rgba(43,60,146,.2)'; x.lineWidth = 3; x.stroke(); }
         ICON[ic](0, -30, .95, last ? false : dark);
-        if (lab) { fitFont(String(lab), 700, 40, TW - 30); x.textAlign = 'center'; x.fillStyle = last ? C.navy : fg(dark); x.fillText(String(lab), 0, 100); }
+        if (lab) { fitFont(String(lab), 700, 40, TW - 30); x.textAlign = 'center'; x.fillStyle = last ? onAcc : fg(dark); x.fillText(String(lab), 0, 100); }
         x.restore();
       });
       x.restore();
@@ -837,7 +849,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     // ---------- batch 1 (blog scan, Oct 2026): the ideas most articles need ----------
     // measurement panel: tiles build one by one, figures count up, a line draws in
     dashboard(u, r, dark, ev) {
-      const tiles = (ev.tiles && ev.tiles.length ? ev.tiles : [['Impressions', '1.56M'], ['Reach', '363K'], ['Frequency', '4.3'], ['CPM', '$4.20']]).slice(0, 4);
+      const tiles = (ev.tiles || []).slice(0, 4);   // figures only from the script: no demo numbers
       x.save(); fit(r, 1000, 900);
       const p0 = oExpo(P(u, 0, .4));
       x.globalAlpha = p0; x.fillStyle = dark ? 'rgba(10,12,30,.45)' : 'rgba(255,255,255,.85)'; x.beginPath(); x.roundRect(0, 0, 1000, 900, 28); x.fill();
@@ -848,14 +860,14 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         if (p <= 0) return;
         x.save(); x.translate(tx + 220, ty + 100); x.scale(.9 + .1 * clamp(p), .9 + .1 * clamp(p)); x.translate(-tx - 220, -ty - 100); x.globalAlpha = clamp(p);
         x.fillStyle = i === tiles.length - 1 ? accGrad(tx, tx + 440) : (dark ? '#262C52' : C.mist); x.beginPath(); x.roundRect(tx, ty, 440, 200, 20); x.fill();
-        const last = i === tiles.length - 1, ink = last ? C.navy : fg(dark);
+        const last = i === tiles.length - 1, ink = last ? onAcc : fg(dark);
         fitFont(String(lab), 600, 44, 380); x.textAlign = 'left'; x.fillStyle = ink; x.globalAlpha *= .85; x.fillText(String(lab), tx + 30, ty + 60); x.globalAlpha = clamp(p);
         const shown = countUp(String(val), oCub(P(u, t0 + .1, t0 + 1.1)));
         fitFont(String(val), 800, 84, 380); x.fillStyle = ink; x.fillText(shown, tx + 30, ty + 160);
         x.restore();
       });
       // the line chart along the bottom
-      const vals = ev.chart || [3, 4, 3.6, 5, 6.2, 5.8, 7.4, 8.6], mx = Math.max(...vals), lp = P(u, .9, 1.9);
+      const vals = ev.chart || [3, 4, 3.6, 5, 6.2, 5.8, 7.4, 8.6], mx = Math.max(...vals), lp = P(u, .9, 1.9);   // an unlabelled shape, not data
       x.strokeStyle = soft(dark); x.lineWidth = 3; for (let k = 0; k < 3; k++) { x.beginPath(); x.moveTo(40, 600 + k * 90); x.lineTo(960, 600 + k * 90); x.stroke(); }
       if (lp > 0) {
         const pts = vals.map((v, i) => [40 + i * 920 / (vals.length - 1), 840 - 260 * v / mx]), kk = lp * (pts.length - 1);
@@ -872,13 +884,13 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const cx = 500, cy = 380, n = items.length;
       items.forEach((lab, i) => {
         const a = -Math.PI / 2 + i * Math.PI * 2 / n, t0 = cue(ev, i, .22, .3), p = ioCub(P(u, t0, t0 + .6));
-        const far = [cx + Math.cos(a) * 470, cy + Math.sin(a) * 360], near = [cx + Math.cos(a) * 330, cy + Math.sin(a) * 250];
+        const far = [cx + Math.cos(a) * 380, cy + Math.sin(a) * 320], near = [cx + Math.cos(a) * 320, cy + Math.sin(a) * 250];   // starts inside the box: nothing flies in past the frame
         const jit = (1 - p) * Math.sin(u * 7 + i) * 10, px = lerp(far[0], near[0], p) + jit, py = lerp(far[1], near[1], p);
         if (p > 0) { x.strokeStyle = i === n - 1 ? C.sun1 : (dark ? C.sky : C.blue); x.lineWidth = 6; x.setLineDash([14, 10]); x.lineDashOffset = -u * 60; x.beginPath(); x.moveTo(cx, cy); x.lineTo(lerp(cx, px, p), lerp(cy, py, p)); x.stroke(); x.setLineDash([]); }
         x.save(); x.translate(px, py); x.rotate((1 - p) * (i % 2 ? .25 : -.25)); x.globalAlpha = P(u, t0 - .3, t0);
         x.fillStyle = dark ? '#262C52' : C.white; x.strokeStyle = dark ? 'rgba(191,231,251,.4)' : 'rgba(43,60,146,.25)'; x.lineWidth = 3;
-        x.beginPath(); x.roundRect(-130, -42, 260, 84, 42); x.fill(); x.stroke();
-        fitFont(String(lab), 700, 44, 230); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(String(lab), 0, 15);
+        x.beginPath(); x.roundRect(-160, -46, 320, 92, 46); x.fill(); x.stroke();
+        fitFont(String(lab), 700, 52, 290); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(String(lab), 0, 17);
         x.restore();
       });
       const hp = oBack(P(u, .1, .5), 1.6), glow = P(u, .4 + n * .22, .9 + n * .22);
@@ -902,7 +914,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       // right: buyers
       R.forEach((lab, i) => { const p = oBack(P(u, .4 + i * .1, .8 + i * .1), 1.5); x.save(); x.translate(860, colY[i]); x.scale(p, p);
         x.fillStyle = i === R.length - 1 ? accGrad(-120, 120) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-130, -48, 260, 96, 48); x.fill();
-        fitFont(String(lab), 700, 46, 230); x.textAlign = 'center'; x.fillStyle = i === R.length - 1 ? C.navy : (dark ? C.navy : C.white); x.fillText(String(lab), 0, 13); x.restore(); });
+        fitFont(String(lab), 700, 46, 230); x.textAlign = 'center'; x.fillStyle = i === R.length - 1 ? onAcc : (dark ? C.navy : C.white); x.fillText(String(lab), 0, 13); x.restore(); });
       // pipes and what travels on them
       const pp = P(u, .6, 1.2);
       colY.forEach((y, i) => {
@@ -926,7 +938,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     },
     // close-up of one play slot: bids rise in milliseconds, the winner lands on the screen
     auction(u, r, dark, ev) {
-      const bids = (ev.bids && ev.bids.length ? ev.bids : ['$3.80', '$4.40', '$5.10']).slice(0, 4), n = bids.length;
+      const bids = (ev.bids && ev.bids.length ? ev.bids : ['Bid', 'Bid', 'Best bid']).slice(0, 4), n = bids.length;
       x.save(); fit(r, 1000, 820);
       x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(220, 20, 560, 330, 22); x.fill(); x.fillRect(485, 350, 30, 90);
       const win = cue(ev, n, .45, .3) + .3, wp = oExpo(P(u, win, win + .4));
@@ -941,7 +953,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.save(); x.translate(bx, 640 - (best ? 40 * wp : 0)); x.scale(p, p);
         x.fillStyle = best ? accGrad(-100, 100) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-110, -70, 220, 140, 70); x.fill();
         x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(-10, 70, 20, 90);
-        fitFont(String(b), 800, 58, 180); x.textAlign = 'center'; x.fillStyle = best || dark ? C.navy : C.white; x.fillText(String(b), 0, 20);
+        fitFont(String(b), 800, 58, 180); x.textAlign = 'center'; x.fillStyle = best ? onAcc : dark ? C.navy : C.white; x.fillText(String(b), 0, 20);
         x.restore();
       });
       x.restore();
@@ -983,7 +995,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         if (i === book && bp > 0) { x.strokeStyle = C.sun1; x.lineWidth = 8; x.globalAlpha = bp; x.beginPath(); x.roundRect(-150, -140, 300, 290, 20); x.stroke(); x.fillStyle = C.sun1; x.beginPath(); x.arc(118, -112, 34 * bp, 0, 7); x.fill(); x.strokeStyle = C.navy; x.lineWidth = 8; x.lineCap = 'round'; x.beginPath(); x.moveTo(104, -112); x.lineTo(114, -101); x.lineTo(132, -122); x.stroke(); }
         x.restore();
       });
-      if (bp > 0) { x.globalAlpha = bp; x.fillStyle = accGrad(500, 1000); x.beginPath(); x.roundRect(500, 0, 500, 80, 40); x.fill(); fitFont(ev.done || 'Booked · live today', 800, 40, 440); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.done || 'Booked · live today', 750, 54); x.globalAlpha = 1; }
+      if (bp > 0) { x.globalAlpha = bp; x.fillStyle = accGrad(500, 1000); x.beginPath(); x.roundRect(500, 0, 500, 80, 40); x.fill(); fitFont(ev.done || 'Booked · live today', 800, 40, 440); x.textAlign = 'center'; x.fillStyle = onAcc; x.fillText(ev.done || 'Booked · live today', 750, 54); x.globalAlpha = 1; }
       x.restore();
     },
     // exposure to visit: a person passes the screen, later walks into the store; the link draws back
@@ -1050,8 +1062,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       scr.forEach(([sx, sy], i) => { const p = oBack(P(u, .3 + i * .1, .6 + i * .1), 1.6); if (p <= 0) return; const pulse = .5 + .5 * Math.sin(u * 5 + i * 1.7);
         x.save(); x.translate(sx + 40, sy - 60); x.scale(p, p); x.fillStyle = `rgba(254,218,36,${.25 * pulse})`; x.beginPath(); x.arc(0, 0, 60, 0, 7); x.fill();
         const g = x.createLinearGradient(-36, 0, 36, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-36, -26, 72, 52, 8); x.fill(); x.restore(); });
-      const shown = countUp(String(ev.counter || '1.2M'), oCub(P(u, .6, 2.4)));
-      x.globalAlpha = P(u, .5, .8); fitFont(String(ev.counter || '1.2M'), 800, 70, 420); x.textAlign = 'right'; x.fillStyle = fg(dark); x.fillText(shown, 1000, 70);
+      x.globalAlpha = P(u, .5, .8);
+      if (ev.counter) { fitFont(String(ev.counter), 800, 70, 420); x.textAlign = 'right'; x.fillStyle = fg(dark); x.fillText(countUp(String(ev.counter), oCub(P(u, .6, 2.4))), 1000, 70); }
       if (ev.label) { fitFont(ev.label, 600, 42, 560, true); x.textAlign = 'left'; x.fillStyle = dark ? C.sky : C.navy; x.fillText(ev.label, 0, 62); }
       x.globalAlpha = 1;
       x.restore();
@@ -1095,7 +1107,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(560, 120, 400, 360, 22); x.fill();
       x.save(); x.beginPath(); x.roundRect(578, 138, 364, 324, 12); x.clip();
       x.fillStyle = C.blue; x.fillRect(578, 138, 364, 324); x.fillStyle = accGrad(578, 942); x.fillRect(578, 138, 364 * sw, 324);
-      const A = ev.from || 'NEW SEASON', B = ev.to || (kind === 'rain' ? 'UMBRELLAS 20% OFF' : kind === 'temp' ? 'ICE COLD, ON US' : 'GOAL! FREE FRIES');
+      const A = ev.from || 'YOUR MESSAGE', B = ev.to || 'LIVE MESSAGE';
       fitFont(A, 800, 46, 320); x.textAlign = 'center'; x.fillStyle = C.white; x.globalAlpha = 1 - sw; x.fillText(A, 760, 312);
       fitFont(B, 800, 46, 320); x.fillStyle = C.navy; x.globalAlpha = sw; x.fillText(B, 760, 312); x.globalAlpha = 1;
       x.restore();
@@ -1114,7 +1126,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const fill = P(u, 1.1, 2.4), cx = 330, cy = 250, R = 120;
       if (u > 1.0) { x.globalAlpha = P(u, 1.0, 1.2); x.strokeStyle = soft(dark); x.lineWidth = 26; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.stroke();
         x.strokeStyle = C.sun1; x.lineCap = 'round'; x.beginPath(); x.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill); x.stroke();
-        const val = String(ev.value || '6s'); fitFont(val, 800, 84, 190); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(countUp(val, fill), cx, cy + 28); x.globalAlpha = 1; }
+        if (ev.value) { const val = String(ev.value); fitFont(val, 800, 84, 190); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(countUp(val, fill), cx, cy + 28); } x.globalAlpha = 1; }
       if (ev.label) { fitFont(ev.label, 700, 42, 560); x.textAlign = 'left'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 2.0, 2.3); x.fillText(ev.label, 0, 740); x.globalAlpha = 1; }
       x.restore();
     },
@@ -1135,20 +1147,21 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       // budget slider and reach
       fitFont(ev.budgetLabel || 'Budget', 600, 34, 300); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(ev.budgetLabel || 'Budget', 690, 160);
       const bp = oCub(P(u, .9, 1.4)); x.fillStyle = soft(dark); x.beginPath(); x.roundRect(690, 190, 300, 18, 9); x.fill(); x.fillStyle = dark ? C.sky : C.blue; x.beginPath(); x.roundRect(690, 190, 300 * .7 * bp, 18, 9); x.fill(); x.fillStyle = C.sun1; x.beginPath(); x.arc(690 + 300 * .7 * bp, 199, 22, 0, 7); x.fill();
-      fitFont(String(ev.budget || '$20,000'), 800, 54, 300); x.fillStyle = fg(dark); x.fillText(countUp(String(ev.budget || '$20,000'), bp), 690, 290);
-      x.globalAlpha = P(u, 1.6, 1.9); fitFont(ev.reachLabel || 'Est. reach', 600, 34, 300); x.fillText(ev.reachLabel || 'Est. reach', 690, 450);
-      fitFont(String(ev.reach || '1.2M'), 800, 96, 300); x.fillStyle = accentText(dark); x.fillText(countUp(String(ev.reach || '1.2M'), P(u, 1.6, 2.6)), 690, 560); x.globalAlpha = 1;
+      if (ev.budget) { fitFont(String(ev.budget), 800, 54, 300); x.fillStyle = fg(dark); x.fillText(countUp(String(ev.budget), bp), 690, 290); }
+      if (ev.reach) { x.globalAlpha = P(u, 1.6, 1.9); fitFont(ev.reachLabel || 'Est. reach', 600, 34, 300); x.fillText(ev.reachLabel || 'Est. reach', 690, 450);
+        fitFont(String(ev.reach), 800, 96, 300); x.fillStyle = accentText(dark); x.fillText(countUp(String(ev.reach), P(u, 1.6, 2.6)), 690, 560); x.globalAlpha = 1; }
       x.restore();
     },
     // brand lift: exposed vs control, the exposed group's bar climbs higher
     lift(u, r, dark, ev) {
-      const a = +ev.exposed || 42, b = +ev.control || 30, mx = Math.max(a, b) * 1.15;
+      if (!(+ev.exposed > 0 && +ev.control > 0)) return;   // a lift needs both sourced figures
+      const a = +ev.exposed, b = +ev.control, mx = Math.max(a, b) * 1.15;
       x.save(); fit(r, 1000, 800);
       [[ev.controlLabel || 'Not exposed', b, 200, false], [ev.exposedLabel || 'Saw the campaign', a, 650, true]].forEach(([lab, v, cx, hi], i) => {
         const t0 = .2 + i * .4, p = oExpo(P(u, t0 + .3, t0 + 1.1)), h = 460 * v / mx * p;
         for (let k = 0; k < 4; k++) person(cx - 105 + k * 70, 120, 60, hi ? C.sun1 : (dark ? C.sky : C.blue));
         x.fillStyle = hi ? accGrad(cx - 110, cx + 110) : (dark ? 'rgba(102,201,243,.55)' : C.pale); x.beginPath(); x.roundRect(cx - 110, 690 - h, 220, h, [16, 16, 0, 0]); x.fill();
-        fitFont(String(Math.round(v * p)) + '%', 800, 64, 210); x.textAlign = 'center'; x.fillStyle = hi ? C.navy : fg(dark); if (h > 90) x.fillText(String(Math.round(v * p)) + '%', cx, 690 - h + 76);
+        fitFont(String(Math.round(v * p)) + '%', 800, 64, 210); x.textAlign = 'center'; x.fillStyle = hi ? onAcc : fg(dark); if (h > 90) x.fillText(String(Math.round(v * p)) + '%', cx, 690 - h + 76);
         fitFont(String(lab), 700, 38, 330); x.fillStyle = fg(dark); x.globalAlpha = P(u, t0, t0 + .3); x.fillText(String(lab), cx, 760); x.globalAlpha = 1;
       });
       const up = oBack(P(u, 1.6, 2.0), 1.8); if (up > 0) { const d = ev.display || `+${Math.round((a - b) / b * 100)}%`;
@@ -1181,7 +1194,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         fitFont(String(row), 700, 40, 300); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(String(row), 560, y + 6);
         x.strokeStyle = C.sun1; x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(920, y - 8); x.lineTo(936, y + 8); x.lineTo(962, y - 22); x.stroke(); x.globalAlpha = 1; });
       const seal = oBack(P(u, .5 + rows.length * .32 + .2, .5 + rows.length * .32 + .6), 2.2);
-      if (seal > 0) { x.save(); x.translate(230, 640); x.rotate(-.12); x.scale(seal, seal); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -50, 340, 100, 50); x.fill(); fitFont(ev.label || 'VERIFIED', 800, 48, 290); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.label || 'VERIFIED', 0, 17); x.restore(); }
+      if (seal > 0) { x.save(); x.translate(230, 640); x.rotate(-.12); x.scale(seal, seal); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -50, 340, 100, 50); x.fill(); fitFont(ev.label || 'VERIFIED', 800, 48, 290); x.textAlign = 'center'; x.fillStyle = onAcc; x.fillText(ev.label || 'VERIFIED', 0, 17); x.restore(); }
       x.restore();
     },
     // forecast to actual: a dashed forecast runs ahead, the actual line draws in and meets it
@@ -1209,7 +1222,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.strokeStyle = soft(dark); x.lineWidth = 6; x.beginPath(); x.moveTo(500, 262); x.lineTo(lerp(500, tx, p), lerp(262, ty - 130, p)); x.stroke();
         if (p <= 0) return; x.save(); x.translate(lerp(500, tx, p), lerp(262, ty, p)); x.scale(.6 + .4 * p, .6 + .4 * p);
         x.fillStyle = i === n - 1 ? accGrad(-150, 150) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-150, -120, 300, 220, 16); x.fill();
-        x.textAlign = 'center'; x.fillStyle = i === n - 1 || dark ? C.navy : C.white; const words = String(v).split(' '), half = Math.ceil(words.length / 2), l1 = words.slice(0, half).join(' '), l2 = words.slice(half).join(' ');
+        x.textAlign = 'center'; x.fillStyle = i === n - 1 ? onAcc : dark ? C.navy : C.white; const words = String(v).split(' '), half = Math.ceil(words.length / 2), l1 = words.slice(0, half).join(' '), l2 = words.slice(half).join(' ');
         fitFont(l1, 800, 40, 260); x.fillText(l1, 0, l2 ? -10 : 10); if (l2) { fitFont(l2, 800, 40, 260); x.fillText(l2, 0, 40); }
         x.restore(); });
       x.restore();
@@ -1281,7 +1294,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.save(); x.translate(300, 330); x.scale(sh * oBack(P(u, .05, .45), 1.4), sh * oBack(P(u, .05, .45), 1.4)); x.fillStyle = dark ? 'rgba(191,231,251,.35)' : '#B8C6D8';
       x.beginPath(); x.arc(-110, 40, 110, Math.PI * .5, Math.PI * 1.5); x.arc(0, -40, 150, Math.PI, 0); x.arc(120, 40, 110, -Math.PI * .5, Math.PI * .5); x.closePath(); x.fill();
       x.font = '800 110px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('CO₂', 0, 70); x.restore();
-      const val = gp < .5 ? String(ev.from || '12 t') : String(ev.to || '7 t'); fitFont(val, 800, 60, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .4, .7); x.fillText(val, 300, 640); x.globalAlpha = 1;
+      if (ev.from && ev.to) { const val = gp < .5 ? String(ev.from) : String(ev.to); fitFont(val, 800, 60, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .4, .7); x.fillText(val, 300, 640); x.globalAlpha = 1; }
       x.strokeStyle = soft(dark); x.lineWidth = 34; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * 2.25); x.stroke();
       x.strokeStyle = C.sun1; x.lineCap = 'round'; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * .75 + Math.PI * 1.5 * gp); x.stroke(); ICON.leaf(760, 330, 1.1, dark);
       if (ev.label) { fitFont(ev.label, 700, 40, 380); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = gp; x.fillText(ev.label, 760, 640); x.globalAlpha = 1; }
@@ -1295,7 +1308,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const sp = oBack(P(u, .1, .5), 1.5); x.save(); x.translate(500, 350); x.scale(sp * 2.3, sp * 2.3);
       x.fillStyle = dark ? C.navy : C.white; x.beginPath(); x.moveTo(0, -120); x.lineTo(100, -84); x.quadraticCurveTo(104, 60, 0, 124); x.quadraticCurveTo(-104, 60, -100, -84); x.closePath(); x.fill(); x.restore();
       ICON.lock(500, 350, 1.6 * sp, dark);
-      const bp = oBack(P(u, 1.4, 1.8), 2.2); if (bp > 0) { x.save(); x.translate(500, 690); x.rotate(-.06); x.scale(bp, bp); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -48, 340, 96, 48); x.fill(); fitFont(ev.label || 'Privacy-first', 800, 44, 290); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.label || 'Privacy-first', 0, 16); x.restore(); }
+      const bp = oBack(P(u, 1.4, 1.8), 2.2); if (bp > 0) { x.save(); x.translate(500, 690); x.rotate(-.06); x.scale(bp, bp); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -48, 340, 96, 48); x.fill(); fitFont(ev.label || 'Privacy-first', 800, 44, 290); x.textAlign = 'center'; x.fillStyle = onAcc; x.fillText(ev.label || 'Privacy-first', 0, 16); x.restore(); }
       x.restore();
     },
     // interactive: a post flies from the phone to the big screen; a tap ripples on a touch screen
@@ -1317,7 +1330,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(488, 240, 24, 120);
       const pass = P(u, .4, 1.8), cnt = Math.floor(pass * 12);
       for (let k = 0; k < 12; k++) { const shown = k < cnt; if (!shown) continue; const col = k % 6, row = Math.floor(k / 6); person(170 + col * 132, 470 + row * 100, 60, k === cnt - 1 ? C.sun1 : (dark ? C.sky : C.blue)); }
-      const eq = [ev.plays || '1 play', ev.people || '× 240 people', ev.total || '= 240 impressions'];
+      const eq = [ev.plays || '1 play', ev.people || '× everyone passing', ev.total || '= impressions'];
       x.textAlign = 'center';
       eq.forEach((s, i) => { const p = P(u, 1.8 + i * .3, 2.1 + i * .3); fitFont(String(s), i === 2 ? 800 : 700, i === 2 ? 52 : 40, 320); x.fillStyle = i === 2 ? accentText(dark) : fg(dark); x.globalAlpha = p; x.fillText(String(s), 170 + i * 330, 740); });
       x.globalAlpha = 1; x.restore();
@@ -1509,7 +1522,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
           }
         }
       }
-      const veil = x.createLinearGradient(0, H * .35, 0, H); veil.addColorStop(0, 'rgba(27,30,43,0)'); veil.addColorStop(.6, 'rgba(27,30,43,.85)'); veil.addColorStop(1, 'rgba(27,30,43,.95)');
+      const veil = x.createLinearGradient(0, H * (LAND ? .15 : .35), 0, H); veil.addColorStop(0, 'rgba(27,30,43,0)'); veil.addColorStop(LAND ? .45 : .6, 'rgba(27,30,43,.85)'); veil.addColorStop(1, 'rgba(27,30,43,.95)');
       x.fillStyle = veil; x.fillRect(0, 0, W, H);
       const bottom = SA.y + SA.h - SUPER_H;
       textBlock(T, sc.text, { x: SA.x, y: LAND ? SA.y + SA.h * .5 : bottom - SA.h * .34, w: SA.w * (LAND ? .7 : 1), h: SA.h * (LAND ? .45 : .34) }, true);
@@ -1560,8 +1573,10 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       if (full(size) > SA.w) size *= SA.w / full(size);
       const shift = (size * chevK + size * .22) / 2;
       const fx = slam(T, w.t, .18); fx.sc *= 1 + (T - w.t) * .05;
-      chevrons(W / 2 + shift - measure(w.s, st, size) / 2 - size * chevK - size * .22, cyMid - size * .66, size * .62, fx.a, P(T, w.t, w.t + .2));
-      text(w.s, W / 2 + shift, cyMid, st, size, w.color === 'accent' ? accentText(dark) : (w.color || (dark ? C.white : C.type)), fx, 'center');
+      // centred in the SAFE area, not the frame: in 9:16 the button rail makes it off-centre
+      const cxs = SA.x + SA.w / 2;
+      chevrons(cxs + shift - measure(w.s, st, size) / 2 - size * chevK - size * .22, cyMid - size * .66, size * .62, fx.a, P(T, w.t, w.t + .2));
+      text(w.s, cxs + shift, cyMid, st, size, w.color === 'accent' ? accentText(dark) : (w.color || (dark ? C.white : C.type)), fx, 'center');
     },
     // one featured inventory site: its real photo, pushed in on the screen,
     // then name, format, monthly reach / impressions and what is nearby
@@ -1695,7 +1710,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     logo(sc, T) {
       background('cover', T, true); const u = T - sc.a, lp = oExpo(P(u, 0, .35));
       const lw = Math.min(560 * U, SA.w * .8);
-      logo(W / 2, SA.y + SA.h * (LAND ? .32 : .36), lw * lerp(1.2, 1, lp), 'white', P(u, 0, .12), (1 - lp) * 26 * U);
+      logo(SA.x + SA.w / 2, SA.y + SA.h * (LAND ? .32 : .36), lw * lerp(1.2, 1, lp), 'white', P(u, 0, .12), (1 - lp) * 26 * U);
       if (sc.text) textBlock(T, sc.text, { x: SA.x, y: SA.y + SA.h * (LAND ? .52 : .5), w: SA.w, h: SA.h * .4 - SUPER_H }, true, 'center');
     },
     end(sc, T) {
@@ -1703,7 +1718,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const u = T - sc.a, lp = oExpo(P(u, 0, .5));
       const lw = Math.min((LAND ? 620 : 640) * U, SA.w * .82);
       const ly = SA.y + SA.h * (LAND ? .3 : .34), lbot = ly + lw * SH.logo.h / SH.logo.w / 2 + 40 * U;
-      logo(W / 2, ly, lw * lerp(1.12, 1, lp), 'color', P(u, 0, .15), (1 - lp) * 22 * U);
+      logo(SA.x + SA.w / 2, ly, lw * lerp(1.12, 1, lp), 'color', P(u, 0, .15), (1 - lp) * 22 * U);
       const ty = Math.max(SA.y + SA.h * (LAND ? .5 : .48), lbot);   // never up into the logo
       textBlock(T, sc.text, { x: SA.x, y: ty, w: SA.w, h: SA.y + SA.h * .92 - SUPER_H - ty }, false, 'center');
       zigStrip(-60 * U, H - 140 * U, 56 * U, Math.ceil(W / (150 * U)) + 2, C.sky, P(u, .3, .8), u * 60 * U);
@@ -1724,7 +1739,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const colX = side ? (sc.layout === 'flip' || sc.layout === 'right' ? SA.x + SA.w * .54 : SA.x) : SA.x;
       const maxW = side ? SA.w * .46 - 56 * U : SA.w - 56 * U;
       if (w > maxW) { size *= maxW / w; x.font = `700 ${size}px 'Noto Sans SC'`; w = x.measureText(sub.zh).width; }
-      const y = SA.y + SA.h - 18 * U, cx = side ? colX + w / 2 + 28 * U : W / 2;
+      const y = SA.y + SA.h - 18 * U, cx = side ? colX + w / 2 + 28 * U : SA.x + SA.w / 2;
       x.globalAlpha = a; x.fillStyle = 'rgba(27,30,43,.72)'; x.beginPath(); x.roundRect(cx - w / 2 - 28 * U, y - size * 1.05, w + 56 * U, size * 1.55, 12 * U); x.fill();
       x.fillStyle = C.white; x.textAlign = 'center'; x.fillText(sub.zh, cx, y); x.restore();
     }

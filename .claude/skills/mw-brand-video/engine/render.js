@@ -36,7 +36,7 @@ async function renderFormat(browser, f) {
     const issues = await page.evaluate(() => window.runAudit());
     fs.writeFileSync(path.join(out, `audit_${f}.json`), JSON.stringify(issues, null, 1));
     console.log(`\n${f}: ${issues.length ? issues.length + ' issue(s)' : 'no layout issues'}`);
-    for (const q of issues) console.log(`  [${q.kind}] scene ${q.scene} @${q.t}s  "${q.text}" — ${q.detail}`);
+    for (const q of issues) console.log(`  ${q.severity.toUpperCase().padEnd(10)} [${q.kind}] scene ${q.scene} @${q.t}s  "${q.text}" — ${q.detail}`);
     await page.close(); return;
   }
   if (mode === 'stills') {
@@ -53,11 +53,25 @@ async function renderFormat(browser, f) {
   }
   ff.stdin.end(); await new Promise(r => ff.on('close', r));
   const final = path.join(out, `${name}_${f}.mp4`);
-  execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', vid, '-i', path.join(out, 'mix.wav'), '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', final]);
+  execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', vid, '-i', path.join(out, 'mix.wav'), '-c:v', 'copy', '-af', loudnessFilter(), '-ar', '48000', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', final]);
   fs.unlinkSync(vid);
   console.log('done', final);
   await page.close();
 }
+// Social loudness: −14 LUFS integrated, true peak ≤ −1.5 dBTP (audit target
+// −14 ±1, ≤ −1 dBTP). Two-pass loudnorm, linear, so the VO/music balance
+// and the ducking are kept — the whole mix just moves by one gain.
+let LOUD = null;
+function loudnessFilter() {
+  if (LOUD) return LOUD;
+  const r = require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', path.join(out, 'mix.wav'), '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json', '-f', 'null', '-'], { encoding: 'utf8' });
+  try {
+    const m = JSON.parse(r.stderr.slice(r.stderr.lastIndexOf('{')));
+    LOUD = `loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`;
+  } catch { LOUD = 'loudnorm=I=-14:TP=-1.5:LRA=11'; }
+  return LOUD;
+}
+
 // The user's own video clips (SPEC.media entries that are video files) become
 // numbered JPEG frames at 30fps, once; engine.html loads the one each frame needs.
 function extractClips() {

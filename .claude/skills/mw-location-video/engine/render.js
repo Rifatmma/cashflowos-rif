@@ -1,4 +1,4 @@
-// node render.js <project-dir> <916|169|11|45|all|916,169…> [stills t1 t2 …]
+// node render.js <project-dir> <916|169|11|45|all|916,169…> [stills t1 t2 … | audit]
 // Renders frames from engine.html, mixes VO + score (score.py), muxes <project>/out/<name>_<fmt>.mp4
 const fs = require('fs'), path = require('path'), { spawn, execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
@@ -32,6 +32,13 @@ async function renderFormat(browser, f) {
   await page.goto(`${pathToFileURL(path.join(__dirname, 'engine.html')).href}?f=${f}&dir=${encodeURIComponent(pathToFileURL(dir).href)}`);
   await page.evaluate(() => window.ready);
   const grab = t => page.evaluate(async t => { if (window.prepare) await window.prepare(t); render(t); return document.getElementById('c').toDataURL('image/png'); }, t);
+  if (mode === 'audit') {
+    const issues = await page.evaluate(() => window.runAudit());
+    fs.writeFileSync(path.join(out, `audit_${f}.json`), JSON.stringify(issues, null, 1));
+    console.log(`\n${f}: ${issues.length ? issues.length + ' issue(s)' : 'no layout issues'}`);
+    for (const q of issues) console.log(`  ${q.severity.toUpperCase().padEnd(10)} [${q.kind}] scene ${q.scene} @${q.t}s  "${q.text}" — ${q.detail}`);
+    await page.close(); return;
+  }
   if (mode === 'stills') {
     for (const t of times) fs.writeFileSync(path.join(out, `still_${f}_${t}.png`), Buffer.from((await grab(+t)).split(',')[1], 'base64'));
     await page.close(); return;
@@ -46,11 +53,25 @@ async function renderFormat(browser, f) {
   }
   ff.stdin.end(); await new Promise(r => ff.on('close', r));
   const final = path.join(out, `${name}_${f}.mp4`);
-  execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', vid, '-i', path.join(out, 'mix.wav'), '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', final]);
+  execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', vid, '-i', path.join(out, 'mix.wav'), '-c:v', 'copy', '-af', loudnessFilter(), '-ar', '48000', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-shortest', final]);
   fs.unlinkSync(vid);
   console.log('done', final);
   await page.close();
 }
+// Social loudness: −14 LUFS integrated, true peak ≤ −1.5 dBTP (audit target
+// −14 ±1, ≤ −1 dBTP). Two-pass loudnorm, linear, so the VO/music balance
+// and the ducking are kept — the whole mix just moves by one gain.
+let LOUD = null;
+function loudnessFilter() {
+  if (LOUD) return LOUD;
+  const r = require('child_process').spawnSync('ffmpeg', ['-hide_banner', '-nostats', '-i', path.join(out, 'mix.wav'), '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json', '-f', 'null', '-'], { encoding: 'utf8' });
+  try {
+    const m = JSON.parse(r.stderr.slice(r.stderr.lastIndexOf('{')));
+    LOUD = `loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`;
+  } catch { LOUD = 'loudnorm=I=-14:TP=-1.5:LRA=11'; }
+  return LOUD;
+}
+
 // The user's own video clips (SPEC.media entries that are video files) become
 // numbered JPEG frames at 30fps, once; engine.html loads the one each frame needs.
 function extractClips() {
@@ -71,11 +92,11 @@ function extractClips() {
 
 (async () => {
   extractClips();
-  if (mode !== 'stills') execFileSync(process.platform === 'win32' ? 'python' : 'python3', [path.join(__dirname, 'score.py'), dir], { stdio: 'inherit' });
+  if (mode !== 'stills' && mode !== 'audit') execFileSync(process.platform === 'win32' ? 'python' : 'python3', [path.join(__dirname, 'score.py'), dir], { stdio: 'inherit' });
   const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--allow-file-access-from-files'] });
   await Promise.all(fmts.map(f => renderFormat(browser, f)));
   await browser.close();
-  if (mode !== 'stills') remember();
+  if (mode !== 'stills' && mode !== 'audit') remember();
 })();
 
 // The look of every finished video, newest first, so the next one can be

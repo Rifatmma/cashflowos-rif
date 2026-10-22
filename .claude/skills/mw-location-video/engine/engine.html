@@ -12,6 +12,7 @@ html,body{margin:0;background:#000}canvas{display:block}
 <link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/700.css">
 <script src="shapes.js"></script>
 <script src="core.js"></script>
+<script src="audit.js"></script>
 </head><body>
 <canvas id="c"></canvas>
 <script>
@@ -40,6 +41,7 @@ window.ready = load(`${PDIR}/vo.js`).then(() => load(`${PDIR}/spec.js`)).then(as
   await Promise.all([...['400', '600', '700', '800', 'italic 600', 'italic 400'].map(w => document.fonts.load(`${w} 20px Poppins`)),
     document.fonts.load("700 20px 'Noto Sans SC'", '中文').catch(() => 0)]);
   window.render = createEngine(cv.getContext('2d'), W, H, SPEC, SHAPES, TEX);
+  window.runAudit = () => auditFilm(cv.getContext('2d'), W, H, SPEC, window.render, { vo: (SPEC.vo || []).map((v, i) => ({ t: v.t, words: (window.__VO || [])[i]?.words || [] })) });
   // Before each frame: put the right frame of every clip on screen at t in place.
   const cache = new Map();
   window.prepare = async t => {
