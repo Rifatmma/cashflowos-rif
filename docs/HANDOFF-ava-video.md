@@ -120,3 +120,9 @@ yield, proof, forecast, dco, festive; rest on demand. Rif's ask: at least 120 as
 Every asset: audit in all four formats (render.js … audit) and a stills check before it is used.
 
 Progress:
+- [x] Batch 1 illustrations (11): dashboard, hub, exchange, auction, segments, catalog, attribution, store, flows, cms, trigger — audited in 4 formats (no off-frame / unsafe / overlap), registered in ARTS, sanitizePlan, writer menu, spec.md.
+- [ ] Icon set (~60)
+- [ ] Batch 2 (8)
+- [ ] Rest (9) + variants
+- [ ] Label wrapFit (A)
+- [ ] Export audit email + inbox button (B)

@@ -114,6 +114,22 @@ scene using "from"):
   trend    {"values":[2,3,5,9],"labels":["22","23","24","25"]}  growth over time (sourced numbers only).
   billboard {"lines":["PLAN","BUY"]}  a roadside digital screen showing words.
   heat     {"label":"…"}  where audiences gather, attention, targeting.
+  dashboard {"tiles":[["Impressions","1.56M"],["Reach","363K"],["Frequency","4.3"],["CPM","$4.20"]]}  measurement,
+           reporting, campaign results (figures from the article only; omit tiles it has no number for).
+  hub      {"items":["Spreadsheets","Email","Ad server","CMS"],"label":"One operating system"}  scattered
+           tools consolidating into one platform.
+  exchange {"left":"Media owners","mid":"Platform","right":["DSPs","Agencies","Brands"]}  programmatic
+           marketplace: supply, platform, demand; bookings in, revenue back.
+  auction  {"bids":["$3.80","$4.40","$5.10"]}  real-time bidding on one play; the highest bid wins the screen.
+  segments {"groups":["Commuters","Shoppers","Travellers"]}  audience targeting: a crowd sorting into groups.
+  catalog  {"items":["Highway LED","Mall atrium",…6],"filter":"Audience: commuters"}  inventory storefront,
+           self-serve buying, filtering screens.
+  attribution {"steps":["Saw the ad","Visited the store"]}  exposure to store visit, footfall attribution.
+  store    {"entrance":"Entrance","checkout":"Checkout"}  retail media, in-store / in-mall screens.
+  flows    {"counter":"1.2M","label":"devices on the move"}  mobility / location data, audiences on the move.
+  cms      {"venues":["Hotel","Restaurant","Clinic","School"]}  content scheduling, playlists, signage CMS.
+  trigger  {"signal":"rain"|"temp"|"score","signalLabel":"Rain starts","to":"UMBRELLAS 20% OFF"}  real-time,
+           data-triggered creative (weather, temperature, live sport).
 VARIETY: pick the illustration that shows THIS line's idea most specifically — a number about
 people is "people" or "compare", not a street. Use each illustration at most once per video.
 ${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}

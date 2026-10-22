@@ -196,6 +196,14 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     });
     return y;
   }
+  // "1.56M" at 40% of the way → "0.62M": a figure counting up in its own format
+  function countUp(s, p) {
+    const m = /^([^\d]*)([\d,]*\.?\d+)(.*)$/.exec(s);
+    if (!m || p >= 1) return s;
+    const raw = m[2].replace(/,/g, ''), dec = (raw.split('.')[1] || '').length, v = parseFloat(raw) * p;
+    let out = v.toFixed(dec); if (m[2].includes(',')) out = Number(out).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    return m[1] + out + m[3];
+  }
   // a single line that must fit a width (used inside illustrations)
   function fitFont(str, weight, size, maxW, italic = false) {
     x.font = `${italic ? 'italic ' : ''}${weight} ${size}px Poppins`;
@@ -705,6 +713,273 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.globalAlpha = 1;
       const sx = (u * .4 % 1) * 1000; x.strokeStyle = fg(dark); x.lineWidth = 4; x.beginPath(); x.moveTo(sx, 0); x.lineTo(sx, 620); x.stroke();
       if (ev.label) { fitFont(ev.label, 700, 44, 1000); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.label, 500, 690); }
+      x.restore();
+    },
+    // ---------- batch 1 (blog scan, Oct 2026): the ideas most articles need ----------
+    // measurement panel: tiles build one by one, figures count up, a line draws in
+    dashboard(u, r, dark, ev) {
+      const tiles = (ev.tiles && ev.tiles.length ? ev.tiles : [['Impressions', '1.56M'], ['Reach', '363K'], ['Frequency', '4.3'], ['CPM', '$4.20']]).slice(0, 4);
+      x.save(); fit(r, 1000, 900);
+      const p0 = oExpo(P(u, 0, .4));
+      x.globalAlpha = p0; x.fillStyle = dark ? 'rgba(10,12,30,.45)' : 'rgba(255,255,255,.85)'; x.beginPath(); x.roundRect(0, 0, 1000, 900, 28); x.fill();
+      x.fillStyle = dark ? C.sky : C.blue; [0, 1, 2].forEach(k => { x.beginPath(); x.arc(40 + k * 30, 38, 9, 0, 7); x.fill(); }); x.globalAlpha = 1;
+      tiles.forEach(([lab, val], i) => {
+        const t0 = cue(ev, i, .3, .3), p = oBack(P(u, t0, t0 + .45), 1.4), c = i % 2, rr = Math.floor(i / 2);
+        const tx = 30 + c * 480, ty = 80 + rr * 230;
+        if (p <= 0) return;
+        x.save(); x.translate(tx + 220, ty + 100); x.scale(.9 + .1 * clamp(p), .9 + .1 * clamp(p)); x.translate(-tx - 220, -ty - 100); x.globalAlpha = clamp(p);
+        x.fillStyle = i === tiles.length - 1 ? accGrad(tx, tx + 440) : (dark ? '#262C52' : C.mist); x.beginPath(); x.roundRect(tx, ty, 440, 200, 20); x.fill();
+        const last = i === tiles.length - 1, ink = last ? C.navy : fg(dark);
+        fitFont(String(lab), 600, 44, 380); x.textAlign = 'left'; x.fillStyle = ink; x.globalAlpha *= .85; x.fillText(String(lab), tx + 30, ty + 60); x.globalAlpha = clamp(p);
+        const shown = countUp(String(val), oCub(P(u, t0 + .1, t0 + 1.1)));
+        fitFont(String(val), 800, 84, 380); x.fillStyle = ink; x.fillText(shown, tx + 30, ty + 160);
+        x.restore();
+      });
+      // the line chart along the bottom
+      const vals = ev.chart || [3, 4, 3.6, 5, 6.2, 5.8, 7.4, 8.6], mx = Math.max(...vals), lp = P(u, .9, 1.9);
+      x.strokeStyle = soft(dark); x.lineWidth = 3; for (let k = 0; k < 3; k++) { x.beginPath(); x.moveTo(40, 600 + k * 90); x.lineTo(960, 600 + k * 90); x.stroke(); }
+      if (lp > 0) {
+        const pts = vals.map((v, i) => [40 + i * 920 / (vals.length - 1), 840 - 260 * v / mx]), kk = lp * (pts.length - 1);
+        x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 9; x.lineJoin = 'round'; x.lineCap = 'round'; x.beginPath();
+        pts.forEach((pt, i) => { if (i > Math.ceil(kk)) return; const q = i > kk ? pts[i - 1].map((a, j) => lerp(a, pt[j], kk - (i - 1))) : pt; i ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); }); x.stroke();
+        const end = pts[Math.min(pts.length - 1, Math.floor(kk))]; x.fillStyle = C.sun1; x.beginPath(); x.arc(end[0], end[1], 16, 0, 7); x.fill();
+      }
+      x.restore();
+    },
+    // scattered tools and sheets plug into one platform at the centre
+    hub(u, r, dark, ev) {
+      const items = (ev.items && ev.items.length ? ev.items : ['Spreadsheets', 'Email', 'Ad server', 'CMS', 'CRM', 'Invoices']).slice(0, 6);
+      x.save(); fit(r, 1000, ev.label ? 860 : 780);
+      const cx = 500, cy = 380, n = items.length;
+      items.forEach((lab, i) => {
+        const a = -Math.PI / 2 + i * Math.PI * 2 / n, t0 = cue(ev, i, .22, .3), p = ioCub(P(u, t0, t0 + .6));
+        const far = [cx + Math.cos(a) * 470, cy + Math.sin(a) * 360], near = [cx + Math.cos(a) * 330, cy + Math.sin(a) * 250];
+        const jit = (1 - p) * Math.sin(u * 7 + i) * 10, px = lerp(far[0], near[0], p) + jit, py = lerp(far[1], near[1], p);
+        if (p > 0) { x.strokeStyle = i === n - 1 ? C.sun1 : (dark ? C.sky : C.blue); x.lineWidth = 6; x.setLineDash([14, 10]); x.lineDashOffset = -u * 60; x.beginPath(); x.moveTo(cx, cy); x.lineTo(lerp(cx, px, p), lerp(cy, py, p)); x.stroke(); x.setLineDash([]); }
+        x.save(); x.translate(px, py); x.rotate((1 - p) * (i % 2 ? .25 : -.25)); x.globalAlpha = P(u, t0 - .3, t0);
+        x.fillStyle = dark ? '#262C52' : C.white; x.strokeStyle = dark ? 'rgba(191,231,251,.4)' : 'rgba(43,60,146,.25)'; x.lineWidth = 3;
+        x.beginPath(); x.roundRect(-130, -42, 260, 84, 42); x.fill(); x.stroke();
+        fitFont(String(lab), 700, 44, 230); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(String(lab), 0, 15);
+        x.restore();
+      });
+      const hp = oBack(P(u, .1, .5), 1.6), glow = P(u, .4 + n * .22, .9 + n * .22);
+      x.save(); x.translate(cx, cy); x.scale(hp, hp);
+      if (glow > 0) { x.fillStyle = `rgba(254,218,36,${.25 * glow})`; x.beginPath(); x.arc(0, 0, 150 + 20 * Math.sin(u * 4), 0, 7); x.fill(); }
+      const g = x.createLinearGradient(-120, -120, 120, 120); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue);
+      x.fillStyle = g; x.beginPath(); x.roundRect(-120, -120, 240, 240, 48); x.fill(); shape('wave_solid', -80, -34, 160, C.white);
+      x.restore();
+      if (ev.label) { fitFont(ev.label, 700, 48, 520); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = glow; x.fillText(ev.label, cx, 840); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // media owners → platform → buyers: bookings flow in, revenue flows back
+    exchange(u, r, dark, ev) {
+      const L = ev.left || 'Media owners', M = ev.mid || 'Platform', R = (ev.right && ev.right.length ? ev.right : ['DSPs', 'Agencies', 'Brands']).slice(0, 3);
+      x.save(); fit(r, 1000, 760);
+      const colY = [180, 380, 580];
+      // left: three screens
+      colY.forEach((y, i) => { const p = oBack(P(u, .1 + i * .1, .5 + i * .1), 1.5); x.save(); x.translate(110, y); x.scale(p, p);
+        x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(-90, -60, 180, 120, 14); x.fill();
+        const g = x.createLinearGradient(-80, 0, 80, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-80, -50, 160, 100, 10); x.fill(); x.restore(); });
+      // right: buyers
+      R.forEach((lab, i) => { const p = oBack(P(u, .4 + i * .1, .8 + i * .1), 1.5); x.save(); x.translate(860, colY[i]); x.scale(p, p);
+        x.fillStyle = i === R.length - 1 ? accGrad(-120, 120) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-130, -48, 260, 96, 48); x.fill();
+        fitFont(String(lab), 700, 46, 230); x.textAlign = 'center'; x.fillStyle = i === R.length - 1 ? C.navy : (dark ? C.navy : C.white); x.fillText(String(lab), 0, 13); x.restore(); });
+      // pipes and what travels on them
+      const pp = P(u, .6, 1.2);
+      colY.forEach((y, i) => {
+        for (const [x0, y0, x1, y1] of [[200, y, 430, 380], [570, 380, 730, colY[i]]]) {
+          x.strokeStyle = soft(dark); x.lineWidth = 8; x.beginPath(); x.moveTo(x0, y0); x.lineTo(lerp(x0, x1, pp), lerp(y0, y1, pp)); x.stroke();
+        }
+        if (u > 1.2) {
+          const f = ((u - 1.2) * .7 + i * .33) % 1;
+          const book = f < .5 ? [lerp(730, 570, f * 2), lerp(colY[i], 380, f * 2)] : [lerp(430, 200, f * 2 - 1), lerp(380, y, f * 2 - 1)];
+          x.fillStyle = dark ? C.sky : C.blue; x.beginPath(); x.roundRect(book[0] - 16, book[1] - 12, 32, 24, 5); x.fill();
+          const g2 = (f + .5) % 1, coin = g2 < .5 ? [lerp(200, 430, g2 * 2), lerp(y, 380, g2 * 2)] : [lerp(570, 730, g2 * 2 - 1), lerp(380, colY[i], g2 * 2 - 1)];
+          x.fillStyle = C.sun1; x.beginPath(); x.arc(coin[0], coin[1] + 26, 13, 0, 7); x.fill();
+        }
+      });
+      const hp = oBack(P(u, .25, .65), 1.6); x.save(); x.translate(500, 380); x.scale(hp, hp);
+      const g = x.createLinearGradient(-90, -90, 90, 90); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-90, -90, 180, 180, 36); x.fill();
+      shape('wave_solid', -60, -26, 120, C.white); x.restore();
+      x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .5, .8);
+      fitFont(String(L), 700, 38, 260); x.fillText(String(L), 110, 720); fitFont(String(M), 700, 38, 260); x.fillText(String(M), 500, 530); x.globalAlpha = 1;
+      x.restore();
+    },
+    // close-up of one play slot: bids rise in milliseconds, the winner lands on the screen
+    auction(u, r, dark, ev) {
+      const bids = (ev.bids && ev.bids.length ? ev.bids : ['$3.80', '$4.40', '$5.10']).slice(0, 4), n = bids.length;
+      x.save(); fit(r, 1000, 820);
+      x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(220, 20, 560, 330, 22); x.fill(); x.fillRect(485, 350, 30, 90);
+      const win = cue(ev, n, .45, .3) + .3, wp = oExpo(P(u, win, win + .4));
+      x.save(); x.beginPath(); x.roundRect(238, 38, 524, 294, 14); x.clip();
+      x.fillStyle = dark ? '#1B1E2B' : '#C9D6E6'; x.fillRect(238, 38, 524, 294);
+      x.fillStyle = accGrad(238, 762); x.fillRect(238, 38, 524 * wp, 294); if (wp > .6) shape('wave_solid', 400, 150, 200, C.navy, { alpha: P(wp, .6, 1) });
+      x.restore();
+      fitFont(ev.label || 'NEXT PLAY', 700, 34, 500); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = 1 - wp; x.fillText(ev.label || 'NEXT PLAY', 500, 200); x.globalAlpha = 1;
+      bids.forEach((b, i) => {
+        const t0 = cue(ev, i, .45, .3), p = oBack(P(u, t0, t0 + .35), 2), bx = 500 + (i - (n - 1) / 2) * 260, best = i === n - 1;
+        if (p <= 0) return;
+        x.save(); x.translate(bx, 640 - (best ? 40 * wp : 0)); x.scale(p, p);
+        x.fillStyle = best ? accGrad(-100, 100) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-110, -70, 220, 140, 70); x.fill();
+        x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(-10, 70, 20, 90);
+        fitFont(String(b), 800, 58, 180); x.textAlign = 'center'; x.fillStyle = best || dark ? C.navy : C.white; x.fillText(String(b), 0, 20);
+        x.restore();
+      });
+      x.restore();
+    },
+    // a crowd sorts itself into audience groups; the target locks onto one
+    segments(u, r, dark, ev) {
+      const groups = (ev.groups && ev.groups.length ? ev.groups : ['Commuters', 'Shoppers', 'Travellers']).slice(0, 4), g = groups.length, pick = ev.pick ?? g - 1;
+      x.save(); fit(r, 1000, 780);
+      const rr = rnd(21), sort = ioCub(P(u, .4, 1.4)), per = 8;
+      for (let k = 0; k < g * per; k++) {
+        const gi = k % g, j = Math.floor(k / g), cx = 140 + gi * (720 / Math.max(1, g - 1 || 1)), home = [g === 1 ? 500 : cx + ((j % 3) - 1) * 58, 330 + Math.floor(j / 3) * 78];
+        const start = [80 + rr() * 840, 150 + rr() * 380], px = lerp(start[0], home[0], sort) + Math.sin(u * 3 + k) * 4 * (1 - sort), py = lerp(start[1], home[1], sort);
+        person(px, py, 52, sort > .95 && gi === pick ? C.sun1 : (dark ? C.sky : C.blue));
+      }
+      groups.forEach((lab, gi) => { const cx = g === 1 ? 500 : 140 + gi * (720 / (g - 1)); x.globalAlpha = P(u, 1.2, 1.5); fitFont(String(lab), 700, 40, 1000 / g - 20); x.textAlign = gi === 0 && g > 2 ? 'left' : gi === g - 1 && g > 2 ? 'right' : 'center'; x.fillStyle = gi === pick ? accentText(dark) : fg(dark); x.fillText(String(lab), x.textAlign === 'left' ? cx - 90 : x.textAlign === 'right' ? cx + 90 : cx, 610); });
+      x.globalAlpha = 1;
+      const lk = oBack(P(u, 1.5, 1.9), 1.6), tx = g === 1 ? 500 : 140 + pick * (720 / (g - 1));
+      if (lk > 0) { x.save(); x.translate(tx, 380); x.scale(1.6 - .6 * lk, 1.6 - .6 * lk); x.globalAlpha = clamp(lk); x.strokeStyle = C.sun1; x.lineWidth = 8; x.beginPath(); x.arc(0, 0, 150, 0, 7); x.stroke();
+        for (const a of [0, 1, 2, 3]) { x.save(); x.rotate(a * Math.PI / 2); x.beginPath(); x.moveTo(0, -170); x.lineTo(0, -125); x.stroke(); x.restore(); } x.restore(); }
+      x.restore();
+    },
+    // a storefront of screens: cards with tags, a filter narrows them, one is booked
+    catalog(u, r, dark, ev) {
+      const items = (ev.items && ev.items.length ? ev.items : ['Highway LED', 'Mall atrium', 'Airport gate', 'Bus shelter', 'Office lift', 'Metro platform']).slice(0, 6);
+      const keep = ev.keep || [0, 2], book = ev.book ?? keep[keep.length - 1];
+      x.save(); fit(r, 1000, 780);
+      const fp = P(u, cue(ev, 0, 1, 1.0), cue(ev, 0, 1, 1.0) + .3), bp = oCub(P(u, 1.8, 2.4));
+      if (ev.filter !== false) { x.globalAlpha = P(u, .9, 1.1); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(0, 0, 440, 80, 40); x.fill(); fitFont(ev.filter || 'Audience: commuters', 700, 40, 370); x.textAlign = 'left'; x.fillStyle = dark ? C.navy : C.white; x.fillText(ev.filter || 'Audience: commuters', 34, 54); x.globalAlpha = 1; }
+      items.forEach((lab, i) => {
+        const c = i % 3, rr2 = Math.floor(i / 3), cx = c * 340, cy = 110 + rr2 * 330, p = oBack(P(u, .1 + i * .08, .5 + i * .08), 1.4), kept = keep.includes(i);
+        if (p <= 0) return;
+        const lift = i === book ? 1 + .06 * bp : 1;
+        x.save(); x.translate(cx + 150, cy + 140 - 14 * bp * (i === book)); x.scale(p * lift, p * lift); x.globalAlpha = kept ? 1 : 1 - .75 * fp;
+        x.fillStyle = dark ? '#262C52' : C.white; x.beginPath(); x.roundRect(-150, -140, 300, 290, 20); x.fill();
+        const g = x.createLinearGradient(-130, -120, 130, 20); g.addColorStop(0, C.sky); g.addColorStop(1, i === book ? C.sun2 : C.blue);
+        x.fillStyle = g; x.beginPath(); x.roundRect(-130, -120, 260, 150, 12); x.fill(); shape('wave_solid', -50, -70, 100, C.white);
+        fitFont(String(lab), 700, 46, 270); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(String(lab), -135, 88);
+        x.fillStyle = kept && fp > 0 ? C.sun1 : soft(dark); x.beginPath(); x.roundRect(-130, 104, 120, 24, 12); x.fill();
+        if (i === book && bp > 0) { x.strokeStyle = C.sun1; x.lineWidth = 8; x.globalAlpha = bp; x.beginPath(); x.roundRect(-150, -140, 300, 290, 20); x.stroke(); x.fillStyle = C.sun1; x.beginPath(); x.arc(118, -112, 34 * bp, 0, 7); x.fill(); x.strokeStyle = C.navy; x.lineWidth = 8; x.lineCap = 'round'; x.beginPath(); x.moveTo(104, -112); x.lineTo(114, -101); x.lineTo(132, -122); x.stroke(); }
+        x.restore();
+      });
+      if (bp > 0) { x.globalAlpha = bp; x.fillStyle = accGrad(500, 1000); x.beginPath(); x.roundRect(500, 0, 500, 80, 40); x.fill(); fitFont(ev.done || 'Booked · live today', 800, 40, 440); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.done || 'Booked · live today', 750, 54); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // exposure to visit: a person passes the screen, later walks into the store; the link draws back
+    attribution(u, r, dark, ev) {
+      const [s1, s2] = ev.steps || ['Saw the ad', 'Visited the store'];
+      x.save(); fit(r, 1000, 760);
+      const path = s => [lerp(80, 920, s), 520 - Math.sin(s * Math.PI) * 260];
+      x.strokeStyle = soft(dark); x.lineWidth = 8; x.setLineDash([4, 18]); x.lineCap = 'round'; x.beginPath(); for (let k = 0; k <= 40; k++) { const [px, py] = path(k / 40); k ? x.lineTo(px, py) : x.moveTo(px, py); } x.stroke(); x.setLineDash([]);
+      // the screen (at a third of the way) and the store (at the end)
+      const scr = path(.3), sp = oBack(P(u, .05, .4), 1.5);
+      x.save(); x.translate(scr[0], scr[1] - 170); x.scale(sp, sp); x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(-110, -80, 220, 150, 14); x.fill();
+      const g = x.createLinearGradient(-100, 0, 100, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-100, -70, 200, 130, 10); x.fill(); shape('wave_solid', -45, -28, 90, C.white); x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(-8, 70, 16, 100); x.restore();
+      const st = path(1), stp = oBack(P(u, .2, .55), 1.5);
+      x.save(); x.translate(st[0] - 10, st[1] - 20); x.scale(stp, stp); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.moveTo(-90, -40); x.lineTo(90, -40); x.lineTo(70, -110); x.lineTo(-70, -110); x.closePath(); x.fill(); x.fillRect(-80, -40, 160, 120);
+      x.fillStyle = dark ? C.navy : C.white; x.fillRect(-25, 10, 50, 70); x.restore();
+      // the walker
+      const wk = ioCub(P(u, .5, 2.2)), [wx, wy] = path(wk); person(wx, wy - 10, 70, C.sun1);
+      const hit = P(u, .5 + .3 * 1.7, .5 + .3 * 1.7 + .5); if (hit > 0 && hit < 1) for (let k = 0; k < 3; k++) { x.strokeStyle = `rgba(254,218,36,${(1 - hit) * .8})`; x.lineWidth = 6; x.beginPath(); x.arc(scr[0], scr[1] - 170, 120 + hit * 120 + k * 30, 0, 7); x.stroke(); }
+      const done = oBack(P(u, 2.2, 2.5), 2); if (done > 0) { x.save(); x.translate(st[0] + 70, st[1] - 140); x.scale(done, done); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 40, 0, 7); x.fill(); x.strokeStyle = C.navy; x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(-16, 0); x.lineTo(-4, 13); x.lineTo(18, -12); x.stroke(); x.restore(); }
+      const back = P(u, 2.4, 3.0); if (back > 0) { x.strokeStyle = C.sun1; x.lineWidth = 7; x.setLineDash([18, 12]); x.beginPath(); const a0 = [st[0] - 10, st[1] - 140], a1 = [scr[0], scr[1] - 260], mid = [(a0[0] + a1[0]) / 2, Math.min(a0[1], a1[1]) - 170]; for (let k = 0; k <= 30 * back; k++) { const s = k / 30, px = (1 - s) ** 2 * a0[0] + 2 * (1 - s) * s * mid[0] + s * s * a1[0], py = (1 - s) ** 2 * a0[1] + 2 * (1 - s) * s * mid[1] + s * s * a1[1]; k ? x.lineTo(px, py) : x.moveTo(px, py); } x.stroke(); x.setLineDash([]); }
+      x.textAlign = 'center'; x.fillStyle = fg(dark);
+      x.globalAlpha = P(u, .9, 1.2); fitFont(String(s1), 700, 38, 360); x.fillText(String(s1), scr[0], 740 - 30);
+      x.globalAlpha = P(u, 2.2, 2.5); fitFont(String(s2), 700, 38, 360); x.textAlign = 'right'; x.fillText(String(s2), 1000, 740 - 30); x.globalAlpha = 1;
+      x.restore();
+    },
+    // inside a store: screens at the entrance and the checkout light as a shopper passes to the till
+    store(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 800);
+      const fl = dark ? 'rgba(191,231,251,.12)' : 'rgba(43,60,146,.07)';
+      x.fillStyle = fl; x.beginPath(); x.moveTo(0, 760); x.lineTo(1000, 760); x.lineTo(820, 420); x.lineTo(180, 420); x.closePath(); x.fill();
+      // shelves
+      for (let k = 0; k < 3; k++) { const p = oExpo(P(u, .05 + k * .08, .5 + k * .08)); x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.fillRect(240 + k * 190, 420 - 200 * p, 140, 200 * p);
+        for (let s = 0; s < 3; s++) { x.fillStyle = [C.sky, C.blue, C.sun2][(k + s) % 3]; x.globalAlpha = .7 * p; for (let b = 0; b < 4; b++) x.fillRect(252 + k * 190 + b * 32, 420 - 190 * p + s * 62, 24, 40 * p); x.globalAlpha = 1; } }
+      const shop = ioCub(P(u, .6, 2.2)), sx = lerp(120, 840, shop), sy = lerp(700, 560, shop);
+      const screen = (cx, cy, on, lab) => { x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(cx - 6, cy + 70, 12, 120); x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(cx - 80, cy - 110, 160, 190, 14); x.fill();
+        if (on > 0) { x.globalAlpha = on; x.fillStyle = accGrad(cx - 70, cx + 70); x.beginPath(); x.roundRect(cx - 70, cy - 100, 140, 170, 10); x.fill(); shape('wave_solid', cx - 40, cy - 40, 80, C.navy); x.globalAlpha = 1; }
+        if (lab) { fitFont(lab, 700, 32, 220); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = on; x.fillText(lab, cx, cy - 135); x.globalAlpha = 1; } };
+      screen(110, 470, P(u, .7, .9), ev.entrance || 'Entrance');
+      screen(900, 400, P(u, 1.9, 2.1), ev.checkout || 'Checkout');
+      // shopper with trolley
+      person(sx, sy, 90, C.sun1);
+      x.strokeStyle = fg(dark); x.lineWidth = 7; x.lineJoin = 'round'; x.beginPath(); x.moveTo(sx + 40, sy - 30); x.lineTo(sx + 60, sy + 30); x.lineTo(sx + 140, sy + 30); x.lineTo(sx + 150, sy - 10); x.lineTo(sx + 55, sy - 10); x.stroke();
+      x.fillStyle = fg(dark); [sx + 75, sx + 130].forEach(wx => { x.beginPath(); x.arc(wx, sy + 46, 10, 0, 7); x.fill(); });
+      const tk = oBack(P(u, 2.2, 2.5), 2); if (tk > 0) { x.save(); x.translate(sx + 100, sy - 90); x.scale(tk, tk); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 36, 0, 7); x.fill(); x.strokeStyle = C.navy; x.lineWidth = 9; x.lineCap = 'round'; x.beginPath(); x.moveTo(-14, 0); x.lineTo(-3, 11); x.lineTo(15, -10); x.stroke(); x.restore(); }
+      x.restore();
+    },
+    // people moving through the city: trails stream along the streets, screens pulse as they pass, a count rises
+    flows(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 820);
+      const lp = oCub(P(u, 0, .6)), xs = [120, 360, 620, 880], ys = [200, 430, 660];
+      x.strokeStyle = soft(dark); x.lineWidth = 26; x.lineCap = 'round';
+      xs.forEach(v => { x.beginPath(); x.moveTo(v, 120); x.lineTo(v, 120 + 620 * lp); x.stroke(); });
+      ys.forEach(v => { x.beginPath(); x.moveTo(60, v); x.lineTo(60 + 880 * lp, v); x.stroke(); });
+      const scr = [[360, 200], [620, 430], [120, 660], [880, 430]];
+      const rr = rnd(9), trips = [];
+      for (let k = 0; k < 26; k++) { const horiz = rr() < .5, lane = horiz ? ys[Math.floor(rr() * 3)] : xs[Math.floor(rr() * 4)], sp = .18 + rr() * .2, off = rr(), dir = rr() < .5 ? 1 : -1; trips.push({ horiz, lane, sp, off, dir }); }
+      let passes = 0;
+      trips.forEach((q, k) => {
+        if (u < .5) return;
+        const f = ((u - .5) * q.sp * (q.dir) + q.off + 10) % 1, pos = q.horiz ? [lerp(60, 940, f), q.lane] : [q.lane, lerp(120, 740, f)];
+        for (let tail = 0; tail < 6; tail++) { const ff = ((f - tail * .012 * q.dir) % 1 + 1) % 1, tp = q.horiz ? [lerp(60, 940, ff), q.lane] : [q.lane, lerp(120, 740, ff)]; x.fillStyle = k % 6 ? (dark ? `rgba(102,201,243,${.9 - tail * .14})` : `rgba(43,60,146,${.8 - tail * .12})`) : `rgba(254,218,36,${.95 - tail * .14})`; x.beginPath(); x.arc(tp[0], tp[1], 9 - tail, 0, 7); x.fill(); }
+        passes += Math.floor((u - .5) * q.sp * 3);
+      });
+      scr.forEach(([sx, sy], i) => { const p = oBack(P(u, .3 + i * .1, .6 + i * .1), 1.6); if (p <= 0) return; const pulse = .5 + .5 * Math.sin(u * 5 + i * 1.7);
+        x.save(); x.translate(sx + 40, sy - 60); x.scale(p, p); x.fillStyle = `rgba(254,218,36,${.25 * pulse})`; x.beginPath(); x.arc(0, 0, 60, 0, 7); x.fill();
+        const g = x.createLinearGradient(-36, 0, 36, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-36, -26, 72, 52, 8); x.fill(); x.restore(); });
+      const shown = countUp(String(ev.counter || '1.2M'), oCub(P(u, .6, 2.4)));
+      x.globalAlpha = P(u, .5, .8); fitFont(String(ev.counter || '1.2M'), 800, 70, 420); x.textAlign = 'right'; x.fillStyle = fg(dark); x.fillText(shown, 1000, 70);
+      if (ev.label) { fitFont(ev.label, 600, 42, 560, true); x.textAlign = 'left'; x.fillStyle = dark ? C.sky : C.navy; x.fillText(ev.label, 0, 62); }
+      x.globalAlpha = 1;
+      x.restore();
+    },
+    // content scheduling: clips drop onto a playlist and push out to screens in different venues
+    cms(u, r, dark, ev) {
+      const venues = (ev.venues && ev.venues.length ? ev.venues : ['Hotel', 'Restaurant', 'Clinic', 'School']).slice(0, 4), n = venues.length;
+      x.save(); fit(r, 1000, 820);
+      x.fillStyle = dark ? 'rgba(10,12,30,.45)' : 'rgba(255,255,255,.85)'; x.beginPath(); x.roundRect(0, 0, 1000, 250, 22); x.fill();
+      x.strokeStyle = soft(dark); x.lineWidth = 3; for (let k = 0; k <= 8; k++) { x.beginPath(); x.moveTo(40 + k * 115, 150); x.lineTo(40 + k * 115, 230); x.stroke(); }
+      const cols = [C.sky, C.blue, C.sun2, C.pale];
+      [0, 1, 2, 3].forEach(i => { const t0 = cue(ev, i, .25, .2), p = oExpo(P(u, t0, t0 + .4)); if (p <= 0) return; x.fillStyle = cols[i]; x.beginPath(); x.roundRect(40 + i * 230, lerp(-80, 150, p), 220, 80, 10); x.fill(); });
+      const ph = (u * 160) % 920; if (u > 1.2) { x.fillStyle = C.sun1; x.fillRect(40 + ph, 140, 6, 100); }
+      fitFont(ev.label || 'Playlist', 700, 34, 400); x.textAlign = 'left'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .1, .4); x.fillText(ev.label || 'Playlist', 40, 80); x.globalAlpha = 1;
+      venues.forEach((lab, i) => {
+        const vx = 500 + (i - (n - 1) / 2) * 240, t0 = 1.2 + i * .2, p = P(u, t0, t0 + .4), on = P(u, t0 + .3, t0 + .5);
+        x.strokeStyle = soft(dark); x.lineWidth = 6; x.beginPath(); x.moveTo(500, 250); x.lineTo(lerp(500, vx, p), lerp(250, 470, p)); x.stroke();
+        x.fillStyle = dark ? '#262C52' : '#DCE7F3'; x.beginPath(); x.roundRect(vx - 100, 470, 200, 150, 14); x.fill();
+        if (on > 0) { x.globalAlpha = on; x.fillStyle = cols[Math.floor((u * .8 + i) % 4)]; x.beginPath(); x.roundRect(vx - 90, 480, 180, 130, 10); x.fill(); x.globalAlpha = 1; }
+        fitFont(String(lab), 700, 36, 220); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = on; x.fillText(String(lab), vx, 690); x.globalAlpha = 1;
+      });
+      x.restore();
+    },
+    // a live signal changes (rain, heat, a goal) and the screen's creative swaps to match
+    trigger(u, r, dark, ev) {
+      const kind = ev.signal || 'rain', at = ev.at != null ? +ev.at : .9, sw = oExpo(P(u, at + .2, at + .6));
+      x.save(); fit(r, 1000, 700);
+      // the signal, left
+      x.save(); x.translate(200, 300);
+      if (kind === 'rain') { const c = P(u, at - .3, at); x.fillStyle = c > 0 ? (dark ? C.pale : '#9DB0C8') : C.sun1;
+        if (c <= 0) { x.beginPath(); x.arc(0, 0, 80, 0, 7); x.fill(); for (let k = 0; k < 8; k++) { x.save(); x.rotate(k * Math.PI / 4 + u * .5); x.fillRect(100, -6, 40, 12); x.restore(); } }
+        else { x.beginPath(); x.arc(-50, 10, 60, 0, 7); x.arc(20, -20, 80, 0, 7); x.arc(80, 20, 55, 0, 7); x.rect(-50, 10, 130, 65); x.fill(); x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 8; x.lineCap = 'round'; for (let k = 0; k < 6; k++) { const f = (u * 1.4 + k * .17) % 1; x.globalAlpha = c; x.beginPath(); x.moveTo(-60 + k * 30, 100 + f * 120); x.lineTo(-70 + k * 30, 130 + f * 120); x.stroke(); } x.globalAlpha = 1; } }
+      else if (kind === 'temp') { const lv = lerp(.3, .9, P(u, at - .4, at)); x.fillStyle = soft(dark); x.beginPath(); x.roundRect(-30, -170, 60, 280, 30); x.arc(0, 150, 60, 0, 7); x.fill(); x.fillStyle = lv > .7 ? C.sun2 : C.sky; x.beginPath(); x.roundRect(-16, 110 - 260 * lv, 32, 260 * lv, 16); x.arc(0, 150, 44, 0, 7); x.fill(); }
+      else { x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-150, -90, 300, 180, 20); x.fill(); const s = u > at ? '2 – 1' : '1 – 1'; x.font = '800 90px Poppins'; x.textAlign = 'center'; x.fillStyle = u > at ? C.sun1 : (dark ? C.navy : C.white); x.fillText(s, 0, 32); }
+      x.restore();
+      if (ev.signalLabel) { fitFont(ev.signalLabel, 700, 42, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.signalLabel, 200, 640); }
+      // arrow
+      const ap = P(u, at, at + .3); x.strokeStyle = C.sun1; x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(380, 300); x.lineTo(380 + 120 * ap, 300); x.stroke(); if (ap > .9) { x.beginPath(); x.moveTo(480, 270); x.lineTo(510, 300); x.lineTo(480, 330); x.stroke(); }
+      // the screen, right
+      x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(745, 470, 30, 180);
+      x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(560, 120, 400, 360, 22); x.fill();
+      x.save(); x.beginPath(); x.roundRect(578, 138, 364, 324, 12); x.clip();
+      x.fillStyle = C.blue; x.fillRect(578, 138, 364, 324); x.fillStyle = accGrad(578, 942); x.fillRect(578, 138, 364 * sw, 324);
+      const A = ev.from || 'NEW SEASON', B = ev.to || (kind === 'rain' ? 'UMBRELLAS 20% OFF' : kind === 'temp' ? 'ICE COLD, ON US' : 'GOAL! FREE FRIES');
+      fitFont(A, 800, 46, 320); x.textAlign = 'center'; x.fillStyle = C.white; x.globalAlpha = 1 - sw; x.fillText(A, 760, 312);
+      fitFont(B, 800, 46, 320); x.fillStyle = C.navy; x.globalAlpha = sw; x.fillText(B, 760, 312); x.globalAlpha = 1;
+      x.restore();
       x.restore();
     },
     // a cut-out photo (phase 2) — until one is supplied, the scene's

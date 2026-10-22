@@ -37,6 +37,8 @@ export const ARTS = [
   'routes', 'network', 'formats', 'number', 'lines', 'reports', 'board', 'rail', 'crossing', 'skyline',
   'compare', 'people', 'pins', 'timeline', 'donut', 'globe', 'screens', 'funnel', 'dayparts', 'phone',
   'checklist', 'split', 'trend', 'billboard', 'heat',
+  // batch 1 (blog scan, Oct 2026)
+  'dashboard', 'hub', 'exchange', 'auction', 'segments', 'catalog', 'attribution', 'store', 'flows', 'cms', 'trigger',
 ] as const
 type Art = (typeof ARTS)[number]
 
@@ -419,6 +421,8 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
       split: () => Array.isArray(ev.left) && Array.isArray(ev.right),
       trend: () => Array.isArray(ev.values) && ev.values.length >= 3 && ev.values.every((v: any) => Number.isFinite(+v)),
       billboard: () => Array.isArray(ev.lines) && ev.lines.length > 0,
+      dashboard: () => !ev.tiles || (Array.isArray(ev.tiles) && ev.tiles.every((q: any) => Array.isArray(q) && q.length >= 2)),
+      trigger: () => !ev.signal || ['rain', 'temp', 'score'].includes(ev.signal),
     }
     if (art && need[art] && !need[art]!()) { notes.push(`The ${art} illustration was missing its details and was left out.`); art = undefined }
     if (art === 'formats') ev.items = ev.items.slice(0, 4).map((it: any) => [['plane', 'train', 'bag', 'screen', 'road'].includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 16)])
@@ -433,6 +437,16 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
     if (art === 'trend') ev.values = ev.values.slice(0, 8).map((v: any) => +v)
     if (art === 'billboard') ev.lines = ev.lines.slice(0, 4).map((q: any) => str(q, 16).toUpperCase())
     if (art === 'globe') ev.labels = ev.labels.slice(0, 4).map((q: any) => str(q, 14).toUpperCase())
+    if (art === 'dashboard' && ev.tiles) ev.tiles = ev.tiles.slice(0, 4).map((q: any) => [str(q[0], 18), str(q[1], 10)])
+    if (art === 'hub' && Array.isArray(ev.items)) ev.items = ev.items.slice(0, 6).map((q: any) => str(q, 16))
+    if (art === 'exchange') { if (ev.left) ev.left = str(ev.left, 18); if (ev.mid) ev.mid = str(ev.mid, 18); if (Array.isArray(ev.right)) ev.right = ev.right.slice(0, 3).map((q: any) => str(q, 14)) }
+    if (art === 'auction' && Array.isArray(ev.bids)) ev.bids = ev.bids.slice(0, 4).map((q: any) => str(q, 8))
+    if (art === 'segments' && Array.isArray(ev.groups)) ev.groups = ev.groups.slice(0, 4).map((q: any) => str(q, 14))
+    if (art === 'catalog' && Array.isArray(ev.items)) ev.items = ev.items.slice(0, 6).map((q: any) => str(q, 16))
+    if (art === 'attribution' && Array.isArray(ev.steps)) ev.steps = ev.steps.slice(0, 2).map((q: any) => str(q, 22))
+    if (art === 'cms' && Array.isArray(ev.venues)) ev.venues = ev.venues.slice(0, 4).map((q: any) => str(q, 12))
+    if (art === 'trigger') for (const k of ['from', 'to', 'signalLabel']) if (ev[k]) ev[k] = str(ev[k], 22)
+    if (art === 'flows' && ev.counter) ev.counter = String(ev.counter).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({
       ...(Number.isFinite(+t?.scale) && +t.scale >= 0.5 && +t.scale <= 1 ? { scale: +t.scale } : {}),

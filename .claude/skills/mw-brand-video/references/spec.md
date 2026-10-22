@@ -99,6 +99,17 @@ Pick the one that shows **this line's** idea most specifically. A number about p
 | `rail` | `stations: [5]`, `train` | transit journeys |
 | `crossing` | `screens` | a street crossing **only** |
 | `skyline` | — | a city |
+| `dashboard` | `tiles: [[label, value] ×≤4], chart?` | measurement / reporting panel; figures count up, a line draws |
+| `hub` | `items: [≤6], label?` | scattered tools plugging into one platform |
+| `exchange` | `left, mid, right: [≤3]` | programmatic marketplace: supply → platform → demand |
+| `auction` | `bids: [≤4]` | real-time bidding on one play; highest wins the screen |
+| `segments` | `groups: [≤4], pick?` | a crowd sorting into audience groups; target locks |
+| `catalog` | `items: [≤6], filter?, keep?, book?` | inventory storefront: filter, book |
+| `attribution` | `steps: [exposure, visit]` | person passes a screen, later visits the store; link drawn back |
+| `store` | `entrance?, checkout?` | retail media: screens at entrance and checkout |
+| `flows` | `counter, label?` | mobility data: trails through streets past screens |
+| `cms` | `venues: [≤4], label?` | content playlist pushed to venue screens |
+| `trigger` | `signal: rain/temp/score, signalLabel?, from?, to?, at?` | live signal swaps the creative |
 
 Most items take `at: [t, ...]` cue times; without them they stagger automatically.
 
