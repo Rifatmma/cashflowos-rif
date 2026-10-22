@@ -104,6 +104,7 @@ const AUD: { id: Audience; label: string; note: string }[] = [
   { id: 'agencies', label: 'Agencies', note: 'Their clients, their revenue' },
   { id: 'brands', label: 'Brands', note: 'Reach and results in new markets' },
   { id: 'media-owners', label: 'Media owners', note: 'Filling and proving inventory' },
+  { id: 'mixed', label: 'Mixed audience', note: 'Everyone in out-of-home — general terms' },
 ]
 
 /** One scene's photo, as it is being found, cut and checked. */
@@ -702,7 +703,7 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
       {res && (
         <section>
           <h3>Who is it for?</h3>
-          <div className="mw-studio-choice mw-bf-3">
+          <div className="mw-studio-choice mw-bf-4">
             {AUD.map(a => (
               <button key={a.id} type="button" onClick={() => { setAudience(a.id); setPlan(null); setVoice(null) }}
                 aria-current={audience === a.id ? 'true' : undefined}>

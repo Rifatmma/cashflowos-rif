@@ -24,6 +24,7 @@ const AUDIENCE: Record<Audience, string> = {
   agencies: 'media and creative agencies — speak to what it means for their clients and their revenue',
   brands: 'brand marketers — speak to reach, trust and results in new markets',
   'media-owners': 'media owners — speak to filling inventory and proving it to buyers',
+  mixed: 'a mixed audience — brands, agencies and media owners at once. Speak in general terms about what out-of-home and Moving Walls do for anyone who plans, buys or sells it; follow the article\'s own framing. Do not single out one group: no "your clients", "your inventory" or "your brand" — say "advertisers", "campaigns", "screens", "the industry", or "you" meaning anyone in out-of-home',
 }
 
 // What past video audits caught, as rules (generated from the mw-video-audit skill's lessons.md).

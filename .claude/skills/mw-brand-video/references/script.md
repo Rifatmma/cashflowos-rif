@@ -4,7 +4,7 @@ The video is **VO-led**: Ava's lines carry the story, the visuals land on her wo
 
 ## Shape (≈ 30–40s, 7–8 lines, 65–90 words)
 1. **Hook** — the shift in the market, in ≤6 words. ("Chinese brands are going global." / "Tokyo never stands still.")
-2. **Who it matters to** — name the audience's stake. (agencies, brands, media owners)
+2. **Who it matters to** — name the audience's stake. (agencies, brands, media owners — or, for a mixed audience, the stake everyone in out-of-home shares)
 3–4. **Tension** — the concrete problem from the article, in its own vocabulary (fragmented reports, buying rules by city, time-slot buying…).
 5. **The turn** — "Moving Walls gives you…" / "With Moving Walls…" — one platform / one network / one standard.
 6. **Rhythm line** — a list Ava can say on the beat: verbs (Plan, run, measure) or places (Singapore, Sydney or Dubai). This becomes the `burst` scene.
@@ -18,7 +18,8 @@ The video is **VO-led**: Ava's lines carry the story, the visuals land on her wo
 - Short sentences. Ava's pace at `+6%` is ≈ 2.6 words/sec; a line over ~16 words gets rushed.
 
 ## Audience framing
-Ask who the video speaks to (agencies / brands / media owners) — it changes line 2 and the close. Default to the article's own audience.
+Ask who the video speaks to (agencies / brands / media owners / mixed) — it changes line 2 and the close. Default to the article's own audience.
+- **Mixed** — for articles written to the whole industry rather than one group. Speak in general terms about what out-of-home and Moving Walls do for anyone who plans, buys or sells it. Don't single out one group: no "your clients", "your inventory" or "your brand"; say "advertisers", "campaigns", "screens", "the industry", or "you" meaning anyone in out-of-home.
 
 ## Second-language supers
 Translate meaning, not words; prefer terms the brand already uses in that language (for Chinese: 出海, 一张网络, 户外广告). Keep brand names in Latin script ("Moving Walls", "Calvin Klein"). Always flag supers for native-speaker review.

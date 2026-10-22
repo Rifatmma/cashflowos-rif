@@ -27,7 +27,7 @@ Save the article text as `source.txt` in the project folder — the audit checks
 ### 2. Ask before spending credit
 Settle these with the user in one round of questions (skip any they already answered):
 - **Format(s)** — 9:16, 16:9, 1:1, 4:5. Render only what they pick; each format is a full render.
-- **Audience** — who the video speaks to (agencies / brands / media owners).
+- **Audience** — who the video speaks to (agencies / brands / media owners / mixed — everyone in out-of-home, in general terms).
 - **Language** — English only, or English VO + subtitles in another language.
 - **Look** — *Infographic* (brand illustrations and data visuals only) or *Infographic + photos* (2–4 scenes swap their illustration for a black-and-white cut-out photo; see `references/spec.md` → Cut-out photos). Default to Infographic.
 - Anything the article leaves open (which stat to feature, length cap).

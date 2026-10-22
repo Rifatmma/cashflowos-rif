@@ -25,7 +25,8 @@ export const FILM_FORMATS: Record<FilmFormat, { w: number; h: number; label: str
   '169': { w: 1920, h: 1080, label: '16:9', use: 'YouTube, website, presentations' },
 }
 
-export type Audience = 'agencies' | 'brands' | 'media-owners'
+/** `mixed`: articles written for everyone in out-of-home at once — generic terms, no one group singled out. */
+export type Audience = 'agencies' | 'brands' | 'media-owners' | 'mixed'
 export type SubLang = 'none' | 'zh'
 
 /** Backgrounds the engine knows. */
