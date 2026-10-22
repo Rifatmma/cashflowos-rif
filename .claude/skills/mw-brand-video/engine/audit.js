@@ -50,7 +50,8 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
             const out = Math.max(SA.x - q.l, q.r - (SA.x + SA.w), SA.y - q.t, q.b - (SA.y + SA.h));
             if (out > 6 * k) add('unsafe', label, t, q.s, `${Math.round(out)}px outside the safe area${H > W * 1.5 ? ' (platform buttons / captions cover it on Reels, TikTok, Shorts)' : ''}`);
           }
-          if (q.size > 0 && q.size < 20 * k && q.s.length > 1) add('tiny', label, t, q.s, `${Math.round(q.size)}px text — hard to read on a phone`);
+          // size, like overlap, is judged once things have settled (pop-ins scale up from 0)
+          if (t + step >= sc.b - 0.3 && q.size > 0 && q.size < 20 * k && q.s.length > 1) add('tiny', label, t, q.s, `${Math.round(q.size)}px text — hard to read on a phone`);
         }
         // Overlaps are judged on the settled frame only: mid-animation (a
         // number's digits rolling past each other) is motion, not layout.

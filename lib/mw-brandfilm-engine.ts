@@ -1108,6 +1108,136 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.restore();
       x.restore();
     },
+    // ---------- batch 2 ----------
+    // attention: a passer-by stops at the screen and a timer ring fills
+    dwell(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 760);
+      x.fillStyle = soft(dark); x.fillRect(0, 660, 1000, 12);
+      x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(790, 430, 24, 230);
+      const sp = oBack(P(u, .05, .4), 1.5); x.save(); x.translate(802, 300); x.scale(sp, sp); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-170, -150, 340, 280, 20); x.fill();
+      x.fillStyle = accGrad(-150, 150); x.beginPath(); x.roundRect(-152, -132, 304, 244, 12); x.fill(); shape('wave_solid', -70, -36, 140, C.navy); x.restore();
+      const walk = oCub(P(u, .2, 1.1)), px = lerp(-60, 470, walk), bob = walk < 1 ? Math.abs(Math.sin(u * 9)) * 8 : 0;
+      person(px, 600 - bob, 150, dark ? C.sky : C.blue);
+      const fill = P(u, 1.1, 2.4), cx = 330, cy = 250, R = 120;
+      if (u > 1.0) { x.globalAlpha = P(u, 1.0, 1.2); x.strokeStyle = soft(dark); x.lineWidth = 26; x.beginPath(); x.arc(cx, cy, R, 0, 7); x.stroke();
+        x.strokeStyle = C.sun1; x.lineCap = 'round'; x.beginPath(); x.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill); x.stroke();
+        const val = String(ev.value || '6s'); fitFont(val, 800, 84, 190); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(countUp(val, fill), cx, cy + 28); x.globalAlpha = 1; }
+      if (ev.label) { fitFont(ev.label, 700, 42, 560); x.textAlign = 'left'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 2.0, 2.3); x.fillText(ev.label, 0, 740); x.globalAlpha = 1; }
+      x.restore();
+    },
+    // planning: audience chips and a budget set the plan; screens on the map select themselves; reach updates
+    planner(u, r, dark, ev) {
+      const chips = (ev.chips && ev.chips.length ? ev.chips : ['Commuters', '25–44', 'Weekdays']).slice(0, 3);
+      x.save(); fit(r, 1000, 860);
+      chips.forEach((c, i) => { const t0 = cue(ev, i, .3, .15), p = oBack(P(u, t0, t0 + .35), 1.8); if (p <= 0) return; fitFont(String(c), 700, 38, 280); const w = Math.min(310, x.measureText(String(c)).width + 60);
+        let cx0 = 0; for (let k = 0; k < i; k++) { fitFont(String(chips[k]), 700, 38, 280); cx0 += Math.min(310, x.measureText(String(chips[k])).width + 60) + 16; }
+        fitFont(String(c), 700, 38, 280);
+        x.save(); x.translate(cx0 + w / 2, 40); x.scale(p, p); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-w / 2, -36, w, 72, 36); x.fill(); x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText(String(c), 0, 13); x.restore(); });
+      // map
+      x.fillStyle = dark ? 'rgba(10,12,30,.4)' : 'rgba(255,255,255,.8)'; x.beginPath(); x.roundRect(0, 110, 640, 560, 22); x.fill();
+      x.strokeStyle = soft(dark); x.lineWidth = 6; for (let k = 1; k < 5; k++) { x.beginPath(); x.moveTo(k * 128, 120); x.lineTo(k * 128 - 40, 660); x.stroke(); x.beginPath(); x.moveTo(10, 110 + k * 112); x.lineTo(630, 130 + k * 112); x.stroke(); }
+      const rr = rnd(31), sel = P(u, 1.3, 2.2);
+      for (let k = 0; k < 18; k++) { const sx = 40 + rr() * 560, sy = 150 + rr() * 480, chosen = rr() < .45, on = chosen && sel * 18 > k;
+        x.fillStyle = on ? C.sun1 : (dark ? 'rgba(191,231,251,.45)' : 'rgba(43,60,146,.35)'); x.beginPath(); x.roundRect(sx - 14, sy - 10, 28, 20, 4); x.fill(); if (on) { x.strokeStyle = C.sun1; x.lineWidth = 4; x.beginPath(); x.arc(sx, sy, 22 + 6 * Math.sin(u * 4 + k), 0, 7); x.stroke(); } }
+      // budget slider and reach
+      fitFont(ev.budgetLabel || 'Budget', 600, 34, 300); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(ev.budgetLabel || 'Budget', 690, 160);
+      const bp = oCub(P(u, .9, 1.4)); x.fillStyle = soft(dark); x.beginPath(); x.roundRect(690, 190, 300, 18, 9); x.fill(); x.fillStyle = dark ? C.sky : C.blue; x.beginPath(); x.roundRect(690, 190, 300 * .7 * bp, 18, 9); x.fill(); x.fillStyle = C.sun1; x.beginPath(); x.arc(690 + 300 * .7 * bp, 199, 22, 0, 7); x.fill();
+      fitFont(String(ev.budget || '$20,000'), 800, 54, 300); x.fillStyle = fg(dark); x.fillText(countUp(String(ev.budget || '$20,000'), bp), 690, 290);
+      x.globalAlpha = P(u, 1.6, 1.9); fitFont(ev.reachLabel || 'Est. reach', 600, 34, 300); x.fillText(ev.reachLabel || 'Est. reach', 690, 450);
+      fitFont(String(ev.reach || '1.2M'), 800, 96, 300); x.fillStyle = accentText(dark); x.fillText(countUp(String(ev.reach || '1.2M'), P(u, 1.6, 2.6)), 690, 560); x.globalAlpha = 1;
+      x.restore();
+    },
+    // brand lift: exposed vs control, the exposed group's bar climbs higher
+    lift(u, r, dark, ev) {
+      const a = +ev.exposed || 42, b = +ev.control || 30, mx = Math.max(a, b) * 1.15;
+      x.save(); fit(r, 1000, 800);
+      [[ev.controlLabel || 'Not exposed', b, 200, false], [ev.exposedLabel || 'Saw the campaign', a, 650, true]].forEach(([lab, v, cx, hi], i) => {
+        const t0 = .2 + i * .4, p = oExpo(P(u, t0 + .3, t0 + 1.1)), h = 460 * v / mx * p;
+        for (let k = 0; k < 4; k++) person(cx - 105 + k * 70, 120, 60, hi ? C.sun1 : (dark ? C.sky : C.blue));
+        x.fillStyle = hi ? accGrad(cx - 110, cx + 110) : (dark ? 'rgba(102,201,243,.55)' : C.pale); x.beginPath(); x.roundRect(cx - 110, 690 - h, 220, h, [16, 16, 0, 0]); x.fill();
+        fitFont(String(Math.round(v * p)) + '%', 800, 64, 210); x.textAlign = 'center'; x.fillStyle = hi ? C.navy : fg(dark); if (h > 90) x.fillText(String(Math.round(v * p)) + '%', cx, 690 - h + 76);
+        fitFont(String(lab), 700, 38, 330); x.fillStyle = fg(dark); x.globalAlpha = P(u, t0, t0 + .3); x.fillText(String(lab), cx, 760); x.globalAlpha = 1;
+      });
+      const up = oBack(P(u, 1.6, 2.0), 1.8); if (up > 0) { const d = ev.display || `+${Math.round((a - b) / b * 100)}%`;
+        x.save(); x.translate(430, 300); x.scale(up, up); x.strokeStyle = C.sun1; x.lineWidth = 12; x.lineCap = 'round'; x.beginPath(); x.moveTo(-60, 120); x.lineTo(60, -20); x.moveTo(10, -24); x.lineTo(60, -20); x.lineTo(56, 30); x.stroke();
+        fitFont(d, 800, 60, 200); x.textAlign = 'center'; x.fillStyle = accentText(dark); x.fillText(d, 0, -60); x.restore(); }
+      x.restore();
+    },
+    // yield: a week of slots with gaps; the gaps fill programmatically and the revenue bar grows
+    yield(u, r, dark, ev) {
+      x.save(); fit(r, 1000, 820);
+      const days = ev.days || ['M', 'T', 'W', 'T', 'F', 'S', 'S'], rows = 5, cw = 1000 / 7, ch = 96, rr = rnd(5), gaps = [];
+      days.forEach((d, c) => { fitFont(String(d), 700, 36, cw - 10); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = .8; x.fillText(String(d), c * cw + cw / 2, 40); x.globalAlpha = 1; });
+      for (let c = 0; c < 7; c++) for (let k = 0; k < rows; k++) { const booked = rr() < .55; if (!booked) gaps.push([c, k]); const p = P(u, .1 + (c + k) * .03, .4 + (c + k) * .03);
+        x.globalAlpha = p; x.fillStyle = booked ? (dark ? C.blue : C.sky) : 'transparent'; x.strokeStyle = soft(dark); x.lineWidth = 4; x.beginPath(); x.roundRect(c * cw + 8, 70 + k * ch, cw - 16, ch - 14, 10); booked ? x.fill() : x.stroke(); x.globalAlpha = 1; }
+      gaps.forEach(([c, k], i) => { const t0 = 1.0 + i * (1.2 / gaps.length), p = oBack(P(u, t0, t0 + .3), 2); if (p <= 0) return; x.save(); x.translate(c * cw + cw / 2, 70 + k * ch + (ch - 14) / 2); x.scale(p, p); x.fillStyle = accGrad(-cw / 2, cw / 2); x.beginPath(); x.roundRect(-(cw - 16) / 2, -(ch - 14) / 2, cw - 16, ch - 14, 10); x.fill(); x.restore(); });
+      const rp = oCub(P(u, 1.0, 2.3)); fitFont(ev.label || 'Revenue', 700, 38, 300); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(ev.label || 'Revenue', 0, 640);
+      x.fillStyle = soft(dark); x.beginPath(); x.roundRect(0, 670, 1000, 70, 35); x.fill(); x.fillStyle = dark ? C.sky : C.blue; x.beginPath(); x.roundRect(0, 670, 1000 * (.55 + .45 * rp), 70, 35); x.fill();
+      if (ev.value) { fitFont(String(ev.value), 800, 50, 300); x.textAlign = 'right'; x.fillStyle = C.navy; x.fillText(countUp(String(ev.value), rp), 1000 * (.55 + .45 * rp) - 30, 722); }
+      x.restore();
+    },
+    // proof of play: the ad plays, a log stamps each play, a Verified seal lands
+    proof(u, r, dark, ev) {
+      const rows = (ev.rows && ev.rows.length ? ev.rows : ['08:00:15', '08:05:15', '08:10:15', '08:15:15']).slice(0, 5);
+      x.save(); fit(r, 1000, 760);
+      const sp = oBack(P(u, .05, .4), 1.5); x.save(); x.translate(230, 300); x.scale(sp, sp); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-210, -180, 420, 300, 20); x.fill();
+      x.fillStyle = C.blue; x.beginPath(); x.roundRect(-190, -160, 380, 260, 12); x.fill(); x.fillStyle = accGrad(-190, 190); x.fillRect(-190, 92, 380 * ((u * .5) % 1), 8); shape('wave_solid', -80, -60, 160, C.white); x.restore();
+      x.fillStyle = dark ? '#3A4170' : '#B8C6D8'; x.fillRect(218, 420, 24, 220);
+      rows.forEach((row, i) => { const t0 = cue(ev, i, .32, .5), p = oExpo(P(u, t0, t0 + .3)); if (p <= 0) return; const y = 110 + i * 110;
+        x.globalAlpha = p; x.fillStyle = dark ? '#262C52' : C.white; x.beginPath(); x.roundRect(520 + (1 - p) * 40, y - 50, 480, 84, 14); x.fill();
+        fitFont(String(row), 700, 40, 300); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(String(row), 560, y + 6);
+        x.strokeStyle = C.sun1; x.lineWidth = 10; x.lineCap = 'round'; x.beginPath(); x.moveTo(920, y - 8); x.lineTo(936, y + 8); x.lineTo(962, y - 22); x.stroke(); x.globalAlpha = 1; });
+      const seal = oBack(P(u, .5 + rows.length * .32 + .2, .5 + rows.length * .32 + .6), 2.2);
+      if (seal > 0) { x.save(); x.translate(230, 640); x.rotate(-.12); x.scale(seal, seal); x.fillStyle = accGrad(-170, 170); x.beginPath(); x.roundRect(-170, -50, 340, 100, 50); x.fill(); fitFont(ev.label || 'VERIFIED', 800, 48, 290); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(ev.label || 'VERIFIED', 0, 17); x.restore(); }
+      x.restore();
+    },
+    // forecast to actual: a dashed forecast runs ahead, the actual line draws in and meets it
+    forecast(u, r, dark, ev) {
+      const f = ev.forecast || [3, 4, 5, 5.6, 6.5, 7.2, 8], a = ev.actual || [3.1, 4.2, 4.8, 5.8, 6.4, 7.4, 8.1], n = f.length;
+      const lo = Math.min(...f, ...a), hi = Math.max(...f, ...a), span = (hi - lo) || 1;   // the range, not from zero: the story is the gap
+      x.save(); fit(r, 1000, 760);
+      x.strokeStyle = soft(dark); x.lineWidth = 3; for (let k = 0; k < 4; k++) { x.beginPath(); x.moveTo(0, 120 + k * 160); x.lineTo(1000, 120 + k * 160); x.stroke(); }
+      const pt = (v, i) => [40 + i * 920 / (n - 1), 580 - 430 * (v - lo) / span];
+      const draw = (vals, p, col, dash, w) => { x.strokeStyle = col; x.lineWidth = w; x.setLineDash(dash); x.lineJoin = 'round'; x.lineCap = 'round'; x.beginPath(); const k = p * (n - 1); vals.forEach((v, i) => { if (i > Math.ceil(k)) return; const q = i > k ? pt(vals[i - 1], i - 1).map((c, j) => lerp(c, pt(v, i)[j], k - (i - 1))) : pt(v, i); i ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); }); x.stroke(); x.setLineDash([]); };
+      draw(f, oCub(P(u, .1, 1.0)), dark ? 'rgba(191,231,251,.7)' : 'rgba(43,60,146,.5)', [22, 16], 8);
+      draw(a, oCub(P(u, 1.0, 2.2)), C.sun1, [], 12);
+      x.textAlign = 'left'; x.fillStyle = fg(dark); fitFont(ev.forecastLabel || 'Forecast', 700, 38, 300); x.globalAlpha = P(u, .5, .8); x.fillText(ev.forecastLabel || 'Forecast', 40, 690);
+      x.fillStyle = accentText(dark); fitFont(ev.actualLabel || 'Delivered', 700, 38, 300); x.globalAlpha = P(u, 1.4, 1.7); x.fillText(ev.actualLabel || 'Delivered', 420, 690); x.globalAlpha = 1;
+      if (ev.label) { const p = oBack(P(u, 2.2, 2.5), 2); if (p > 0) { x.save(); x.translate(800, 690); x.scale(p, p); fitFont(ev.label, 800, 44, 380); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.label, 0, 0); x.restore(); } }
+      x.restore();
+    },
+    // dynamic creative: one template, versions fan out to screens with the local line swapped in
+    dco(u, r, dark, ev) {
+      const vs = (ev.versions && ev.versions.length ? ev.versions : ['Good morning, KL', 'Lunch in Bangsar?', 'Rain? Grab a coffee']).slice(0, 3), n = vs.length;
+      x.save(); fit(r, 1000, 820);
+      const tp = oBack(P(u, .05, .4), 1.5); x.save(); x.translate(500, 150); x.scale(tp, tp); x.setLineDash([16, 12]); x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 5; x.beginPath(); x.roundRect(-200, -110, 400, 220, 18); x.stroke(); x.setLineDash([]);
+      shape('wave_solid', -150, -60, 90, dark ? C.sky : C.blue); fitFont(ev.slot || '{ headline }', 700, 38, 340); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.slot || '{ headline }', 30, 60); x.restore();
+      vs.forEach((v, i) => { const t0 = cue(ev, i, .35, .6), p = oExpo(P(u, t0, t0 + .5)), tx = 500 + (i - (n - 1) / 2) * 330, ty = 600;
+        x.strokeStyle = soft(dark); x.lineWidth = 6; x.beginPath(); x.moveTo(500, 262); x.lineTo(lerp(500, tx, p), lerp(262, ty - 130, p)); x.stroke();
+        if (p <= 0) return; x.save(); x.translate(lerp(500, tx, p), lerp(262, ty, p)); x.scale(.6 + .4 * p, .6 + .4 * p);
+        x.fillStyle = i === n - 1 ? accGrad(-150, 150) : (dark ? C.white : C.navy); x.beginPath(); x.roundRect(-150, -120, 300, 220, 16); x.fill();
+        x.textAlign = 'center'; x.fillStyle = i === n - 1 || dark ? C.navy : C.white; const words = String(v).split(' '), half = Math.ceil(words.length / 2), l1 = words.slice(0, half).join(' '), l2 = words.slice(half).join(' ');
+        fitFont(l1, 800, 40, 260); x.fillText(l1, 0, l2 ? -10 : 10); if (l2) { fitFont(l2, 800, 40, 260); x.fillText(l2, 0, 40); }
+        x.restore(); });
+      x.restore();
+    },
+    // a festival: the calendar flips to the date, the motif blooms, demand climbs
+    festive(u, r, dark, ev) {
+      const fest = { diwali: 'diya', ramadan: 'crescent', raya: 'crescent', lunar: 'lantern', cny: 'lantern', christmas: 'gift', sale: 'sale' }[ev.festival || 'diwali'] || 'star';
+      x.save(); fit(r, 1000, 800);
+      const fp = oCub(P(u, .1, .7)), bl = oBack(P(u, .7, 1.2), 1.8);
+      if (bl > 0) { x.save(); x.translate(240, 300); x.globalAlpha = .25 * clamp(bl); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 250 * bl + 10 * Math.sin(u * 4), 0, 7); x.fill(); x.restore(); }
+      x.save(); x.translate(240, 300);
+      x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-200, -200, 400, 400, 28); x.fill(); x.fillStyle = accGrad(-200, 200); x.beginPath(); x.roundRect(-200, -200, 400, 100, [28, 28, 0, 0]); x.fill();
+      fitFont(String(ev.month || 'NOV'), 800, 54, 340); x.textAlign = 'center'; x.fillStyle = C.navy; x.fillText(String(ev.month || 'NOV'), 0, -132);
+      x.save(); x.scale(1, Math.abs(Math.cos(fp * Math.PI))); fitFont(String(fp < .5 ? (ev.before || '1') : (ev.day || '8')), 800, 200, 340); x.fillStyle = dark ? C.navy : C.white; x.fillText(String(fp < .5 ? (ev.before || '1') : (ev.day || '8')), 0, 110); x.restore(); x.restore();
+      ICON[fest]?.(240, 640, 1.3 * clamp(bl, 0, 1.2), dark);
+      const vals = ev.values || [3, 3.2, 3.4, 4, 5.5, 8, 9.5], n = vals.length, mx = Math.max(...vals);
+      vals.forEach((v, i) => { const p = oExpo(P(u, 1.0 + i * .1, 1.5 + i * .1)), h = 520 * v / mx * p, bx = 540 + i * (460 / n);
+        x.fillStyle = i >= n - 2 ? accGrad(bx, bx + 40) : (dark ? 'rgba(102,201,243,.55)' : C.pale); x.beginPath(); x.roundRect(bx, 700 - h, 460 / n - 14, h, [10, 10, 0, 0]); x.fill(); });
+      if (ev.label) { fitFont(ev.label, 700, 40, 460); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, 1.8, 2.1); x.fillText(ev.label, 770, 770); x.globalAlpha = 1; }
+      x.restore();
+    },
     // a cut-out photo (phase 2) — until one is supplied, the scene's
     // fallback illustration draws instead (see KIND.panel)
   });

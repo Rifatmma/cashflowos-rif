@@ -111,6 +111,14 @@ Pick the one that shows **this line's** idea most specifically. A number about p
 | `flows` | `counter, label?` | mobility data: trails through streets past screens |
 | `cms` | `venues: [≤4], label?` | content playlist pushed to venue screens |
 | `trigger` | `signal: rain/temp/score, signalLabel?, from?, to?, at?` | live signal swaps the creative |
+| `dwell` | `value, label?` | attention / dwell time: a passer-by stops, a timer ring fills |
+| `planner` | `chips: [≤3], budget?, reach?` | plan by audience and budget; screens select on a map |
+| `lift` | `exposed, control (%), display?` | brand lift: exposed vs control bars, uplift arrow |
+| `yield` | `value?, label?` | a week of slots; gaps fill, revenue grows |
+| `proof` | `rows: [≤5], label?` | proof of play: log entries tick, Verified seal |
+| `forecast` | `forecast: [...], actual: [...], label?` | forecast line, delivered line meets it |
+| `dco` | `versions: [≤3], slot?` | one template, localised versions to three screens |
+| `festive` | `festival, month, day, values?, label?` | calendar flips to the festival, motif blooms, demand climbs |
 
 Most items take `at: [t, ...]` cue times; without them they stagger automatically.
 

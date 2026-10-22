@@ -40,6 +40,8 @@ export const ARTS = [
   // batch 1 (blog scan, Oct 2026)
   'dashboard', 'hub', 'exchange', 'auction', 'segments', 'catalog', 'attribution', 'store', 'flows', 'cms', 'trigger',
   'icons',
+  // batch 2
+  'dwell', 'planner', 'lift', 'yield', 'proof', 'forecast', 'dco', 'festive',
 ] as const
 
 /** The engine's icon library (formats tiles, the icons grid). Kept in step with ICON in core.js. */
@@ -460,6 +462,12 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
     if (art === 'attribution' && Array.isArray(ev.steps)) ev.steps = ev.steps.slice(0, 2).map((q: any) => str(q, 22))
     if (art === 'cms' && Array.isArray(ev.venues)) ev.venues = ev.venues.slice(0, 4).map((q: any) => str(q, 12))
     if (art === 'trigger') for (const k of ['from', 'to', 'signalLabel']) if (ev[k]) ev[k] = str(ev[k], 22)
+    if (art === 'planner' && Array.isArray(ev.chips)) ev.chips = ev.chips.slice(0, 3).map((q: any) => str(q, 14))
+    if (art === 'lift') { ev.exposed = Math.max(1, Math.min(100, +ev.exposed || 0)) || undefined; ev.control = Math.max(1, Math.min(100, +ev.control || 0)) || undefined }
+    if (art === 'proof' && Array.isArray(ev.rows)) ev.rows = ev.rows.slice(0, 5).map((q: any) => str(q, 14))
+    if (art === 'forecast') for (const k of ['forecast', 'actual']) if (ev[k]) ev[k] = Array.isArray(ev[k]) && ev[k].length >= 3 && ev[k].every((v: any) => Number.isFinite(+v)) ? ev[k].slice(0, 10).map(Number) : undefined
+    if (art === 'dco' && Array.isArray(ev.versions)) ev.versions = ev.versions.slice(0, 3).map((q: any) => str(q, 24))
+    if (art === 'festive' && !['diwali', 'ramadan', 'raya', 'lunar', 'cny', 'christmas', 'sale'].includes(ev.festival)) ev.festival = 'sale'
     if (art === 'flows' && ev.counter) ev.counter = String(ev.counter).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({

@@ -134,6 +134,17 @@ scene using "from"):
   cms      {"venues":["Hotel","Restaurant","Clinic","School"]}  content scheduling, playlists, signage CMS.
   trigger  {"signal":"rain"|"temp"|"score","signalLabel":"Rain starts","to":"UMBRELLAS 20% OFF"}  real-time,
            data-triggered creative (weather, temperature, live sport).
+  dwell    {"value":"45 min","label":"average dwell at the gate"}  attention / dwell time (value from the article).
+  planner  {"chips":["Commuters","25–44","Weekdays"],"budget":"$20,000","reach":"1.2M"}  planning by audience
+           and budget; screens auto-select (figures only if the article has them; else omit budget/reach).
+  lift     {"exposed":42,"control":30,"display":"+40%"}  brand lift / incrementality, exposed vs control (sourced %).
+  yield    {"value":"+38%","label":"Revenue"}  filling unsold slots, yield and rate cards (media owners).
+  proof    {"rows":["08:00:15","08:05:15","08:10:15"],"label":"VERIFIED"}  proof of play, delivery verification.
+  forecast {"forecast":[…],"actual":[…],"label":"98% delivered"}  forecast vs delivered audiences.
+  dco      {"versions":["Good morning, KL","Lunch in Bangsar?","Rain? Grab a coffee"]}  dynamic creative:
+           one template, versions per place / time / weather.
+  festive  {"festival":"diwali"|"ramadan"|"raya"|"lunar"|"cny"|"christmas"|"sale","month":"NOV","day":"8",
+           "label":"Searches peak"}  a festival or season driving demand.
 VARIETY: pick the illustration that shows THIS line's idea most specifically — a number about
 people is "people" or "compare", not a street. Use each illustration at most once per video.
 ${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}
