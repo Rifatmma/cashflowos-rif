@@ -67,3 +67,44 @@ gap count to Rif before drawing. Draw in core.js `Object.assign(ART, {...})`: fi
 `fit()`, `C.*` colours + `accGrad()`, `fitFont`/`wrapFit` for text, animated by `u`, cue times via
 `cue(ev, i)`. Add each to `ARTS`, `sanitizePlan`'s `need` map, the writer prompts' art menu, and the
 spec.md table. Audit every new art in all four formats with the stress project.
+
+#### Blog scan result (290 articles, titles + h2/h3, keyword-tagged, counts ±20%)
+72 distinct visual ideas; 25 covered by existing arts; 47 gaps → 28 new illustrations + 15 icon-level needs.
+
+| name | shows / animation | #articles |
+|---|---|---|
+| dashboard | measurement panel builds tile by tile (impressions, reach, frequency, CPM), line chart draws | 66 |
+| hub | scattered tools/spreadsheets plug into one central OS layer | 53 |
+| exchange | media-owner screens → platform → buyers/DSPs; booking flows in, money back | 51 |
+| segments | crowd sorts into labelled audience clusters; targeting ring locks one | 38 |
+| catalog | grid of screen cards with tags; filters narrow; one to cart | 34 |
+| attribution | person passes screen (exposure), later reaches store pin, visit linked back | 32 |
+| store | mall/store aisle screens at entrance and checkout; shopper to till | 31 |
+| flows | device-dot trails stream through streets past screens; counter | 26 |
+| cms | content playlist drags onto schedule, pushes to venue screens | 26 |
+| trigger | live signal (rain, temperature, score) swaps the creative | 23 |
+| dwell | person stops at screen; stopwatch ring fills (attention / dwell) | 21 |
+| planner | map + audience chips + budget slider; screens auto-select, reach updates | 19 |
+| lift | exposed vs control; uplift arrow +x% | 18 |
+| yield | slot calendar with gaps fills programmatically; prices rise | 17 |
+| proof | ad plays; log stamps proof-of-play; Verified badge | 15 |
+| forecast | dashed forecast line, actual line meets it | 14 |
+| format-scene | street with one named format highlighted (bus shelter, LED truck, overhead bridge, facade, unipole) | 13 |
+| ai | signals into a core, decisions out to screens | 13 |
+| auction | bids tick up for one slot, winner drops on screen | 12 |
+| dco | one template fans into 3 localised versions | 12 |
+| festive | calendar flips to festival, motif blooms, demand spikes | 12 |
+| radius | store pin, ring expands, screens inside light up | 11 |
+| carbon | CO2 cloud measured then shrinks; leaf gauge | 10 |
+| shield | identity dots anonymise behind shield; compliance badge | 10 |
+| interactive | phone post flies to big screen; touch screen reacts | 9 |
+| multiplier | one play × passers-by = impressions | 7 |
+| stadium | live moment fires, city screens react | 5 |
+| loop | plan → run → measure → optimise cycle | 5 |
+
+Icons (inside formats/checklist/lines/compare): trust/lock 24, survey clipboard 20, pitch deck ~31 (label),
+festival motifs 12, price tag 9, brand categories ~10, venues (hotel, restaurant, hospital, school) 7,
+handshake 7, cart 6, indoor formats (cinema, escalator, kiosk, elevator) ~5, weather, trophy, QR, IoT
+sensor, 3D cube, card/coin. Suggested order: batch 1 = dashboard, hub, exchange(+auction), segments,
+catalog, attribution, store, flows, cms, trigger, plus the icon set; batch 2 = dwell, planner, lift,
+yield, proof, forecast, dco, festive; rest on demand. Rif's ask: at least 120 assets — confirm the mix.
