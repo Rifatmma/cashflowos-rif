@@ -37,7 +37,7 @@ else:
     if v.get('pix_fmt') != 'yuv420p': add('blocker', 'container', f"pixel format {v.get('pix_fmt')}", '4:2:0 (yuv420p) plays everywhere')
     if abs(fps - 30) > .01: add('should fix', 'container', f'{fps:.2f} fps', 'constant 30 fps')
     if fmt in SIZE and (v.get('width'), v.get('height')) != SIZE[fmt]: add('blocker', 'container', f"{v.get('width')}x{v.get('height')}, expected {SIZE[fmt][0]}x{SIZE[fmt][1]}", 'format size')
-    if facts['vbitrate_kbps'] and facts['vbitrate_kbps'] < 4000: add('nice to have', 'container', f"video bitrate {facts['vbitrate_kbps']} kbps", '≈8 Mbps for 1080p30 (YouTube recommended)')
+    if facts['vbitrate_kbps'] and facts['vbitrate_kbps'] < 600: add('nice to have', 'container', f"video bitrate {facts['vbitrate_kbps']} kbps", 'flat graphics compress small; below ~600 kbps at 1080p artefacts start to show')
 if not a: add('blocker', 'container', 'no audio stream', 'AAC audio')
 else:
     facts.update(acodec=a.get('codec_name'), sample_rate=int(a.get('sample_rate', 0)), adur=float(a.get('duration', 0) or 0))

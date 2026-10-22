@@ -446,7 +446,7 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
     if (art === 'formats') ev.items = ev.items.slice(0, 4).map((it: any) => [(ICON_NAMES as readonly string[]).includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 16)])
     if (art === 'icons') ev.items = ev.items.slice(0, 6).map((it: any) => [(ICON_NAMES as readonly string[]).includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 14)])
     if (art === 'board') ev.rows = ev.rows.slice(0, 5).map((r: any) => str(r, 14).toUpperCase())
-    if (art === 'number') ev.value = String(ev.value).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
+    if (art === 'number') ev.value = String(ev.value).replace(/[^\d.,%+MKBmkb$–-]/g, '').slice(0, 8)
     if (art === 'compare') ev.items = ev.items.slice(0, 3).map((d: any) => ({ label: str(d.label, 30), value: +d.value, display: str(d.display ?? d.value, 10) }))
     if (art === 'people') { ev.total = Math.min(60, Math.max(4, Math.round(+ev.total))); ev.filled = Math.min(ev.total, Math.max(0, Math.round(+(ev.filled ?? ev.total * .6)))) }
     if (art === 'pins') ev.pins = ev.pins.slice(0, 5).map((q: any) => [Math.min(940, Math.max(60, +q?.[0] || 500)), Math.min(740, Math.max(120, +q?.[1] || 400)), str(q?.[2], 16).toUpperCase()])
@@ -474,8 +474,12 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
     if (art === 'formatscene' && !['shelter', 'truck', 'bridge', 'facade', 'unipole', 'bunting'].includes(ev.format)) ev.format = 'unipole'
     if (art === 'ai' && Array.isArray(ev.inputs)) ev.inputs = ev.inputs.slice(0, 4).map((q: any) => str(q, 14))
     if (art === 'loop' && Array.isArray(ev.steps)) ev.steps = ev.steps.slice(0, 5).map((q: any) => str(q, 12))
-    for (const k of ['label', 'from', 'to', 'plays', 'people', 'total', 'moment']) if (typeof ev[k] === 'string') ev[k] = str(ev[k], 30)
-    if (art === 'flows' && ev.counter) ev.counter = String(ev.counter).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
+    // Arts fit these to their width, so only stop runaway text — and never mid-word
+    // (a 30-char cut left "pay more attention to their su" on screen).
+    for (const k of ['label', 'from', 'to', 'plays', 'people', 'total', 'moment']) if (typeof ev[k] === 'string') {
+      const s = String(ev[k]).trim(); ev[k] = s.length <= 48 ? s : s.slice(0, 48).replace(/\s+\S*$/, '')
+    }
+    if (art === 'flows' && ev.counter) ev.counter = String(ev.counter).replace(/[^\d.,%+MKBmkb$–-]/g, '').slice(0, 8)
 
     const text = (Array.isArray(s?.text) ? s.text : []).slice(0, 5).map((t: any) => ({
       ...(Number.isFinite(+t?.scale) && +t.scale >= 0.5 && +t.scale <= 1 ? { scale: +t.scale } : {}),
