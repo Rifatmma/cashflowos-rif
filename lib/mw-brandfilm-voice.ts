@@ -15,8 +15,27 @@ import type { VoiceLine } from './mw-brandfilm'
 // anyway (to mix it under the music), and that decode gives the exact length
 // — so the duration here is only an estimate for the screen to show early.
 
-export const AVA = 'en-US-AvaMultilingualNeural'
+// The English-only en-US Ava. The Multilingual voice guesses the language phrase
+// by phrase, so a place or brand name (Diwali, AirAsia, Kuala Lumpur) could tip
+// a phrase into another accent mid-line.
+export const AVA = 'en-US-AvaNeural'
 const RATE = '+6%'
+
+// Acronyms are read letter by letter ("L M X", not "lemex"). The service then
+// times each letter as its own word (a plural rides on the last: C, P, Ms), so
+// those are folded back into the written acronym for the on-screen cues.
+const ACR = /\b([A-Z]{2,5})(s?)\b/g
+export const spoken = (t: string) => t.replace(ACR, (_, a: string, s: string) => a.split('').join(' ') + s)
+export function refold(text: string, words: [string, number][]): [string, number][] {
+  const out: [string, number][] = []
+  let i = 0
+  for (const m of text.matchAll(ACR)) {
+    const n = m[1].length
+    while (i < words.length && words.slice(i, i + n).map(w => w[0]).join('') !== m[0]) out.push(words[i++])
+    if (i < words.length) { out.push([m[0], words[i][1]]); i += n }
+  }
+  return out.concat(words.slice(i))
+}
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 export type SpokenLine = VoiceLine & { mp3: string }
@@ -25,7 +44,7 @@ async function speakOnce(text: string): Promise<SpokenLine> {
   const tts = new MsEdgeTTS()
   try {
     await tts.setMetadata(AVA, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, { wordBoundaryEnabled: true })
-    const { audioStream, metadataStream } = tts.toStream(text, { rate: RATE })
+    const { audioStream, metadataStream } = tts.toStream(spoken(text), { rate: RATE })
     const chunks: Buffer[] = []
     let meta = ''
     metadataStream?.on('data', (c: Buffer) => { meta += c.toString() })
@@ -45,7 +64,7 @@ async function speakOnce(text: string): Promise<SpokenLine> {
     }
     // 48 kbit/s constant bitrate, so the byte count is the length.
     const dur = +(audio.length * 8 / 48_000).toFixed(3)
-    return { text, dur, words, mp3: audio.toString('base64') }
+    return { text, dur, words: refold(text, words), mp3: audio.toString('base64') }
   } finally {
     try { tts.close() } catch { /* already closed */ }
   }

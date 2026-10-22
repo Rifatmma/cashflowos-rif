@@ -56,6 +56,16 @@ Copy `examples/kuala-lumpur/spec.js`, keep its structure, replace lines/sites. S
 If the user brings their own photos or clips of the sites (a drive-by, a night shot), add them as `media` scenes — full-frame or as a card — next to that site's card (`references/spec.md` → Your own photos and video clips).
 
 ### 6. Hand over
+Run the three audits and fix every blocker and should-fix before handing over (re-render, re-audit):
+```bash
+node $ENGINE/render.js ./videos/<slug> all audit                       # layout: off-frame, unsafe, overlap, contrast, size, timing → out/audit_<fmt>.json
+python3 <skill-dir>/scripts/audit_media.py out/<slug>_916.mp4 916      # the file: codec, loudness −14 LUFS, true peak, flashing, fast start
+python3 <skill-dir>/scripts/audit_voice.py ./videos/<slug>            # Ava: English-only en-US voice, accent, every word heard as written
+```
+The audits only see what they measure. Also look at every scene's settled frame yourself: figures exactly as in the article (ranges keep their dash), no cut-off words, numbered labels without gaps, icons visible on their tile, claims as strong as the source and no stronger.
+
+**Ava's accent.** Ava is always `en-US-AvaNeural`, the English-only voice — one consistent American accent. Never the Multilingual voice: it guesses the language phrase by phrase and slips into other accents on names like Diwali, AirAsia or Kuala Lumpur. `vo.py` enforces this and spells acronyms out (LMX → "L M X"). If `audit_voice.py` hears a name wrong, respell or reword the line (never the on-screen text).
+
 Send the MP4s and report: the sites used (with their numbers and source page), anything left out and why, every "format" and "near" that came from the photo or your own knowledge (for review), and the label decision (monthly).
 
 ## Keeping it consistent
