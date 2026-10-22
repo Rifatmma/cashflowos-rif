@@ -121,7 +121,7 @@ Every asset: audit in all four formats (render.js … audit) and a stills check 
 
 Progress:
 - [x] Batch 1 illustrations (11): dashboard, hub, exchange, auction, segments, catalog, attribution, store, flows, cms, trigger — audited in 4 formats (no off-frame / unsafe / overlap), registered in ARTS, sanitizePlan, writer menu, spec.md.
-- [ ] Icon set (~60)
+- [x] Icon set: 71 new line icons (76 with the 5 originals) + `icons` grid scene; `formats` accepts any icon; ICON_NAMES in lib/mw-brandfilm.ts; listed in spec.md.
 - [ ] Batch 2 (8)
 - [ ] Rest (9) + variants
 - [ ] Label wrapFit (A)

@@ -429,6 +429,106 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     road(cx, cy, s, dark) { x.save(); x.translate(cx, cy); x.scale(s, s); x.fillStyle = dark ? C.sky : C.blue; x.beginPath(); x.roundRect(-80, -70, 160, 80, 8); x.fill(); x.fillRect(-8, 10, 16, 60); shape('wave_solid', -36, -55, 72, C.white); x.restore(); },
   };
 
+  // ---------- brand line icons (blog scan, Oct 2026) ----------
+  // Drawn in a ±70 box with an 11-unit round stroke in the brand blue (sky on
+  // dark grounds); `hot` parts take the accent. Used by formats tiles, the
+  // `icons` grid and the checklist. Keep each to the one recognisable shape.
+  {
+    let ink = C.blue;
+    const L = (...p) => { x.beginPath(); p.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b))); x.stroke(); };
+    const Lc = (...p) => { x.beginPath(); p.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b))); x.closePath(); x.stroke(); };
+    const O = (a, b, r0, s = 0, e = 7) => { x.beginPath(); x.arc(a, b, r0, s, e); x.stroke(); };
+    const R = (a, b, w, h, rr = 10) => { x.beginPath(); x.roundRect(a, b, w, h, rr); x.stroke(); };
+    const F = (a, b, r0) => { x.beginPath(); x.arc(a, b, r0, 0, 7); x.fill(); };
+    const hot = f => { x.save(); x.strokeStyle = C.sun2; x.fillStyle = C.sun2; f(); x.restore(); };
+    const D = {
+      lock() { R(-45, -10, 90, 70, 14); O(0, -10, 32, Math.PI, 0); hot(() => F(0, 25, 9)); },
+      shield() { x.beginPath(); x.moveTo(0, -62); x.lineTo(50, -42); x.quadraticCurveTo(52, 30, 0, 62); x.quadraticCurveTo(-52, 30, -50, -42); x.closePath(); x.stroke(); hot(() => L([-20, 0], [-4, 16], [24, -14])); },
+      badge() { O(0, -10, 42); L([-24, 26], [-34, 64], [0, 48], [34, 64], [24, 26]); hot(() => L([-18, -10], [-4, 4], [20, -22])); },
+      eye() { x.beginPath(); x.moveTo(-64, 0); x.quadraticCurveTo(0, -60, 64, 0); x.quadraticCurveTo(0, 60, -64, 0); x.stroke(); hot(() => F(0, 0, 16)); },
+      clipboard() { R(-42, -50, 84, 112, 12); R(-20, -62, 40, 22, 8); L([-22, -6], [22, -6]); L([-22, 18], [22, 18]); hot(() => L([-22, 42], [8, 42])); },
+      bars() { L([-58, 58], [58, 58]); [[-40, 20], [-8, -10], [24, -40]].forEach(([a, h], i) => (i === 2 ? hot(() => L([a + 8, 46], [a + 8, h])) : L([a + 8, 46], [a + 8, h]))); },
+      linechart() { L([-58, -58], [-58, 58], [58, 58]); hot(() => L([-44, 30], [-12, 0], [10, 16], [50, -36])); },
+      pie() { O(0, 0, 54); L([0, 0], [0, -54]); L([0, 0], [46, 28]); hot(() => { x.beginPath(); x.moveTo(0, 0); x.arc(0, 0, 54, -Math.PI / 2, Math.PI / 6); x.closePath(); x.globalAlpha = .9; x.fill(); }); },
+      search() { O(-12, -12, 38); hot(() => L([16, 16], [54, 54])); },
+      target() { O(0, 0, 56); O(0, 0, 34); hot(() => F(0, 0, 13)); },
+      handshake() { L([-66, -10], [-36, -26], [-6, -12], [24, -26], [66, -10]); L([-48, 6], [-16, 34], [2, 22], [16, 40], [36, 22], [52, 6]); hot(() => L([-6, -12], [-26, 8])); },
+      briefcase() { R(-58, -26, 116, 82, 12); R(-22, -48, 44, 22, 8); hot(() => L([-58, 8], [58, 8])); },
+      presentation() { R(-60, -54, 120, 80, 8); L([0, 26], [0, 46]); L([-26, 64], [0, 46], [26, 64]); hot(() => L([-38, 6], [-14, -14], [6, 0], [36, -30])); },
+      coins() { x.beginPath(); x.ellipse(-6, 30, 46, 16, 0, 0, 7); x.stroke(); L([-52, 30], [-52, 6]); L([40, 30], [40, 6]); x.beginPath(); x.ellipse(-6, 6, 46, 16, 0, 0, 7); x.stroke(); hot(() => { x.beginPath(); x.ellipse(-6, -24, 46, 16, 0, 0, 7); x.stroke(); }); },
+      tag() { Lc([-60, -4], [-4, -60], [56, -60], [56, 0], [0, 56]); hot(() => F(30, -34, 9)); },
+      card() { R(-62, -40, 124, 80, 12); L([-62, -14], [62, -14]); hot(() => L([-42, 20], [-12, 20])); },
+      cart() { L([-66, -46], [-48, -46], [-32, 26], [44, 26], [56, -24], [-42, -24]); F(-22, 48, 10); F(36, 48, 10); hot(() => L([-20, -2], [40, -2])); },
+      bag() { R(-46, -24, 92, 84, 12); O(0, -24, 24, Math.PI, 0); hot(() => L([-20, 14], [20, 14])); },
+      receipt() { Lc([-40, -60], [40, -60], [40, 60], [26, 48], [12, 60], [0, 48], [-12, 60], [-26, 48], [-40, 60]); L([-22, -30], [22, -30]); L([-22, -6], [22, -6]); hot(() => L([-22, 18], [6, 18])); },
+      calendar() { R(-56, -44, 112, 104, 12); L([-56, -14], [56, -14]); L([-28, -60], [-28, -32]); L([28, -60], [28, -32]); hot(() => R(-14, 8, 28, 28, 6)); },
+      clock() { O(0, 0, 58); L([0, -34], [0, 0]); hot(() => L([0, 0], [26, 18])); },
+      stopwatch() { O(0, 10, 52); L([-14, -58], [14, -58]); L([0, -58], [0, -42]); hot(() => L([0, 10], [22, -14])); },
+      bed() { L([-62, 50], [-62, -40]); L([-62, 20], [62, 20], [62, 50]); R(-46, -12, 34, 22, 10); hot(() => R(-4, -14, 66, 34, 12)); },
+      dining() { L([-30, -60], [-30, 60]); L([-46, -60], [-46, -24], [-14, -24], [-14, -60]); hot(() => { x.beginPath(); x.moveTo(30, 60); x.lineTo(30, -60); x.quadraticCurveTo(54, -40, 48, 0); x.lineTo(30, 0); x.stroke(); }); },
+      hospital() { R(-58, -58, 116, 116, 18); hot(() => { L([0, -32], [0, 32]); L([-32, 0], [32, 0]); }); },
+      school() { Lc([-66, -14], [0, -46], [66, -14], [0, 18]); L([-36, 2], [-36, 36]); L([36, 2], [36, 36]); hot(() => L([66, -14], [66, 30])); },
+      office() { R(-44, -62, 88, 124, 8); [-40, -10, 20].forEach(b => { L([-24, b], [-8, b]); L([8, b], [24, b]); }); hot(() => R(-12, 40, 24, 22, 4)); },
+      mall() { L([-62, -20], [-48, -54], [48, -54], [62, -20]); Lc([-62, -20], [62, -20]); R(-54, -20, 108, 78, 4); hot(() => R(-18, 18, 36, 40, 4)); },
+      plane() { x.save(); x.rotate(-.6); Lc([-64, 0], [56, -6], [66, 0], [56, 6]); Lc([-4, -4], [-30, -50], [-14, -50], [24, -4]); Lc([-4, 4], [-30, 50], [-14, 50], [24, 4]); x.restore(); hot(() => F(42, -32, 6)); },
+      train() { R(-44, -58, 88, 100, 22); L([-30, -20], [30, -20]); F(-20, 18, 7); F(20, 18, 7); hot(() => { L([-34, 56], [-48, 66]); L([34, 56], [48, 66]); }); },
+      bus() { R(-56, -56, 112, 96, 16); L([-56, -12], [56, -12]); F(-32, 54, 10); F(32, 54, 10); hot(() => L([-30, 18], [30, 18])); },
+      car() { Lc([-62, 20], [-62, -4], [-38, -36], [36, -36], [62, -4], [62, 20]); F(-34, 34, 12); F(34, 34, 12); hot(() => L([-34, -4], [34, -4])); },
+      road() { L([-40, 62], [-14, -62]); L([40, 62], [14, -62]); hot(() => { L([0, 52], [0, 30]); L([0, 6], [0, -16]); L([0, -36], [0, -52]); }); },
+      stadium() { x.beginPath(); x.ellipse(0, 0, 64, 36, 0, 0, 7); x.stroke(); x.beginPath(); x.ellipse(0, 0, 36, 16, 0, 0, 7); x.stroke(); hot(() => { L([-50, -24], [-50, -54]); L([50, -24], [50, -54]); }); },
+      cinema() { R(-58, -26, 116, 80, 8); x.save(); x.rotate(-.18); R(-58, -58, 116, 24, 6); x.restore(); hot(() => Lc([-12, 0], [-12, 32], [18, 16])); },
+      elevator() { R(-46, -60, 92, 120, 10); L([0, -60], [0, 60]); hot(() => { Lc([-26, -30], [-14, -44], [-2, -30]); Lc([2, 30], [14, 44], [26, 30]); }); },
+      kiosk() { R(-34, -62, 68, 96, 10); L([0, 34], [0, 62]); L([-30, 62], [30, 62]); hot(() => R(-20, -46, 40, 50, 6)); },
+      fuel() { R(-46, -56, 60, 112, 8); L([-34, -30], [2, -30]); hot(() => L([14, -40], [44, -14], [44, 34], [30, 34])); },
+      screen() { R(-62, -46, 124, 78, 10); L([0, 32], [0, 60]); L([-24, 60], [24, 60]); hot(() => L([-30, -6], [-10, -22], [10, -6], [30, -22])); },
+      billboard() { R(-64, -56, 128, 70, 8); L([-24, 14], [-24, 60]); L([24, 14], [24, 60]); hot(() => L([-40, -20], [40, -20])); },
+      phone() { R(-32, -62, 64, 124, 14); L([-10, 46], [10, 46]); hot(() => R(-18, -40, 36, 60, 6)); },
+      laptop() { R(-48, -46, 96, 66, 8); L([-64, 34], [64, 34]); hot(() => L([-24, -14], [24, -14])); },
+      qr() { R(-58, -58, 46, 46, 6); R(12, -58, 46, 46, 6); R(-58, 12, 46, 46, 6); hot(() => { [[18, 18], [42, 18], [30, 30], [18, 42], [42, 42]].forEach(([a, b]) => { x.fillRect(a - 7, b - 7, 14, 14); }); }); },
+      play() { O(0, 0, 58); hot(() => Lc([-14, -24], [-14, 24], [26, 0])); },
+      megaphone() { Lc([-56, -12], [-56, 18], [-20, 18], [40, 48], [40, -42], [-20, -12]); L([-40, 18], [-30, 54]); hot(() => { O(40, 3, 30, -.6, .6); }); },
+      camera() { R(-60, -30, 120, 84, 12); L([-24, -30], [-14, -50], [14, -50], [24, -30]); hot(() => O(0, 12, 22)); },
+      sensor() { O(0, 30, 4); hot(() => { O(0, 30, 28, -2.5, -.64); O(0, 30, 54, -2.5, -.64); }); O(0, 30, 80, -2.5, -.64); },
+      cloud() { x.beginPath(); x.arc(-26, 10, 28, Math.PI * .5, Math.PI * 1.5); x.arc(4, -18, 34, Math.PI, 0); x.arc(36, 10, 28, -Math.PI * .5, Math.PI * .5); x.closePath(); x.stroke(); hot(() => L([-20, 46], [36, 46])); },
+      database() { x.beginPath(); x.ellipse(0, -40, 50, 16, 0, 0, 7); x.stroke(); L([-50, -40], [-50, 40]); L([50, -40], [50, 40]); x.beginPath(); x.ellipse(0, 40, 50, 16, 0, 0, Math.PI); x.stroke(); hot(() => { x.beginPath(); x.ellipse(0, 0, 50, 16, 0, 0, Math.PI); x.stroke(); }); },
+      globe() { O(0, 0, 58); x.beginPath(); x.ellipse(0, 0, 24, 58, 0, 0, 7); x.stroke(); hot(() => L([-58, 0], [58, 0])); },
+      pin() { x.beginPath(); x.arc(0, -16, 40, Math.PI * .8, Math.PI * 2.2); x.lineTo(0, 62); x.closePath(); x.stroke(); hot(() => F(0, -16, 13)); },
+      map() { Lc([-62, -44], [-22, -58], [22, -44], [62, -58], [62, 44], [22, 58], [-22, 44], [-62, 58]); L([-22, -58], [-22, 44]); L([22, -44], [22, 58]); hot(() => F(40, -10, 9)); },
+      user() { O(0, -24, 26); x.beginPath(); x.arc(0, 60, 50, Math.PI, 0); x.stroke(); hot(() => F(0, -24, 8)); },
+      users() { O(-24, -20, 22); x.beginPath(); x.arc(-24, 56, 40, Math.PI, 0); x.stroke(); hot(() => { O(32, -28, 18); x.beginPath(); x.arc(32, 40, 34, Math.PI * 1.15, 0); x.stroke(); }); },
+      heart() { x.beginPath(); x.moveTo(0, 54); x.bezierCurveTo(-80, 0, -40, -70, 0, -26); x.bezierCurveTo(40, -70, 80, 0, 0, 54); x.stroke(); hot(() => F(26, -30, 8)); },
+      star() { x.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? 26 : 60; k ? x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : x.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.stroke(); hot(() => F(0, 6, 9)); },
+      trophy() { L([-36, -56], [36, -56]); x.beginPath(); x.moveTo(-36, -56); x.quadraticCurveTo(-36, 16, 0, 18); x.quadraticCurveTo(36, 16, 36, -56); x.stroke(); L([0, 18], [0, 44]); hot(() => L([-28, 60], [28, 60])); },
+      leaf() { x.beginPath(); x.moveTo(-50, 50); x.quadraticCurveTo(-60, -50, 54, -54); x.quadraticCurveTo(50, 50, -50, 50); x.stroke(); hot(() => L([-50, 50], [24, -24])); },
+      bolt() { hot(() => Lc([10, -62], [-36, 8], [-2, 8], [-12, 62], [36, -10], [2, -10])); },
+      gear() { O(0, 0, 40); for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; L([Math.cos(a) * 42, Math.sin(a) * 42], [Math.cos(a) * 60, Math.sin(a) * 60]); } hot(() => O(0, 0, 14)); },
+      chip() { R(-38, -38, 76, 76, 10); [-20, 0, 20].forEach(v => { L([v, -38], [v, -58]); L([v, 38], [v, 58]); L([-38, v], [-58, v]); L([38, v], [58, v]); }); hot(() => R(-16, -16, 32, 32, 4)); },
+      sun() { hot(() => { O(0, 0, 26); for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; L([Math.cos(a) * 40, Math.sin(a) * 40], [Math.cos(a) * 58, Math.sin(a) * 58]); } }); },
+      rain() { x.beginPath(); x.arc(-26, -6, 26, Math.PI * .5, Math.PI * 1.5); x.arc(4, -30, 30, Math.PI, 0); x.arc(32, -6, 26, -Math.PI * .5, Math.PI * .5); x.closePath(); x.stroke(); hot(() => { L([-24, 38], [-32, 58]); L([4, 38], [-4, 58]); L([32, 38], [24, 58]); }); },
+      thermometer() { x.beginPath(); x.arc(0, 36, 24, -1.1, Math.PI + 1.1); x.lineTo(-12, -48); x.arc(0, -48, 12, Math.PI, 0); x.closePath(); x.stroke(); hot(() => { F(0, 36, 12); L([0, 30], [0, -20]); }); },
+      moon() { x.beginPath(); x.arc(0, 0, 54, .7, Math.PI * 2 - .7); x.arc(32, 0, 40, Math.PI * 2 - .9, .9, true); x.stroke(); hot(() => F(-14, -6, 6)); },
+      lantern() { L([0, -64], [0, -46]); R(-20, -46, 40, 12, 4); x.beginPath(); x.ellipse(0, 4, 40, 40, 0, 0, 7); x.stroke(); R(-20, 44, 40, 12, 4); hot(() => L([0, 56], [0, 66])); },
+      crescent() { x.beginPath(); x.arc(-6, 0, 52, .9, Math.PI * 2 - .9); x.arc(22, -8, 40, Math.PI * 2 - 1.2, 1.2, true); x.stroke(); hot(() => { x.save(); x.translate(38, -30); x.beginPath(); for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, rr = k % 2 ? 6 : 15; k ? x.lineTo(Math.cos(a) * rr, Math.sin(a) * rr) : x.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); } x.closePath(); x.fill(); x.restore(); }); },
+      diya() { x.beginPath(); x.moveTo(-60, 10); x.quadraticCurveTo(0, 70, 60, 10); x.closePath(); x.stroke(); hot(() => { x.beginPath(); x.moveTo(0, 0); x.quadraticCurveTo(-18, -26, 0, -56); x.quadraticCurveTo(18, -26, 0, 0); x.fill(); }); },
+      gift() { R(-54, -16, 108, 74, 8); R(-60, -36, 120, 22, 6); L([0, -36], [0, 58]); hot(() => { O(-16, -48, 14); O(16, -48, 14); }); },
+      sale() { O(0, 0, 58); hot(() => { L([-24, 26], [26, -26]); O(-20, -18, 9); O(20, 18, 9); }); },
+      cube() { Lc([0, -60], [56, -30], [0, 0], [-56, -30]); L([-56, -30], [-56, 34], [0, 64], [56, 34], [56, -30]); hot(() => L([0, 0], [0, 64])); },
+      ai() { R(-50, -50, 100, 100, 18); x.font = '800 44px Poppins'; x.textAlign = 'center'; x.fillStyle = ink; x.fillText('AI', 0, 16); hot(() => { L([-50, -20], [-66, -20]); L([50, 20], [66, 20]); }); },
+      chat() { x.beginPath(); x.roundRect(-58, -48, 116, 80, 20); x.stroke(); L([-20, 32], [-34, 58], [6, 32]); hot(() => { F(-24, -8, 6); F(0, -8, 6); F(24, -8, 6); }); },
+      email() { R(-60, -40, 120, 80, 10); hot(() => L([-60, -36], [0, 6], [60, -36])); },
+      link() { x.save(); x.rotate(-.78); R(-56, -18, 60, 36, 18); hot(() => R(-4, -18, 60, 36, 18)); x.restore(); },
+      rocket() { x.beginPath(); x.moveTo(0, -64); x.quadraticCurveTo(34, -30, 22, 30); x.lineTo(-22, 30); x.quadraticCurveTo(-34, -30, 0, -64); x.stroke(); O(0, -14, 10); hot(() => { L([-10, 42], [-10, 60]); L([10, 42], [10, 60]); }); },
+    };
+    for (const [k, fn] of Object.entries(D)) {
+      if (ICON[k]) continue;   // the original filled format icons keep their names
+      ICON[k] = (cx, cy, s, dark) => {
+        x.save(); x.translate(cx, cy); x.scale(s, s); ink = dark ? C.sky : C.blue;
+        x.strokeStyle = ink; x.fillStyle = ink; x.lineWidth = 11; x.lineCap = 'round'; x.lineJoin = 'round'; fn(); x.restore();
+      };
+    }
+  }
+  const ICONS = Object.keys(ICON);
+
   // ---------- more illustrations: data visuals that read without labels ----------
   const fg = dark => (dark ? C.white : C.type);
   const soft = dark => (dark ? 'rgba(191,231,251,.22)' : 'rgba(43,60,146,.12)');
@@ -713,6 +813,25 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.globalAlpha = 1;
       const sx = (u * .4 % 1) * 1000; x.strokeStyle = fg(dark); x.lineWidth = 4; x.beginPath(); x.moveTo(sx, 0); x.lineTo(sx, 620); x.stroke();
       if (ev.label) { fitFont(ev.label, 700, 44, 1000); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.label, 500, 690); }
+      x.restore();
+    },
+    // a set of things, each an icon tile lighting up in turn (venues, benefits, categories)
+    icons(u, r, dark, ev) {
+      const it = (ev.items || []).filter(q => Array.isArray(q) && ICON[q[0]]).slice(0, 6), n = it.length;
+      if (!n) return;
+      const cols = LAND ? Math.min(n, 3) : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), TW = 300, TH = 270;
+      x.save(); fit(r, cols * (TW + 24), rows * (TH + 24));
+      it.forEach(([ic, lab], i) => {
+        const t0 = cue(ev, i, .28, .2), p = oBack(P(u, t0, t0 + .45), 1.6), c = i % cols, rr = Math.floor(i / cols);
+        if (p <= 0) return;
+        const cx = c * (TW + 24) + TW / 2 + 12, cy = rr * (TH + 24) + TH / 2 + 12, last = i === n - 1;
+        x.save(); x.translate(cx, cy); x.scale(clamp(p, 0, 1.15), clamp(p, 0, 1.15));
+        x.fillStyle = last ? accGrad(-TW / 2, TW / 2) : (dark ? '#262C52' : C.white); x.beginPath(); x.roundRect(-TW / 2, -TH / 2, TW, TH, 24); x.fill();
+        if (!last) { x.strokeStyle = dark ? 'rgba(102,201,243,.4)' : 'rgba(43,60,146,.2)'; x.lineWidth = 3; x.stroke(); }
+        ICON[ic](0, -30, .95, last ? false : dark);
+        if (lab) { fitFont(String(lab), 700, 40, TW - 30); x.textAlign = 'center'; x.fillStyle = last ? C.navy : fg(dark); x.fillText(String(lab), 0, 100); }
+        x.restore();
+      });
       x.restore();
     },
     // ---------- batch 1 (blog scan, Oct 2026): the ideas most articles need ----------

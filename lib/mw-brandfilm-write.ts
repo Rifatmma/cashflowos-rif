@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { fetchArticle } from './mw-article'
 import type { Research } from './mw-studio'
-import { sanitizePlan, type Audience, type Plan, type SubLang } from './mw-brandfilm'
+import { sanitizePlan, ICON_NAMES, type Audience, type Plan, type SubLang } from './mw-brandfilm'
+
+const ICONS = ICON_NAMES.join(', ')
 
 // 👉 Writing a brand video: Ava's script and what to show under each line.
 //
@@ -89,7 +91,9 @@ scene using "from"):
   routes   {"origin":[x,y,"LABEL"],"dests":[[x,y,"LABEL"],…]}  rough geography in a 1000×800 box,
            x east, y south. For expansion, market entry, cross-border.
   network  {"labels":["…","…","…"]}  connecting places or partners into one network.
-  formats  {"items":[["plane"|"train"|"bag"|"screen"|"road","Label"],…],"at":["word",…]}  media types.
+  formats  {"items":[["<icon>","Label"],…≤4],"at":["word",…]}  media types (icons plane, train, bus, screen, road…).
+  icons    {"items":[["<icon>","Label"],…2–6],"at":["word",…]}  a set of things: venues, benefits, categories,
+           festivals — each a tile with an icon. Icons: ${ICONS}.
   number   {"value":"230","unit":"digital screens","on":"thirty"}  ONE sourced hero number;
            "on" = the word where she finishes saying it.
   lines    {"items":["existing","existing","…","The new thing"],"freshOn":"word"}  a new line of

@@ -39,6 +39,18 @@ export const ARTS = [
   'checklist', 'split', 'trend', 'billboard', 'heat',
   // batch 1 (blog scan, Oct 2026)
   'dashboard', 'hub', 'exchange', 'auction', 'segments', 'catalog', 'attribution', 'store', 'flows', 'cms', 'trigger',
+  'icons',
+] as const
+
+/** The engine's icon library (formats tiles, the icons grid). Kept in step with ICON in core.js. */
+export const ICON_NAMES = [
+  'plane', 'train', 'bag', 'screen', 'road', 'lock', 'shield', 'badge', 'eye', 'clipboard', 'bars', 'linechart',
+  'pie', 'search', 'target', 'handshake', 'briefcase', 'presentation', 'coins', 'tag', 'card', 'cart', 'receipt', 'calendar',
+  'clock', 'stopwatch', 'bed', 'dining', 'hospital', 'school', 'office', 'mall', 'bus', 'car', 'stadium', 'cinema',
+  'elevator', 'kiosk', 'fuel', 'billboard', 'phone', 'laptop', 'qr', 'play', 'megaphone', 'camera', 'sensor', 'cloud',
+  'database', 'globe', 'pin', 'map', 'user', 'users', 'heart', 'star', 'trophy', 'leaf', 'bolt', 'gear',
+  'chip', 'sun', 'rain', 'thermometer', 'moon', 'lantern', 'crescent', 'diya', 'gift', 'sale', 'cube', 'ai',
+  'chat', 'email', 'link', 'rocket',
 ] as const
 type Art = (typeof ARTS)[number]
 
@@ -421,11 +433,13 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
       split: () => Array.isArray(ev.left) && Array.isArray(ev.right),
       trend: () => Array.isArray(ev.values) && ev.values.length >= 3 && ev.values.every((v: any) => Number.isFinite(+v)),
       billboard: () => Array.isArray(ev.lines) && ev.lines.length > 0,
+      icons: () => Array.isArray(ev.items) && ev.items.length >= 2,
       dashboard: () => !ev.tiles || (Array.isArray(ev.tiles) && ev.tiles.every((q: any) => Array.isArray(q) && q.length >= 2)),
       trigger: () => !ev.signal || ['rain', 'temp', 'score'].includes(ev.signal),
     }
     if (art && need[art] && !need[art]!()) { notes.push(`The ${art} illustration was missing its details and was left out.`); art = undefined }
-    if (art === 'formats') ev.items = ev.items.slice(0, 4).map((it: any) => [['plane', 'train', 'bag', 'screen', 'road'].includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 16)])
+    if (art === 'formats') ev.items = ev.items.slice(0, 4).map((it: any) => [(ICON_NAMES as readonly string[]).includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 16)])
+    if (art === 'icons') ev.items = ev.items.slice(0, 6).map((it: any) => [(ICON_NAMES as readonly string[]).includes(it?.[0]) ? it[0] : 'screen', str(it?.[1], 14)])
     if (art === 'board') ev.rows = ev.rows.slice(0, 5).map((r: any) => str(r, 14).toUpperCase())
     if (art === 'number') ev.value = String(ev.value).replace(/[^\d.,%+MKBmkb$]/g, '').slice(0, 8)
     if (art === 'compare') ev.items = ev.items.slice(0, 3).map((d: any) => ({ label: str(d.label, 30), value: +d.value, display: str(d.display ?? d.value, 10) }))

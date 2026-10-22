@@ -92,7 +92,8 @@ Pick the one that shows **this line's** idea most specifically. A number about p
 | `screens` | `label?` | a screen network switching on |
 | `billboard` | `lines: ['PLAN', 'BUY']` | a roadside digital screen |
 | `phone` | `label?` | mobile and out-of-home together |
-| `formats` | `items: [[icon, 'Label'], ...]`, icons `plane` `train` `bag` `screen` `road` | media types |
+| `formats` | `items: [[icon, 'Label'], ...≤4]` (any icon below) | media types |
+| `icons` | `items: [[icon, 'Label'], ...2–6]` | a set of things — venues, benefits, categories, festivals; the last tile is highlighted |
 | `lines` | `items: [..., 'New thing']`, `freshAt` | a new service or revenue line landing |
 | `reports` | `items: ['SG', ...]`, `at` | fragmentation, inconsistent reports |
 | `board` | `rows: ['UP TO 14 CHARS', ...]` | departures, schedules |
@@ -155,3 +156,9 @@ SPEC.media = { launch: 'media/launch-night.mp4', team: 'media/team.jpg' };
 | `grade` | `bw` for black-and-white (matches the cut-out photo look); default is the original colour. |
 
 `render.js` turns each clip into frames with ffmpeg once (`out/.frames/`), so every frame is exact. The clip's own sound is not used — the music and Ava carry the audio. Keep text off the busy part of the frame: on `full`, the words sit in the lower third over the fade, so choose `focus` (or `from`) so the subject is in the upper half. Check stills in every format: a 16:9 clip in 9:16 shows only its middle third.
+
+## Icons
+
+`plane`, `train`, `bag`, `screen`, `road`, `lock`, `shield`, `badge`, `eye`, `clipboard`, `bars`, `linechart`, `pie`, `search`, `target`, `handshake`, `briefcase`, `presentation`, `coins`, `tag`, `card`, `cart`, `receipt`, `calendar`, `clock`, `stopwatch`, `bed`, `dining`, `hospital`, `school`, `office`, `mall`, `bus`, `car`, `stadium`, `cinema`, `elevator`, `kiosk`, `fuel`, `billboard`, `phone`, `laptop`, `qr`, `play`, `megaphone`, `camera`, `sensor`, `cloud`, `database`, `globe`, `pin`, `map`, `user`, `users`, `heart`, `star`, `trophy`, `leaf`, `bolt`, `gear`, `chip`, `sun`, `rain`, `thermometer`, `moon`, `lantern`, `crescent`, `diya`, `gift`, `sale`, `cube`, `ai`, `chat`, `email`, `link`, `rocket`
+
+Line icons in the brand blue with one accent part, usable in `formats` and `icons`. Add one in `core.js` (`const D = {…}`, ±70 box, `hot()` for the accent part) and to `ICON_NAMES` in the app's lib/mw-brandfilm.ts.
