@@ -207,7 +207,7 @@ function blankDeck(format: Format, template: string): Deck {
 
 // -------------------------------------------------------------------- screen
 
-export function Studio({ photosReady = false }: { photosReady?: boolean }) {
+export function Studio() {
   const [format, setFormat] = useState<Format | null>(null)
   /** Ava-voiced motion video, its own flow: from a blog post, or from a local page's inventory. */
   const [brand, setBrand] = useState<null | 'article' | 'location'>(null)
@@ -454,7 +454,7 @@ export function Studio({ photosReady = false }: { photosReady?: boolean }) {
         </p>
       </section>
 
-      {brand && <BrandFilm key={brand} source={brand} photosReady={photosReady} />}
+      {brand && <BrandFilm key={brand} source={brand} />}
 
       {/* 2 ──────────────────────────────────── where the words come from */}
       {format && (

@@ -29,7 +29,6 @@ Settle these with the user in one round of questions (skip any they already answ
 - **Format(s)** — 9:16, 16:9, 1:1, 4:5. Render only what they pick; each format is a full render.
 - **Audience** — who the video speaks to (agencies / brands / media owners / mixed — everyone in out-of-home, in general terms).
 - **Language** — English only, or English VO + subtitles in another language.
-- **Look** — *Infographic* (brand illustrations and data visuals only) or *Infographic + photos* (2–4 scenes swap their illustration for a black-and-white cut-out photo; see `references/spec.md` → Cut-out photos). Default to Infographic.
 - Anything the article leaves open (which stat to feature, length cap).
 
 ### 3. Script → approval
@@ -49,17 +48,9 @@ Copy the closer example's `spec.js` into the project and rewrite it for this scr
 - **Timing:** headline at the cut (`a + .2`), sub-lines 0.3s before their word. Never land a headline on a mid-sentence word.
 - Alternate dark and light backgrounds so consecutive scenes contrast.
 
-### 5b. Photos (only if the user chose *Infographic + photos*)
-For 2–4 panel scenes where one physical object or person makes the point, get a cut-out:
-```bash
-python3 <skill-dir>/scripts/photos.py ./videos/<slug> "megaphone isolated on white background"
-```
-It prints `{"key","path","credit"}`. Add `photos: { <key>: '<path>' }` to the SPEC and `photo: { key }` to the scene, and keep its `art` as the fallback. It reuses the team's shared cut-out library first. Otherwise it gets Pexels photos that Claude has checked show the subject, and keys out white or green backdrops for free.
-- On `{"error"}`, keep the illustration for that scene, and say which ones need the Studio's AI cut-out (busy backgrounds).
-- Needs `MW_STUDIO_TOKEN` in the environment (ask the Moving Walls marketing team for it). If it's missing, say so and continue infographic-only — or use the user's own photos as `media` scenes instead.
-- List photo credits for the caption when you hand over ("Photos by … on Pexels").
+Infographic only: illustrations and data visuals, no stock or cut-out photos (Rif, 22 Oct 2026 — the illustrations are better).
 
-### 5c. The user's own photos and clips
+### 5b. The user's own photos and clips
 If the user gives you images or video (event footage, a product, a site), use them as `media` scenes — full-frame with the words over a fade, or as a card (`references/spec.md` → Your own photos and video clips). Ask what each one shows if it isn't obvious, and keep Ava's line about what is on screen.
 
 ### 6. Check stills, then render

@@ -164,11 +164,6 @@ VARIETY: pick the illustration that shows THIS line's idea most specifically —
 people is "people" or "compare", not a street. Use each illustration at most once per video.
 ${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}
 
-PHOTO SUGGESTIONS: on 2 to 4 panel scenes where a single physical object or person makes the
-point (a megaphone for reach, a passport for travel, a shopping bag for retail, a commuter for
-transit), add "photo":{"query":"megaphone isolated on white background"}.
-The query must ask for an object or person shot on a plain white or green-screen background.
-Keep "art" on those scenes too — it is used when the video is made without photos.
 ${lang === 'zh' ? `
 "supers": Simplified Chinese subtitles, one entry per line; split a long line into two chunks at a
 natural pause (≤ 22 characters each). Translate meaning, not words; use the terms Moving Walls uses

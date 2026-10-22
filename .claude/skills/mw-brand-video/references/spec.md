@@ -60,7 +60,6 @@ Before choosing the look, **read `~/.mw-brand-video/history.json`** (render.js a
 | `layout` | panel layout (see Variety) |
 | `variant` | overrides `SPEC.cover` / `SPEC.burst` for this scene |
 | `art`, `ev`, `artAt` | illustration plus its parameters; times in `ev` are seconds after `artAt` (default `a`) |
-| `photo` | `{ key, shape?, deco? }`: use cut-out `SPEC.photos[key]` instead of the art. `shape` is `circle` (default), `bar`, `zig` or `blue`. `deco` (the geometry behind it) is `rings`, `chevrons`, `dots` or `zigline`. Never text behind a photo: it pulls the eye away from the headline. |
 | `text` | text items (below) |
 | `words` | burst only: `[{ t, s, bg?, st?, color? }]` |
 
@@ -139,10 +138,6 @@ Most items take `at: [t, ...]` cue times; without them they stagger automaticall
 
 Then run `node scripts/brandfilm-sync.mjs` in the app repo so /mw/studio gets it too, and bump `engine/VERSION`.
 
-## Cut-out photos
-
-`SPEC.photos = { key: 'path/in/project.png' }`, each a transparent PNG with the background removed. Get them with `scripts/photos.py` (shared library, then Pexels plus a relevance check, keyed locally). In the Studio the same library is used, with an in-browser AI cut-out for busy backgrounds. A panel with `photo: { key }` draws it black-and-white over a flat accent shape, with quiet brand geometry behind it. Keep `art` on those scenes too, so the infographic-only version still works.
-
 ## Subtitles
 
 `supers: [{ a, b, zh }]` puts a bar inside the safe area, above the platform buttons. Split long lines at a natural pause, at most about 22 CJK characters each. Have a native speaker check them.
@@ -170,7 +165,7 @@ SPEC.media = { launch: 'media/launch-night.mp4', team: 'media/team.jpg' };
 | `fit` | `full` (default): fills the frame. `card`: framed card, blurred backdrop — use for photos that are not 9:16-friendly. |
 | `from` | clips only: seconds into the clip where this scene starts (the clip then plays in real time). |
 | `focus` | `[x, y, w, h]` fractions: what must stay in frame when the format crops it (a face, the screen, the product). |
-| `grade` | `bw` for black-and-white (matches the cut-out photo look); default is the original colour. |
+| `grade` | `bw` for black-and-white; default is the original colour. |
 
 `render.js` turns each clip into frames with ffmpeg once (`out/.frames/`), so every frame is exact. The clip's own sound is not used — the music and Ava carry the audio. Keep text off the busy part of the frame: on `full`, the words sit in the lower third over the fade, so choose `focus` (or `from`) so the subject is in the upper half. Check stills in every format: a 16:9 clip in 9:16 shows only its middle third.
 
