@@ -452,13 +452,13 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   // dark grounds); `hot` parts take the accent. Used by formats tiles, the
   // `icons` grid and the checklist. Keep each to the one recognisable shape.
   {
-    let ink = C.blue;
+    let ink = C.blue, hotInk = C.sun2;
     const L = (...p) => { x.beginPath(); p.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b))); x.stroke(); };
     const Lc = (...p) => { x.beginPath(); p.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b))); x.closePath(); x.stroke(); };
     const O = (a, b, r0, s = 0, e = 7) => { x.beginPath(); x.arc(a, b, r0, s, e); x.stroke(); };
     const R = (a, b, w, h, rr = 10) => { x.beginPath(); x.roundRect(a, b, w, h, rr); x.stroke(); };
     const F = (a, b, r0) => { x.beginPath(); x.arc(a, b, r0, 0, 7); x.fill(); };
-    const hot = f => { x.save(); x.strokeStyle = C.sun2; x.fillStyle = C.sun2; f(); x.restore(); };
+    const hot = f => { x.save(); x.strokeStyle = hotInk; x.fillStyle = hotInk; f(); x.restore(); };
     const D = {
       lock() { R(-45, -10, 90, 70, 14); O(0, -10, 32, Math.PI, 0); hot(() => F(0, 25, 9)); },
       shield() { x.beginPath(); x.moveTo(0, -62); x.lineTo(50, -42); x.quadraticCurveTo(52, 30, 0, 62); x.quadraticCurveTo(-52, 30, -50, -42); x.closePath(); x.stroke(); hot(() => L([-20, 0], [-4, 16], [24, -14])); },
@@ -540,7 +540,8 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     for (const [k, fn] of Object.entries(D)) {
       if (ICON[k]) continue;   // the original filled format icons keep their names
       ICON[k] = (cx, cy, s, dark) => {
-        x.save(); x.translate(cx, cy); x.scale(s, s); ink = dark ? C.sky : C.blue;
+        // dark === 'acc': the icon sits on an accent fill, so all of it (accent parts too) takes onAcc
+        x.save(); x.translate(cx, cy); x.scale(s, s); ink = dark === 'acc' ? onAcc : dark ? C.sky : C.blue; hotInk = dark === 'acc' ? onAcc : C.sun2;
         x.strokeStyle = ink; x.fillStyle = ink; x.lineWidth = 11; x.lineCap = 'round'; x.lineJoin = 'round'; fn(); x.restore();
       };
     }
@@ -583,7 +584,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     },
     // a grid of people; `filled` of `total` light up — share, reach, audience
     people(u, r, dark, ev) {
-      const total = Math.min(60, ev.total || 40), filled = Math.min(total, ev.filled ?? Math.round(total * .6)), cols = ev.cols || (total > 40 ? 10 : 8);
+      const total = Math.min(60, ev.total || 40), filled = Math.min(total, ev.filled ?? Math.round(total * .6)), cols = ev.cols || (total <= 12 ? Math.ceil(total / (total > 6 ? 2 : 1)) : total > 40 ? 10 : 8);   // 10 → two rows of 5, not 8 + 2
       const rows = Math.ceil(total / cols), cw = 1000 / cols;
       x.save(); fit(r, 1000, rows * cw * 1.15 + (ev.label ? 90 : 0));
       const on = Math.floor(filled * oCub(P(u, .2, 1.4)));
@@ -847,7 +848,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.save(); x.translate(cx, cy); x.scale(clamp(p, 0, 1.15), clamp(p, 0, 1.15));
         x.fillStyle = last ? accGrad(-TW / 2, TW / 2) : (dark ? '#262C52' : C.white); x.beginPath(); x.roundRect(-TW / 2, -TH / 2, TW, TH, 24); x.fill();
         if (!last) { x.strokeStyle = dark ? 'rgba(102,201,243,.4)' : 'rgba(43,60,146,.2)'; x.lineWidth = 3; x.stroke(); }
-        ICON[ic](0, -30, .95, last ? false : dark);
+        ICON[ic](0, -30, .95, last ? 'acc' : dark);
         if (lab) { fitFont(String(lab), 700, 40, TW - 30); x.textAlign = 'center'; x.fillStyle = last ? onAcc : fg(dark); x.fillText(String(lab), 0, 100); }
         x.restore();
       });
