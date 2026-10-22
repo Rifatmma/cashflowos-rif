@@ -108,3 +108,15 @@ handshake 7, cart 6, indoor formats (cinema, escalator, kiosk, elevator) ~5, wea
 sensor, 3D cube, card/coin. Suggested order: batch 1 = dashboard, hub, exchange(+auction), segments,
 catalog, attribution, store, flows, cms, trigger, plus the icon set; batch 2 = dwell, planner, lift,
 yield, proof, forecast, dco, festive; rest on demand. Rif's ask: at least 120 assets — confirm the mix.
+
+#### Decision (Rif, 22 Oct): follow the recommendation
+~120 new assets in this order. Tick them off here as they land (commit + push the branch after each).
+1. Batch 1 — illustrations: dashboard, hub, exchange (+ auction variant), segments, catalog, attribution,
+   store, flows, cms, trigger. Plus the icon set (~60, brand-recoloured line icons usable inside
+   formats/checklist/lines tiles and by trigger/festive).
+2. Batch 2 — dwell, planner, lift, yield, proof, forecast, dco, festive.
+3. Then — format-scene, ai, radius, carbon, shield, interactive, multiplier, stadium, loop; and 2–3
+   variants of the busiest (dashboard, exchange, store, format-scene).
+Every asset: audit in all four formats (render.js … audit) and a stills check before it is used.
+
+Progress:
