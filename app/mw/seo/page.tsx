@@ -11,6 +11,7 @@ import { THEMES, themeOf, rollUp, type ThemeChild } from '@/lib/mw-themes'
 import { MARKET } from '@/lib/mw-markets'
 import { loadPlanner, viewOf, latestForStep } from '@/lib/mw-seo-planner'
 import { glanceOf } from '@/lib/mw-seo-glance'
+import { keywordsCell, trafficCell } from '@/lib/mw-kw-display'
 import { SeoGlance, SeoPlanner } from './_planner'
 import {
   MarketTabs, BrandByMarket, OpportunitiesByMarket, CompetitorsByMarket,
@@ -102,7 +103,7 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
   return (
     <div className="mw-wrap">
       <MwHero tab="seo" pulled={d.meta.pulled} stale={snap.stale}
-        headline={`${openThemes} SEO action${openThemes === 1 ? '' : 's'} open across ${live.length} markets`}>
+        headline={`Organic: ${num(k.sessions)} sessions and ${k.leads} enquiries this month`}>
         <p>
           Organic brings <b>{num(k.sessions)} sessions</b> a month at no media cost, and authority {k.authority}{' '}
           with {num(k.refDomains)} referring domains — the expensive half of SEO is already done. What is
@@ -125,11 +126,16 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
       <SeoPlanner p={planner} cut={cut} list={view.list} step={view.step} nav={view.nav} inList={view.inList}
         replies={replies} isOwner={guest === null} href={planHref} keep={keep} />
 
-      {/* ── 1. the chain, because everything else explains it ── */}
-      <Section title="SEO actions — what we are doing and who is doing it"
-        sub="Each action is the strategy; the tasks under it are the delivery, spread across the market leads. An action closes when its tasks are done, and stays open if somebody declines.">
-        <ThemeChain rolls={rolls} />
-      </Section>
+      {/* SLIMMED 21 Oct 2026. Fourteen sections, one of which (the card above)
+          asked anyone to do anything. The SEO-actions chain is gone (every task
+          is in the one list on Today); the content-gap summary lives on the
+          Content tab; the funnel-leak board is a column in the market table.
+          Brand split, ground we hold and rivals fold away below. */}
+      {live.length > 0 && (
+        <Section title="Organic by market" sub="Sessions and enquiries are GA4; keywords and clicks fall back to Search Console where Semrush has none.">
+          <MarketsTable live={live} />
+        </Section>
+      )}
 
       <Section title="Organic traffic"
         sub="Sessions per day. Green dots mark days that produced leads — the bigger the dot, the more leads.">
@@ -138,72 +144,47 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
 
       {live.length > 0 && (
         <>
-          <Section id="brand" title="Brand versus non-brand, by market"
-            sub="Traffic from people typing our name, against everyone else. Only non-brand grows the business — brand searches would have found us anyway.">
-            <MarketTabs all={live} active={brandM.market.key} section="brand" />
-            <BrandByMarket m={brandM} />
-          </Section>
-
-          <Section id="win" title="Where we already win, by market"
-            sub="Non-brand searches already in the top ten. This is ground we hold — new content must add to it, not write over it.">
-            <MarketTabs all={live} active={winM.market.key} section="win" />
-            <WinningByMarket m={winM} />
-          </Section>
-
-          <Section id="opp" title="The opportunity list, by market"
-            sub="Already ranking, not high enough to earn the click. Moving one of these into the top five is cheaper than bidding on it.">
+          <Section id="opp" title="Near misses, by market"
+            sub="Already ranking, not high enough to earn the click. The ones worth doing are already tasks on Today.">
             <MarketTabs all={live} active={oppM.market.key} section="opp" />
             <OpportunitiesByMarket m={oppM} />
           </Section>
 
-          <Section id="comp" title="Competitive position, by market"
-            sub="Who else ranks for the same searches in this market, and how much traffic it earns them.">
-            <MarketTabs all={live} active={compM.market.key} section="comp" />
-            <CompetitorsByMarket m={compM} />
-          </Section>
-
-          <Section title="Content gap — what rivals rank for and we do not"
-            sub="Measured against competitors your team names, once a quarter. The full briefs are on the Content gap tab.">
-            <GapSummary rows={gaps.map(g => {
-              const hit = COUNTRIES.find(x => x.country.key === g.country)
-              const topics = g.clusters.filter(worthWriting)
-              return {
-                country: g.country,
-                label: hit?.country.label ?? g.country,
-                owner: hit?.market.owner ?? null,
-                topics: topics.length,
-                vol: topics.reduce((t, c) => t + c.vol, 0),
-                top: topics.slice(0, 2).map(c => c.head),
-              }
-            }).sort((a, b) => b.vol - a.vol)} />
+          <Section id="move" title="What moved since the last pull"
+            sub="Positions gained, lost and newly won.">
+            <MarketTabs all={live} active={moveM.market.key} section="move" />
+            <Momentum m={moveM} />
           </Section>
 
           <Section id="health" title="Page health — every live location page, graded"
-            sub="Title, meta description, one H1, structured data, canonical, internal links and body length. This is the website operator's board.">
+            sub="Title, meta description, one H1, structured data, canonical, internal links and body length. Fixes are Dinesh's tasks on People.">
             <PageHealthBoard all={live} />
           </Section>
 
-          <Section id="leaks" title="Where the funnel leaks"
-            sub="Traffic against enquiries, by market. A market with sessions and no leads has a page problem, not a ranking problem.">
-            <FunnelLeaks all={live} />
-          </Section>
-
-          <Section id="move" title="What moved since the last pull"
-            sub="Positions gained, lost and newly won, so the team can see whether last cycle's work paid off.">
-            <MarketTabs all={live} active={moveM.market.key} section="move" />
-            <Momentum m={moveM} />
+          <Section title="More detail" sub="Reference, not work. Open when you need it.">
+            <details id="brand" open={!!q.brand}>
+              <summary className="mw-planner-lab">Brand versus non-brand, by market</summary>
+              <MarketTabs all={live} active={brandM.market.key} section="brand" />
+              <BrandByMarket m={brandM} />
+            </details>
+            <details id="win" open={!!q.win} style={{ marginTop: 10 }}>
+              <summary className="mw-planner-lab">Where we already win — the rankings no edit may lose</summary>
+              <MarketTabs all={live} active={winM.market.key} section="win" />
+              <WinningByMarket m={winM} />
+            </details>
+            {live.some(m => m.competitors.length) && (
+              <details id="comp" open={!!q.comp} style={{ marginTop: 10 }}>
+                <summary className="mw-planner-lab">Who ranks against us, by market</summary>
+                <MarketTabs all={live} active={compM.market.key} section="comp" />
+                <CompetitorsByMarket m={compM} />
+              </details>
+            )}
           </Section>
         </>
       )}
 
-      {d.seo.markets?.length ? (
-        <Section title="Organic by market" sub="Sessions, leads and keywords side by side.">
-          <MarketsTable live={live} />
-        </Section>
-      ) : null}
-
       <p className="lede" style={{ marginTop: 8 }}>
-        <Link href="/mw/plan">Open the market plan</Link> for the full instructions behind every task above.
+        Everyone&apos;s tasks, organic and otherwise, are on <Link href="/mw">Today</Link> and <Link href="/mw/people">People</Link>.
       </p>
     </div>
   )
@@ -216,7 +197,7 @@ function MarketsTable({ live }: { live: MarketSeo[] }) {
       <thead>
         <tr>
           <th>Market</th><th>Owner</th><th className="num">Sessions</th><th className="num">Leads</th>
-          <th className="num">Keywords</th><th className="num">Est. traffic</th><th className="num">Non-brand</th>
+          <th className="num">Conv. rate</th><th className="num">Keywords</th><th className="num">Est. traffic</th><th className="num">Non-brand</th>
         </tr>
       </thead>
       <tbody>
@@ -226,8 +207,9 @@ function MarketsTable({ live }: { live: MarketSeo[] }) {
             <td>{m.market.owner ?? '—'}</td>
             <td className="num">{num(m.sessions)}</td>
             <td className="num">{m.leads || <span className="mw-zero">0</span>}</td>
-            <td className="num">{num(m.keywordsTotal)}</td>
-            <td className="num">{num(m.traffic)}</td>
+            <td className="num">{m.sessions >= 25 ? `${((m.leads / m.sessions) * 100).toFixed(1)}%` : '—'}</td>
+            <td className="num" title={keywordsCell(m.keywordsTotal, m.keywords).title}>{keywordsCell(m.keywordsTotal, m.keywords).text}</td>
+            <td className="num" title={trafficCell(m.traffic, m.keywords).title}>{trafficCell(m.traffic, m.keywords).text}</td>
             <td className="num">{m.keywords.length ? `${m.nonBrandPct}%` : '—'}</td>
           </tr>
         ))}

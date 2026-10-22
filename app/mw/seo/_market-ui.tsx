@@ -3,6 +3,7 @@ import type { MarketSeo } from '@/lib/mw-market-data'
 import type { ThemeRoll } from '@/lib/mw-themes'
 import { rollSummary } from '@/lib/mw-themes'
 import { num } from '@/lib/mw-data'
+import { demandCell, difficultyCell } from '@/lib/mw-kw-display'
 import { COUNTRIES, serpUrl } from '@/lib/mw-markets'
 
 /** A search, linked to the live Google result for it in that market. */
@@ -98,8 +99,10 @@ export function OpportunitiesByMarket({ m }: { m: MarketSeo }) {
             <tr key={`${k.q}-${i}`}>
               <td><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></td>
               <td className="num">#{k.pos.toFixed(0)}</td>
-              <td className="num">{num(k.vol)}</td>
-              <td className="num"><span className={`mw-kd ${k.kd < 20 ? 'easy' : k.kd < 40 ? 'mid' : 'hard'}`}>{k.kd.toFixed(0)}</span></td>
+              <td className="num" title={demandCell(k).title}>{demandCell(k).text}</td>
+              <td className="num" title={difficultyCell(k).title}>
+                {difficultyCell(k).band ? <span className={`mw-kd ${difficultyCell(k).band}`}>{difficultyCell(k).text}</span> : <span className="mw-zero">—</span>}
+              </td>
               <td className="num">{k.cpc > 0 ? `$${k.cpc.toFixed(2)}` : '—'}</td>
               <td className="path">{k.url.replace(/^https?:\/\/[^/]+/, '') || '/'}</td>
             </tr>
@@ -107,6 +110,8 @@ export function OpportunitiesByMarket({ m }: { m: MarketSeo }) {
         </tbody>
       </table>
       <p className="lede" style={{ marginTop: 12 }}>
+        Searches/mo is Semrush&rsquo;s estimate; where Semrush has none it shows Search Console
+        impressions (&ldquo;impr.&rdquo;) instead, and &ldquo;—&rdquo; means no source, never zero demand.{' '}
         Difficulty is Semrush&rsquo;s 0&ndash;100 estimate of how hard the first page is;{' '}
         <span className="mw-kd easy">under 20</span> is usually a rewrite rather than a campaign. Paid CPC is
         what a click costs to buy — it is here to show what the ranking is worth, not to compare the channels.
@@ -277,7 +282,7 @@ export function WinningByMarket({ m }: { m: MarketSeo }) {
             <tr key={`${k.q}-${i}`}>
               <td><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></td>
               <td className="num"><span className={`mw-rank ${k.pos <= 3 ? 'top' : 'good'}`}>#{k.pos.toFixed(0)}</span></td>
-              <td className="num">{num(k.vol)}</td>
+              <td className="num" title={demandCell(k).title}>{demandCell(k).text}</td>
               <td className="num">{k.traffic ? num(k.traffic) : '—'}</td>
               <td className="num">{k.cpc > 0 ? `$${k.cpc.toFixed(2)}` : '—'}</td>
               <td className="path">{k.url.replace(/^https?:\/\/[^/]+/, '') || '/'}</td>
@@ -326,7 +331,7 @@ export function Momentum({ m }: { m: MarketSeo }) {
               <span className="d">
                 {dir === 'new' ? `new at #${k.pos.toFixed(0)}` : `#${k.prev.toFixed(0)} → #${k.pos.toFixed(0)}`}
               </span>
-              <small>{num(k.vol)}/mo</small>
+              <small title={demandCell(k).title}>{demandCell(k).missing ? '' : k.vol > 0 ? `${demandCell(k).text}/mo` : demandCell(k).text}</small>
             </li>
           ))}
         </ul>

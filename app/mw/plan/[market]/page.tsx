@@ -54,7 +54,7 @@ export default async function MwMarket({ params }: { params: Promise<{ market: s
 
   return (
     <div className="mw-wrap">
-      <MwHero tab="plan" pulled={''} stale={false}
+      <MwHero tab="people" pulled={''} stale={false}
         headline={`${v.market.label} — ${v.market.owner ?? 'Unassigned'}`}>
         <p>
           <Link href="/mw/plan">← All markets</Link>

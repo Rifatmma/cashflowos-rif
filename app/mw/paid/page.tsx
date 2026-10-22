@@ -1,10 +1,10 @@
 import { currentGuest } from '@/lib/guest'
 import { getMwData, getMwMonths, getTargets, money, money0, num } from '@/lib/mw-data'
-import { MwHero, Tiles, Section, Bars, SpendLeadChart } from '../_ui'
+import { MwHero, Tiles, Section } from '../_ui'
 import { getActions } from '@/lib/mw-actions'
 
-import { Targets, PaceChart, Scoreboard, Benchmark, Cards } from '../_sections'
-import { MonthPicker, MonthOverMonth } from '../_month-picker'
+import { Targets, PaceChart, Scoreboard } from '../_sections'
+import { MonthPicker } from '../_month-picker'
 import { auctionReport, summarise as summariseAuction, type ShareRow } from '@/lib/mw-auction'
 import { AuctionBand, AuctionTable, AuctionActions } from '../_auction-ui'
 import { analyseKeywords, summariseKeywords, pagesToFix, FAIR_TEST_CLICKS, type KeywordRow } from '@/lib/mw-keywords'
@@ -40,18 +40,9 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
     )
   }
 
-  // The month before the one being shown, for the comparison below. Fetched
-  // only when there is one, so a first month costs nothing extra.
-  const shownKey = month ?? months.find(m => m.current)?.key ?? months[0]?.key
-  const prevKey = months[months.findIndex(m => m.key === shownKey) + 1]?.key
-  const prevSnap = prevKey ? await getMwData(prevKey) : null
 
   const d = snap.data
   const k = d.sem.kpi
-  const conc = [...d.sem.concentration].sort((a, b) => b.bpk - a.bpk)
-  const maxBpk = Math.max(...conc.map(c => c.bpk), 0.1)
-  const maxCvr = Math.max(...conc.map(c => c.cvr), 0.1)
-  const perDay = d.meta.daysDone ? k.spend / d.meta.daysDone : 0
 
   // The auction. Google reports our own impression share and splits every
   // missed auction into budget and rank, which need opposite responses.
@@ -128,170 +119,67 @@ export default async function MwPaid({ searchParams }: { searchParams: Promise<{
         { k: 'Conv. rate', v: `${k.cvr}%`, d: String(k.dCvr ?? ''), tone: 'dn' },
       ]} />
 
-      {/* Only when there is a month to compare with. A card explaining that it
-          has nothing to say is just noise on the oldest month (owner, 5 Oct 2026). */}
-      {prevSnap && prevSnap.data.meta.daysDone > 0 && (
-        <Section title={`${d.meta.monthLabel} against ${prevSnap.data.meta.monthLabel}`}
-          sub="Month over month, measured per delivery day so a part-month is not read as a collapse.">
-          <MonthOverMonth
-            nowLabel={d.meta.monthLabel}
-            prevLabel={prevSnap.data.meta.monthLabel}
-            now={{ spend: k.spend, leads: k.leads, clicks: k.clicks, days: d.meta.daysDone }}
-            prev={{
-              spend: prevSnap.data.sem.kpi.spend,
-              leads: prevSnap.data.sem.kpi.leads,
-              clicks: prevSnap.data.sem.kpi.clicks,
-              days: prevSnap.data.meta.daysDone,
-            }}
-          />
-        </Section>
-      )}
-
-      {/* ALWAYS RENDERED. Hiding it on a month with no data made the tab look
-          broken when the owner switched to September: "the section is gone, it
-          should always be there." A section that explains why it is empty is
-          information; one that vanishes is a bug (owner, 5 Oct 2026). */}
-      <Section title="The auction: where we show and where we don't"
-        sub="Every impression we missed had one of two causes, and they need opposite responses.">
-        {verdicts.length > 0 ? (
-          <>
-            <AuctionBand s={auction} />
-            <div style={{ marginTop: 16 }}>
-              <AuctionTable rows={verdicts} />
-            </div>
-          </>
-        ) : (
-          <p className="lede">
-            No impression share was stored for {d.meta.monthLabel}. Google reports it only from the
-            day we started asking for it, so months pulled before then cannot show it — the
-            figures are not missing from the account, they were simply never saved here.
-          </p>
-        )}
-      </Section>
-
-      <Section title="What to change"
-        sub="Worst first. Open one for the numbers behind it.">
-        {verdicts.length > 0
-          ? <AuctionActions rows={verdicts} />
-          : <p className="lede">Nothing to act on until a month with impression share is selected.</p>}
-        <p className="lede" style={{ marginTop: 14 }}>
-          <b>On competitors by name.</b> Google's own Auction Insights report — which rivals you
-          overlap with, and how often they outrank you — exists only in the Google Ads interface.
-          It is not in the API: asking for <code>auction_insight_domain</code> returns "unrecognized
-          field". Everything above is our own side of the same auctions, which is where the levers
-          are. If you export Auction Insights to CSV, it can be imported and shown here beside this.
-        </p>
-      </Section>
-
-      <Section title="Keywords: what to fix before what to cut"
-        sub="Conversions decide first. Where there are none, the quality score decides whether the fault is the keyword's or ours.">
-        <KeywordBand s={kwSummary} />
-        <div style={{ marginTop: 18 }}>
-          {/* EVERY keyword, not a top-25. The first version capped the table and
-              hid the "too early" rows, so an account with 233 keywords showed
-              seven and looked broken (owner, 5 Oct 2026). */}
-          <KeywordTable rows={kwVerdicts} />
-        </div>
-      </Section>
-
-      <Section title="The keyword worklist"
-        sub="Most money at stake first. Open one to see why it is judged that way.">
-        <KeywordActions rows={kwVerdicts} />
-        <p className="lede" style={{ marginTop: 14 }}>
-          Showing every keyword that needs a decision. The ones marked{' '}
-          <b>too early</b> are in the table above but not here — under{' '}
-          {FAIR_TEST_CLICKS} clicks, nothing about them can honestly be concluded yet.
-        </p>
-      </Section>
-
-      {groups.length > 0 && (
-        <Section title="The pages losing the clicks"
-          sub="Grouped by page, because the fix is a page rather than a keyword \u2014 and the section that fixes it is written out for you.">
-          <PageFixes groups={groups} sections={sections} audits={audits} />
-        </Section>
-      )}
-
-      <Section title="Targets & pacing"
-        sub="Set your numbers once — the gauges here and the pace line below work off them. The daily refresh never overwrites these.">
-        <Targets t={targets} spend={k.spend} cpl={k.cpl} leads={k.leads}
-          daysDone={d.meta.daysDone} daysMonth={d.meta.daysMonth} />
-      </Section>
-
-      <Section
-        title={`${d.meta.monthLabel}, day by day`}
-        sub={`Blue is spend, green is leads that day. ${d.meta.daysDone} delivery days so far — weekends are absent because no campaign runs Saturday or Sunday. Averaging ${money(perDay)} a day.`}
-      >
-        <SpendLeadChart labels={d.sem.daily.labels} cost={d.sem.daily.cost} leads={d.sem.daily.leads} />
-      </Section>
-
-      <Section title="Lead pacing"
-        sub={targets.leads > 0
-          ? `Cumulative leads against a goal of ${targets.leads}. The dashed line is where you would need to be.`
-          : 'Cumulative leads. Set a monthly lead goal above and the pace line appears.'}>
-        <PaceChart labels={d.sem.daily.labels} cum={d.sem.daily.cum} goal={targets.leads} daysMonth={d.meta.daysMonth} />
-      </Section>
+      {/* SLIMMED 21 Oct 2026. The tab had fifteen sections and three of them led
+          to an action. Kept: the campaigns, what to change, the keyword worklist,
+          the pages losing clicks, and one pacing chart with the target. Gone:
+          month-over-month (the tiles carry the deltas), day-by-day (the pacing
+          chart shows the same days), "Concentration beats coverage" (a one-off
+          analysis from September), and the 709-row table, now behind a fold. The
+          paid tasks themselves are in the one list on Today. */}
+      <p className="lede" style={{ margin: '0 0 14px' }}>
+        <a href="/mw?ch=Paid#next">The paid tasks, ranked with everything else, are on Today →</a>
+      </p>
 
       {d.sem.campaigns?.length ? (
-        <Section title="Campaign scoreboard" sub="What is running, and what it costs per lead.">
+        <Section title="Campaigns" sub="What is running, and what it costs per lead (Google Ads count).">
           <Scoreboard rows={d.sem.campaigns} />
         </Section>
       ) : null}
 
-      {d.sem.benchmark?.length ? (
-        <Section title="Beaten by our own past campaigns"
-          sub="Where a paused campaign still outperforms what is live — and what it did differently.">
-          <Benchmark blocks={d.sem.benchmark} />
-        </Section>
-      ) : null}
-
-      <Section
-        title="Concentration beats coverage"
-        sub="Daily budget divided by live keywords, against conversion rate. The more thinly a campaign spreads its budget, the worse it converts — the clearest pattern in this account."
-      >
-        <div style={{ display: 'grid', gap: 18, gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))' }}>
-          <div>
-            <p className="eyebrow" style={{ margin: '0 0 8px' }}>Budget per keyword, per day</p>
-            <Bars max={maxBpk} rows={conc.map(c => ({
-              label: c.c + (c.live ? ' (live)' : ''), value: c.bpk, display: money(c.bpk), tone: c.live ? 'good' : 'dim',
-            }))} />
-          </div>
-          <div>
-            <p className="eyebrow" style={{ margin: '0 0 8px' }}>Conversion rate</p>
-            <Bars max={maxCvr} rows={conc.map(c => ({
-              label: c.c + (c.broad ? ' · broad match' : ''), value: c.cvr, display: `${c.cvr}%`,
-              tone: c.broad ? 'bad' : c.live ? 'good' : 'dim',
-            }))} />
-          </div>
-        </div>
-        <p className="lede" style={{ marginTop: 14 }}>
-          Read the two columns in the same order. The campaigns at the top of the left column are
-          near the top of the right one too. <strong>The exception proves it:</strong> the broad-match
-          campaign sits high on budget per keyword and converted nothing — concentration only pays
-          when the keywords are tight.
-        </p>
+      {/* ALWAYS RENDERED. A section that explains why it is empty is
+          information; one that vanishes is a bug (owner, 5 Oct 2026). */}
+      <Section title="What to change, campaign by campaign"
+        sub="Every impression we missed had one of two causes — budget or rank — and they need opposite responses.">
+        {verdicts.length > 0 ? (
+          <>
+            <AuctionBand s={auction} />
+            <div style={{ marginTop: 14 }}><AuctionActions rows={verdicts} /></div>
+            <details style={{ marginTop: 12 }}>
+              <summary className="mw-planner-lab">The full auction table</summary>
+              <div style={{ marginTop: 10 }}><AuctionTable rows={verdicts} /></div>
+            </details>
+          </>
+        ) : (
+          <p className="lede">No impression share was stored for {d.meta.monthLabel}.</p>
+        )}
       </Section>
 
-      {d.sem.leaks?.length ? (
-        <Section title="Where the money leaks" sub="Four fixable drains.">
-          <Cards rows={d.sem.leaks} />
-        </Section>
-      ) : null}
+      <Section title="Keywords to act on" sub="Most money at stake first. Under a fair test of clicks, nothing is concluded.">
+        <KeywordBand s={kwSummary} />
+        <div style={{ marginTop: 14 }}><KeywordActions rows={kwVerdicts} /></div>
+        <details style={{ marginTop: 12 }}>
+          <summary className="mw-planner-lab">All {kwVerdicts.length} keywords ({FAIR_TEST_CLICKS}+ clicks is a fair test)</summary>
+          <div style={{ marginTop: 10 }}><KeywordTable rows={kwVerdicts} /></div>
+        </details>
+      </Section>
 
-      {/* THE TASK LIST LIVES IN THE MARKET PLAN, NOT HERE.
-          It was on this page AND inside the plan, which meant two places to
-          answer the same thing and two places to check whether it had been
-          answered. The market plan is where a lead owns their whole market --
-          tasks, city pages and page changes together -- so the paid tasks
-          belong there with the rest of Rifat's, and this page goes back to
-          being what the money is doing. */}
-      {open > 0 && (
-        <Section title={`${open} paid search ${open === 1 ? 'task' : 'tasks'} still open`}
-          sub="Answered in the market plan, alongside everything else in the market.">
-          <p className="lede">
-            <a href="/mw/plan/paid">Open the paid search plan →</a>
-          </p>
+      {groups.length > 0 && (
+        <Section title="The pages losing the clicks"
+          sub="Grouped by page, because the fix is a page rather than a keyword — and the section that fixes it is written out for you.">
+          <PageFixes groups={groups} sections={sections} audits={audits} />
         </Section>
       )}
+
+      <Section title="Targets and pacing"
+        sub={targets.leads > 0
+          ? `Leads so far against a goal of ${targets.leads}. The dashed line is where you would need to be.`
+          : 'Set a monthly lead goal and the pace line appears.'}>
+        <Targets t={targets} spend={k.spend} cpl={k.cpl} leads={k.leads}
+          daysDone={d.meta.daysDone} daysMonth={d.meta.daysMonth} />
+        <div style={{ marginTop: 14 }}>
+          <PaceChart labels={d.sem.daily.labels} cum={d.sem.daily.cum} goal={targets.leads} daysMonth={d.meta.daysMonth} />
+        </div>
+      </Section>
     </div>
   )
 }

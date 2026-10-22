@@ -12,7 +12,7 @@ import { isBrand, MARKETS, SPECIALIST_SEED } from './mw-markets'
 import { rankedByPage } from './mw-seo-protect'
 import { openProposals } from './mw-proposals'
 import {
-  STEPS, STEP, scoreSteps, focusCut, progressOf, thisWeek, tally, weekOf, orderFor, currentStep, neighbours,
+  STEPS, STEP, GUARDRAILS, withGuardrails, scoreSteps, focusCut, progressOf, thisWeek, tally, weekOf, orderFor, currentStep, neighbours,
   type Evidence, type LinkedAction, type StepState, type StepProgress, type Scored, type FocusCut, type PlanStep,
 } from './mw-seo-plan'
 import { buildContext, type ContextPack } from './mw-seo-context'
@@ -166,7 +166,9 @@ export async function queuePrompt(o: {
   const prompt = o.prompt.trim().slice(0, 4000)
   if (!prompt) return { id: null, duplicate: false }
   const p = await loadPlanner()
-  const context = o.stepId && STEP[o.stepId] ? await contextFor(p, o.stepId, prompt) : { v: 1, ownerPrompt: prompt, guardrails: [] }
+  // Tasks outside the SEO plan (content briefs, paid reviews…) still carry the guardrails.
+  const context = o.stepId && STEP[o.stepId] ? await contextFor(p, o.stepId, prompt)
+    : { v: 1, task: withGuardrails(prompt), ownerPrompt: prompt, guardrails: GUARDRAILS, taskId: o.stepId }
   const minute = new Date().toISOString().slice(0, 16)
   const { createHash } = await import('node:crypto')
   const key = createHash('sha1').update(`${o.stepId}|${prompt}|${minute}|${o.source}`).digest('hex')

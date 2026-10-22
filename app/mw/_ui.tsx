@@ -7,7 +7,7 @@ import type { Alert } from '@/lib/mw-data'
 export function MwHero({
   tab, pulled, stale, headline, children, sources,
 }: {
-  tab: 'overview' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook' | 'studio'
+  tab: 'overview' | 'people' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook' | 'studio'
   pulled: string
   stale: boolean
   headline: string
@@ -15,16 +15,18 @@ export function MwHero({
   /** Override the source list: not every tab is built from Ads, GA4 and Semrush. */
   sources?: string
 }) {
+  // Nine tabs became six plus two (owner, 21 Oct 2026). The market plan lives
+  // on as each person's page; "How we log work" is reached from Leads; the
+  // Semrush import is a setting, not a destination.
   const tabs = [
-    { key: 'overview', href: '/mw', label: 'Overview' },
+    { key: 'overview', href: '/mw', label: 'Today' },
+    { key: 'people', href: '/mw/people', label: 'People' },
     { key: 'paid', href: '/mw/paid', label: 'Paid search' },
-    { key: 'seo', href: '/mw/seo', label: 'SEO & organic' },
-    { key: 'plan', href: '/mw/plan', label: 'Market plan' },
-    { key: 'gaps', href: '/mw/gaps', label: 'Content gap' },
-    { key: 'sales', href: '/mw/sales', label: 'Sales follow-up' },
+    { key: 'seo', href: '/mw/seo', label: 'Organic' },
+    { key: 'gaps', href: '/mw/gaps', label: 'Content' },
+    { key: 'sales', href: '/mw/sales', label: 'Leads' },
     { key: 'studio', href: '/mw/studio', label: 'Studio' },
-    { key: 'playbook', href: '/mw/playbook', label: 'How we log work' },
-    { key: 'import', href: '/mw/import', label: 'Import' },
+    { key: 'import', href: '/mw/import', label: 'Settings' },
   ] as const
   return (
     <>
