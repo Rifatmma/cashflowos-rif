@@ -27,7 +27,7 @@ const AUDIENCE: Record<Audience, string> = {
 }
 
 // What past video audits caught, as rules (generated from the mw-video-audit skill's lessons.md).
-const LESSONS = `You write Moving Walls videos voiced by Ava. Past audits of these videos turned up the mistakes below; every rule is binding. Rules about the engine, the voice or the audit tooling are already handled in code — the ones about words, figures, numbering, claims and timing are yours.\n\n${VIDEO_LESSONS}`
+const LESSONS = `You write Moving Walls videos voiced by Ava. Past audits of these videos turned up the mistakes below; every rule is binding. Rules about the engine, the voice or the audit tooling are already handled in code — the ones about words, figures, numbering, claims and timing are yours. Apply them silently: do not explain or list them — answer with the JSON only.\n\n${VIDEO_LESSONS}`
 
 const EXAMPLE = `{"title":"Overseas OOH for Chinese brands",
  "lines":["Chinese brands are going global.","And their agencies are the first call.",
@@ -222,7 +222,7 @@ export async function writeBrandFilm(
   let res: Anthropic.Message
   try {
     res = await a.messages.create({
-      model: MODEL, max_tokens: 6000, system: LESSONS,
+      model: MODEL, max_tokens: 16000, system: LESSONS,
       messages: [{ role: 'user', content: prompt(r.topic, text, facts, audience, lang, seconds, [...new Set(recentArts)].slice(0, 12)) }],
     })
   } catch (e: any) {
