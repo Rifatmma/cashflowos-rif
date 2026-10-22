@@ -1009,6 +1009,10 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
   background: transparent; color: var(--mw-ink); cursor: pointer;
 }
 .mw-bf-preview .mw-studio-clips video { width: 240px; }
+.mw-bf-word { display: inline-flex; flex: 1 1 160px; gap: 2px; }
+.mw-bf-word button, .mw-bf-addword {
+  border: 1px solid var(--mw-line-strong); border-radius: 8px; background: transparent; color: var(--mw-ink); cursor: pointer; padding: 0 9px;
+}
 /* Ava · local page: the site picker and the per-site card in the script */
 .mw-bf-city h4 { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; }
 .mw-bf-city h4 small { font-weight: 400; opacity: .6; }

@@ -52,6 +52,9 @@ node $ENGINE/render.js ./videos/<slug> 916,45                  # or: all
 ```
 Copy `examples/kuala-lumpur/spec.js`, keep its structure, replace lines/sites. Site-to-site transitions are `slide` (a swipe through the inventory). Check stills in every chosen format: name and numbers inside the safe area, brackets on the screen, near line not clipped.
 
+### 5b. Extra footage
+If the user brings their own photos or clips of the sites (a drive-by, a night shot), add them as `media` scenes — full-frame or as a card — next to that site's card (`references/spec.md` → Your own photos and video clips).
+
 ### 6. Hand over
 Send the MP4s and report: the sites used (with their numbers and source page), anything left out and why, every "format" and "near" that came from the photo or your own knowledge (for review), and the label decision (monthly).
 

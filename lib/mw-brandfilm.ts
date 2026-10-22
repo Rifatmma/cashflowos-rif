@@ -224,7 +224,16 @@ export function resolveFilm(
     // last digit lands as she says it.
     if (sc.art === 'number' && ev.on) artAt = Math.max(a, at(sc.line, ev.on) + 0.2 - 1.1)
     // A burst word lands a hair before it is said, like the text.
-    const words = sc.words?.map((w, k) => ({ t: Math.max(a, at(sc.line, w.on) - 0.12), s: w.s, bg: w.bg ?? (k % 2 ? 'cover' : 'white'), ...(w.s.trim().includes(' ') ? { st: 'h' } : {}) }))
+    // Burst words are read top to bottom, so they land in that order: a word
+    // whose cue Ava never says (or says earlier) follows the one above it
+    // instead of jumping to the start of the scene.
+    let last = a - 0.4
+    const words = sc.words?.filter(w => w.s.trim()).map((w, k) => {
+      const said = w.on && v.words.some(([x]) => norm(x).startsWith(norm(w.on!)) && norm(w.on!))
+      const t = +Math.max(a, last + 0.35, said ? at(sc.line, w.on) - 0.12 : 0).toFixed(3)
+      last = t
+      return { t, s: w.s.trim(), bg: w.bg ?? (k % 2 ? 'cover' : 'white'), ...(w.s.trim().includes(' ') ? { st: 'h' } : {}) }
+    })
     const photo = mode === 'photos' && sc.photo && photos?.[photoKey(sc.photo.query)]
       ? { key: photoKey(sc.photo.query), word: sc.photo.word, shape: (['circle', 'bar', 'zig', 'blue'] as const)[i % 4] }
       : undefined

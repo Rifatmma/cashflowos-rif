@@ -10,7 +10,9 @@
 //  same pictures. Pure function of time: nothing reads the clock.
 //
 //  SPEC fields the engine reads: scenes, supers?, accent?, cover?, burst?
-//  TEX: { dark, light } dot-texture images, { photos }: cut-outs by key.
+//  TEX: { dark, light } dot-texture images, { photos }: cut-outs and site
+//  photos by key, { media }: the user's own images, or video clips as
+//  { current } (the host sets the frame for each t before drawing).
 // ===================================================================
 function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   // ---------- format + safe area ----------
@@ -250,7 +252,13 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const sx = lerp(x0, x1, i / (ev.stations.length - 1)); if (sx > lerp(x0, x1, lp) + 1) return;
         const lit = tx > sx;
         x.fillStyle = lit ? C.sky : (dark ? C.navy : C.white); x.strokeStyle = C.sky; x.lineWidth = 6; x.beginPath(); x.arc(sx, ly, 20, 0, 7); x.fill(); x.stroke();
-        fitFont(nm, 600, 24, (x1 - x0) / Math.max(1, ev.stations.length - 1) - 12); x.textAlign = 'center'; x.letterSpacing = '2px'; x.fillStyle = dark ? 'rgba(255,255,255,.75)' : C.type; x.fillText(nm, sx, ly + 72);
+        // Names alternate between two rows when there are more than three, so
+        // each gets two gaps of width; the end names align inwards so the
+        // first and last never hang past the line's ends.
+        const n = ev.stations.length, gap = (x1 - x0) / Math.max(1, n - 1), two = n > 3;
+        const room = (two ? gap * 2 : gap) - 12, edge = i === 0 ? 'left' : i === n - 1 ? 'right' : 'center';
+        fitFont(nm, 600, 26, edge === 'center' ? room : Math.min(room, gap * (two ? 1.5 : 1) + 40)); x.textAlign = edge; x.letterSpacing = '2px'; x.fillStyle = dark ? 'rgba(255,255,255,.75)' : C.type;
+        x.fillText(nm, edge === 'left' ? sx - 20 : edge === 'right' ? sx + 20 : sx, ly + 68 + (two && i % 2 ? 40 : 0));
         const sp = oBack(clamp((tx - sx) / 180), 2);
         if (sp > 0) { x.save(); x.translate(sx, ly - 50); x.scale(sp, sp); const g = x.createLinearGradient(0, -230, 0, 0); g.addColorStop(0, C.sky); g.addColorStop(1, C.blue); x.fillStyle = g; x.beginPath(); x.roundRect(-70, -240, 140, 190, 10); x.fill(); shape('wave_solid', -46, -170, 92, C.white); x.fillStyle = C.blue; x.fillRect(-5, -50, 10, 50); x.restore(); }
       });
@@ -339,7 +347,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
           x.save(); x.beginPath(); x.rect(cx - 4, base - size * .78, dw + 8, size * .92); x.clip();
           if (roll > .05) x.filter = `blur(${Math.min(12, roll * 5)}px)`;
           x.fillStyle = dark ? C.white : C.type;
-          x.fillText(String(Math.floor(cur) % 10), cx, base - fr * size); x.fillText(String((Math.floor(cur) + 1) % 10), cx, base - fr * size + size);
+          x.fillText(String(Math.floor(cur) % 10), cx, base - fr * size); if (fr > .001) x.fillText(String((Math.floor(cur) + 1) % 10), cx, base - fr * size + size);   // the next digit only while rolling
           x.restore();
         } else { x.fillStyle = dark ? C.sky : C.blue; x.globalAlpha *= P(u, .5, .8); x.fillText(ch, cx, base); x.globalAlpha = P(u, 0, .15); }
         cx += dw;
@@ -433,9 +441,15 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         fitFont(d.label, 600, 40, 960); x.fillStyle = fg(dark); x.textAlign = 'left'; x.fillText(d.label, 0, y);
         x.fillStyle = soft(dark); x.beginPath(); x.roundRect(0, y + 24, 960, 110, 55); x.fill();
         x.fillStyle = last ? accGrad(0, 960) : (dark ? C.sky : C.blue); x.beginPath(); x.roundRect(0, y + 24, Math.max(110, wmax * p), 110, 55); x.fill();
-        const fs = fitFont(d.display || String(d.value), 800, 70, Math.max(200, wmax * p - 60));
-        x.fillStyle = last ? C.navy : C.white; x.globalAlpha *= P(u, t0 + .45, t0 + .7);
-        x.textAlign = 'right'; x.fillText(d.display || String(d.value), Math.max(110, wmax * p) - 40, y + 79 + fs * .35);
+        // The figure sits inside its bar when it fits there, else just past
+        // the bar's end. (Right-aligned inside, a short bar — 363K next to
+        // 1.56M — pushed it out of the bar's left side and off the frame.)
+        const lab = d.display || String(d.value), bw = Math.max(110, wmax * p);
+        const inside = fitFont(lab, 800, 70, 960) + 80 <= Math.max(110, wmax);
+        const fs = inside ? fitFont(lab, 800, 70, Math.max(110, wmax) - 80) : fitFont(lab, 800, 70, Math.max(120, 960 - Math.max(110, wmax) - 24));
+        x.globalAlpha *= P(u, t0 + .45, t0 + .7);
+        if (inside) { x.fillStyle = last ? C.navy : C.white; x.textAlign = 'right'; x.fillText(lab, bw - 40, y + 79 + fs * .35); }
+        else { x.fillStyle = last ? accentText(dark) : fg(dark); x.textAlign = 'left'; x.fillText(lab, Math.min(bw + 24, 960 - x.measureText(lab).width), y + 79 + fs * .35); }
         x.globalAlpha = 1;
       });
       x.restore();
@@ -762,12 +776,12 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   // A small, blurred, darkened copy of a photo for backdrops, made once
   // (a per-frame ctx.filter blur of a full photo is slow).
   const BLUR = new Map();
-  function blurred(img) {
-    if (BLUR.has(img)) return BLUR.get(img);
+  function blurred(img, key = img) {          // key: one blur per video clip, not per frame
+    if (BLUR.has(key)) return BLUR.get(key);
     const w = Math.max(8, Math.round(img.naturalWidth / 6)), h = Math.max(8, Math.round(img.naturalHeight / 6));
     const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : Object.assign(document.createElement('canvas'), { width: w, height: h });
     const g = c.getContext('2d'); g.filter = 'blur(5px) brightness(.42) saturate(1.15)'; g.drawImage(img, -w * .05, -h * .05, w * 1.1, h * 1.1);
-    BLUR.set(img, c); return c;
+    BLUR.set(key, c); return c;
   }
 
   // ---------- transitions ----------
@@ -865,11 +879,14 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       background(sc.bg, T, sc.tex);
       const L = layout(sc.layout);
       const usePhoto = sc.photo && TEX.photos && TEX.photos[sc.photo.key];
-      x.save(); const push = 1 + .03 * P(T, sc.a, sc.b), ac = { x: L.art.x + L.art.w / 2, y: L.art.y + L.art.h / 2 };
+      // The art pushes in 3% over the scene; it is laid out 3% smaller so
+      // that at full push its outer labels are still inside the safe area.
+      const PUSH = .03, art = { x: L.art.x + L.art.w * PUSH / 2, y: L.art.y + L.art.h * PUSH / 2, w: L.art.w * (1 - PUSH), h: L.art.h * (1 - PUSH) };
+      x.save(); const push = 1 + PUSH * P(T, sc.a, sc.b), ac = { x: art.x + art.w / 2, y: art.y + art.h / 2 };
       x.translate(ac.x, ac.y); x.scale(push, push); x.translate(-ac.x, -ac.y);
       const ap = sc.artAt ?? sc.a;
-      if (usePhoto) ART.photo(T - ap, L.art, dark, sc.photo);
-      else if (sc.art && ART[sc.art]) { x.save(); ART[sc.art](T - ap, L.art, dark, sc.ev || {}); x.restore(); }
+      if (usePhoto) ART.photo(T - ap, art, dark, sc.photo);
+      else if (sc.art && ART[sc.art]) { x.save(); ART[sc.art](T - ap, art, dark, sc.ev || {}); x.restore(); }
       x.restore();
       textBlock(T, sc.text, L.text, dark, L.align);
     },
@@ -895,7 +912,10 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       if (i < 0) return;
       const st = STY[w.st || 'hx']; let size = st.size * U * (LAND ? 1.15 : 1);
       const chevK = .62 * SH.chevrons.w / SH.chevrons.h;
-      const full = sz => measure(w.s, st, sz) + sz * chevK + sz * .22;
+      // The word keeps growing slightly while it is on screen: fit it at the
+      // size it will have reached when the next word replaces it.
+      const grow = 1 + Math.max(0, (sc.words[i + 1]?.t ?? sc.b) - w.t) * .05;
+      const full = sz => (measure(w.s, st, sz) + sz * chevK + sz * .22) * grow;
       if (full(size) > SA.w) size *= SA.w / full(size);
       const shift = (size * chevK + size * .22) / 2;
       const fx = slam(T, w.t, .18); fx.sc *= 1 + (T - w.t) * .05;
@@ -999,6 +1019,38 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.restore();
       }
     },
+    // the user's own photo or video clip: full-frame with the words over a
+    // dark fade, or as a card over a blurred copy of itself with the words below
+    media(sc, T) {
+      const m = TEX.media && TEX.media[sc.media], img = m && (m.current || (m.naturalWidth ? m : null)), u = T - sc.a;
+      const f = sc.focus || [.25, .2, .5, .6], bw = sc.grade === 'bw' ? 'grayscale(1) contrast(1.1)' : 'none';
+      // stills push in slowly; footage already moves, so it barely does
+      const zoom = m && m.current ? 1.02 : lerp(1.03, 1.13, ioCub(P(T, sc.a, sc.b)));
+      background('navy', T, false);
+      if (sc.fit !== 'card') {
+        if (img) { x.save(); x.filter = bw; coverImg(img, { x: 0, y: 0, w: W, h: H }, f, zoom); x.restore(); }
+        const veil = x.createLinearGradient(0, H * (LAND ? .3 : .38), 0, H); veil.addColorStop(0, 'rgba(27,30,43,0)'); veil.addColorStop(.55, 'rgba(27,30,43,.78)'); veil.addColorStop(1, 'rgba(27,30,43,.92)');
+        x.fillStyle = veil; x.fillRect(0, 0, W, H);
+        const bottom = SA.y + SA.h - SUPER_H;
+        textBlock(T, sc.text, { x: SA.x, y: LAND ? SA.y + SA.h * .52 : bottom - SA.h * .36, w: SA.w * (LAND ? .62 : 1), h: SA.h * (LAND ? .44 : .36) }, true);
+        return;
+      }
+      if (img) {
+        coverImg(blurred(img, sc.media), { x: -60 * U, y: -60 * U, w: W + 120 * U, h: H + 120 * U }, f, 1.1);
+        const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, 'rgba(27,30,43,.35)'); g.addColorStop(1, 'rgba(27,30,43,.8)');
+        x.fillStyle = g; x.fillRect(0, 0, W, H);
+      }
+      const b = { x: SA.x, y: SA.y, w: SA.w, h: SA.h - SUPER_H };
+      const card = LAND ? { x: b.x, y: b.y + b.h * .05, w: b.w * .58, h: b.h * .9 } : { x: b.x, y: b.y, w: b.w, h: Math.min(b.w * 1.05, b.h * .58) };
+      const info = LAND ? { x: b.x + b.w * .63, y: b.y + b.h * .2, w: b.w * .37, h: b.h * .6 } : { x: b.x, y: card.y + card.h + b.h * .05, w: b.w, h: b.h - card.h - b.h * .05 };
+      const wp = sc.tr === 'slide' ? 1 : oExpo(P(u, 0, .6));
+      x.save(); x.beginPath(); x.roundRect(card.x, card.y, card.w, card.h, 22 * U); x.clip();
+      x.beginPath(); x.rect(card.x, card.y, card.w * wp, card.h); x.clip();
+      if (img) { x.filter = bw; coverImg(img, card, f, zoom); } else { x.fillStyle = BG.cover(); x.fillRect(card.x, card.y, card.w, card.h); }
+      x.restore();
+      if (wp < 1) { x.fillStyle = accGrad(card.x, card.x + card.w); x.fillRect(card.x + card.w * wp - 6 * U, card.y, 12 * U, card.h); }
+      textBlock(T, sc.text, info, true);
+    },
     logo(sc, T) {
       background('cover', T, true); const u = T - sc.a, lp = oExpo(P(u, 0, .35));
       const lw = Math.min(560 * U, SA.w * .8);
@@ -1020,7 +1072,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
 
   // ---------- persistent chrome: guidebook footer strip + subtitles ----------
   function chrome(T, sc) {
-    const dark = !!DARK[sc.bg] || sc.kind === 'cover' || sc.kind === 'logo' || sc.kind === 'site';
+    const dark = !!DARK[sc.bg] || sc.kind === 'cover' || sc.kind === 'logo' || sc.kind === 'site' || sc.kind === 'media';
     // decoration may sit under platform UI; it carries no meaning
     if (sc.kind !== 'end' && sc.kind !== 'burst') zigStrip(-30 * U, H - 92 * U, 34 * U, Math.ceil(W / (90 * U)) + 2, dark ? 'rgba(102,201,243,.5)' : 'rgba(43,60,146,.28)', 1, T * 30 * U);
     const sub = (SPEC.supers || []).find(s => T >= s.a && T < s.b);
@@ -1037,6 +1089,17 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     }
   }
 
+  // Burst words are read top to bottom and the arrow marks the newest one,
+  // so their times must rise in that order. A cue word Ava never said (or
+  // said twice) can come back early; it is moved to just after the word
+  // above it, and nothing lands in the last 0.3s of the scene.
+  for (const s of SPEC.scenes) {
+    if (s.kind !== 'burst' || !s.words) continue;
+    s.words = s.words.filter(w => String(w.s ?? '').trim()).map(w => ({ ...w }));   // an emptied word would leave an arrow on a blank row
+    let prev = s.a - 1;
+    for (const w of s.words) { if (!(w.t > prev + .1)) w.t = prev + .25; w.t = Math.min(w.t, s.b - .3); prev = w.t; }
+  }
+
   // ---------- dispatcher ----------
   function drawScene(sc, T) { x.save(); KIND[sc.kind](sc, T); x.restore(); }
   function render(T) {
@@ -1050,6 +1113,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     chrome(T, sc);
     for (const s of S) if (s.tr === 'zig') zigSweep(T, s.a);
   }
+  render.safe = SA;     // for audits: the area readable text must stay inside
+  render.format = FMT;
   return render;
 }
 if (typeof module !== 'undefined') module.exports = { createEngine };

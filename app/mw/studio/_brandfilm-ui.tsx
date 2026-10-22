@@ -287,6 +287,16 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
     setClip(null)
   }
 
+  /** A new burst word lands after the last one; it is said on no particular word. */
+  const addWord = (si: number) => {
+    setPlan(p => p && { ...p, scenes: p.scenes.map((sc, j) => (j !== si ? sc : { ...sc, words: [...(sc.words ?? []), { s: 'New word.', on: '' }] })) })
+    setClip(null)
+  }
+  const removeWord = (si: number, wi: number) => {
+    setPlan(p => p && { ...p, scenes: p.scenes.map((sc, j) => (j !== si ? sc : { ...sc, words: sc.words?.filter((_, k) => k !== wi) })) })
+    setClip(null)
+  }
+
   // -------------------------------------------------------------- photos
   //
   // For every scene the plan suggested a photo for: the library first, else
@@ -660,9 +670,15 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
                         )
                       })()}
                       {s.words?.map((w, wi) => (
-                        <input key={wi} value={w.s} title={`on “${w.on}”`} className="mw-bf-t mw-bf-h"
-                          onChange={e => editWord(si, wi, e.target.value)} />
+                        <span key={wi} className="mw-bf-word">
+                          <input value={w.s} title={w.on ? `lands on “${w.on}”` : 'follows the word before it'} className="mw-bf-t mw-bf-h"
+                            onChange={e => editWord(si, wi, e.target.value)} />
+                          <button type="button" title="Remove this word" onClick={() => removeWord(si, wi)}>×</button>
+                        </span>
                       ))}
+                      {s.kind === 'burst' && (s.words?.length ?? 0) < 8 && (
+                        <button type="button" className="mw-bf-addword" onClick={() => addWord(si)}>+ word</button>
+                      )}
                     </div>
                   ))}
                 </li>

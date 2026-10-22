@@ -1,6 +1,6 @@
 ---
 name: mw-brand-video
-description: Turn a Moving Walls blog article (or any brief) into an on-brand motion-graphics video with Ava's voiceover — beat-synced edit, guidebook zigzags/logo/chevrons, ducked music + sound design, optional Chinese or other-language subtitles — rendered as MP4 in 9:16, 16:9, 1:1 and/or 4:5. Use this whenever the user wants a video, reel, short, animated post, motion graphic, explainer or social video for Moving Walls / movingwalls.com content, mentions "Ava" or "the voiceover", pastes a movingwalls.com/blog link and asks to "make one like the Tokyo/Chinese brands one", or wants a static frame or carousel pulled from such a video — even if they don't say "skill" or name a format. For videos about inventory on a /locations/ page (featured sites in a country or city) use mw-location-video instead.
+description: Turn a Moving Walls blog article, a URL, a storyboard or any brief (plus the user's own photos and video clips) into an on-brand motion-graphics video with Ava's voiceover — beat-synced edit, guidebook zigzags/logo/chevrons, ducked music + sound design, optional Chinese or other-language subtitles — rendered as MP4 in 9:16, 16:9, 1:1 and/or 4:5. Use this whenever the user wants a video, reel, short, animated post, motion graphic, explainer or social video for Moving Walls / movingwalls.com content, mentions "Ava" or "the voiceover", pastes a movingwalls.com/blog link and asks to "make one like the Tokyo/Chinese brands one", or wants a static frame or carousel pulled from such a video — even if they don't say "skill" or name a format. For videos about inventory on a /locations/ page (featured sites in a country or city) use mw-location-video instead.
 ---
 
 # Moving Walls brand video (Ava for blog posts)
@@ -16,7 +16,7 @@ Read as needed: `references/script.md` (writing the VO) · `references/spec.md` 
 bash <skill-dir>/scripts/setup.sh        # prints ENGINE=<path> on the last line
 ```
 Copies the engine to a writable home (`~/.mw-brand-video/engine`, override with `MW_VIDEO_HOME`), installs Poppins/Noto Sans SC/Playwright via npm and numpy/scipy/edge-tts via pip. Needs node, python3, ffmpeg. On Windows run it from Git Bash.
-Network needs: `speech.platform.bing.com` (Ava), the article's site, and for photos your app (`cashflowos-rif.vercel.app`, override with `MW_STUDIO_URL`) plus `images.pexels.com`. In a Claude Code cloud environment these must be in the environment's allowed domains — if TTS or the fetch fails with a proxy/403/DNS error, tell the user which host to allow rather than working around it.
+Network needs: `speech.platform.bing.com` (Ava), the article's site, npm/pip registries for setup, and — only for the shared cut-out library — the Moving Walls app (`cashflowos-rif.vercel.app`, override with `MW_STUDIO_URL`) plus `images.pexels.com`. In a Claude Code cloud environment these must be in the environment's allowed domains — if TTS or the fetch fails with a proxy/403/DNS error, tell the user which host to allow rather than working around it.
 
 ### 1. Read the article
 Fetch the page and extract the real text (headings, claims, every number, named places, case studies, CTA). If the site can't be fetched, say so and ask the user to paste it or allow the domain — don't write from search snippets when the article itself is reachable later.
@@ -53,8 +53,11 @@ python3 <skill-dir>/scripts/photos.py ./videos/<slug> "megaphone isolated on whi
 ```
 It prints `{"key","path","credit"}`. Add `photos: { <key>: '<path>' }` to the SPEC and `photo: { key }` to the scene, and keep its `art` as the fallback. It reuses the team's shared cut-out library first. Otherwise it gets Pexels photos that Claude has checked show the subject, and keys out white or green backdrops for free.
 - On `{"error"}`, keep the illustration for that scene, and say which ones need the Studio's AI cut-out (busy backgrounds).
-- Needs `MW_STUDIO_TOKEN` in the environment (same value as on Vercel). If it's missing, tell the user and continue infographic-only.
+- Needs `MW_STUDIO_TOKEN` in the environment (ask the Moving Walls marketing team for it). If it's missing, say so and continue infographic-only — or use the user's own photos as `media` scenes instead.
 - List photo credits for the caption when you hand over ("Photos by … on Pexels").
+
+### 5c. The user's own photos and clips
+If the user gives you images or video (event footage, a product, a site), use them as `media` scenes — full-frame with the words over a fade, or as a card (`references/spec.md` → Your own photos and video clips). Ask what each one shows if it isn't obvious, and keep Ava's line about what is on screen.
 
 ### 6. Check stills, then render
 ```bash

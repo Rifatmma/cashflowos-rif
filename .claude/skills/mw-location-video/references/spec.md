@@ -47,3 +47,26 @@ Timing: the site's line starts the scene; chip ≈ 0.3s before the format/settin
 | … one line per site … | site 02–06 |
 | Plan by audience, buy programmatically, and measure the footfall. | burst PLAN. BUY. MEASURE. Real footfall. |
 | Kuala Lumpur, live on Moving Walls. Out-of-home, no boundaries. | end: city · "Live on Moving Walls." · "No boundaries." (accent) · movingwalls.com/locations/<country> |
+
+## Your own photos and video clips (`media` scene)
+
+Any image or clip the user supplies — event footage, a site walkthrough, a product shot, a team photo — goes into the motion design as a scene of its own. Copy the files into the project (e.g. `media/`) and list them in the spec:
+
+```js
+SPEC.media = { launch: 'media/launch-night.mp4', team: 'media/team.jpg' };
+// a full-frame clip, words over a dark fade at the bottom
+{ kind: 'media', a: 4, b: 9.5, tr: 'zig', media: 'launch', from: 2.0,
+  text: [{ t: 4.1, s: 'Launch night', st: 'lab' }, { t: 4.2, s: 'Times Square, live', st: 'h' }, { t: 5.5, s: 'one network, one night.', st: 's' }] },
+// a photo (or clip) as a card over a blurred copy of itself, words below / beside
+{ kind: 'media', a: 9.5, b: 13, tr: 'slide', media: 'team', fit: 'card', focus: [.3, .2, .4, .5], grade: 'bw', text: [...] },
+```
+
+| field | meaning |
+|---|---|
+| `media` | key into `SPEC.media`. Images: jpg/png/webp. Clips: mp4/mov/m4v/webm (any codec ffmpeg reads). |
+| `fit` | `full` (default): fills the frame. `card`: framed card, blurred backdrop — use for photos that are not 9:16-friendly. |
+| `from` | clips only: seconds into the clip where this scene starts (the clip then plays in real time). |
+| `focus` | `[x, y, w, h]` fractions: what must stay in frame when the format crops it (a face, the screen, the product). |
+| `grade` | `bw` for black-and-white (matches the cut-out photo look); default is the original colour. |
+
+`render.js` turns each clip into frames with ffmpeg once (`out/.frames/`), so every frame is exact. The clip's own sound is not used — the music and Ava carry the audio. Keep text off the busy part of the frame: on `full`, the words sit in the lower third over the fade, so choose `focus` (or `from`) so the subject is in the upper half. Check stills in every format: a 16:9 clip in 9:16 shows only its middle third.

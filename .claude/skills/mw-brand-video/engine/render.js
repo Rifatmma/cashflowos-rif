@@ -1,4 +1,4 @@
-// node render.js <project-dir> <916|169|11|45|all|916,169…> [stills t1 t2 …]
+// node render.js <project-dir> <916|169|11|45|all|916,169…> [stills t1 t2 … | audit]
 // Renders frames from engine.html, mixes VO + score (score.py), muxes <project>/out/<name>_<fmt>.mp4
 const fs = require('fs'), path = require('path'), { spawn, execFileSync } = require('child_process');
 const { pathToFileURL } = require('url');
@@ -31,7 +31,14 @@ async function renderFormat(browser, f) {
   page.on('pageerror', e => console.error('PAGEERR', f, e.message));
   await page.goto(`${pathToFileURL(path.join(__dirname, 'engine.html')).href}?f=${f}&dir=${encodeURIComponent(pathToFileURL(dir).href)}`);
   await page.evaluate(() => window.ready);
-  const grab = t => page.evaluate(t => { render(t); return document.getElementById('c').toDataURL('image/png'); }, t);
+  const grab = t => page.evaluate(async t => { if (window.prepare) await window.prepare(t); render(t); return document.getElementById('c').toDataURL('image/png'); }, t);
+  if (mode === 'audit') {
+    const issues = await page.evaluate(() => window.runAudit());
+    fs.writeFileSync(path.join(out, `audit_${f}.json`), JSON.stringify(issues, null, 1));
+    console.log(`\n${f}: ${issues.length ? issues.length + ' issue(s)' : 'no layout issues'}`);
+    for (const q of issues) console.log(`  [${q.kind}] scene ${q.scene} @${q.t}s  "${q.text}" — ${q.detail}`);
+    await page.close(); return;
+  }
   if (mode === 'stills') {
     for (const t of times) fs.writeFileSync(path.join(out, `still_${f}_${t}.png`), Buffer.from((await grab(+t)).split(',')[1], 'base64'));
     await page.close(); return;
@@ -51,12 +58,31 @@ async function renderFormat(browser, f) {
   console.log('done', final);
   await page.close();
 }
+// The user's own video clips (SPEC.media entries that are video files) become
+// numbered JPEG frames at 30fps, once; engine.html loads the one each frame needs.
+function extractClips() {
+  const frames = {}, root = path.join(out, '.frames');
+  for (const [k, p] of Object.entries(spec.media || {})) {
+    if (!/\.(mp4|mov|m4v|webm|mkv|avi)$/i.test(p)) continue;
+    const src = path.join(dir, p), d = path.join(root, k);
+    const fresh = fs.existsSync(path.join(d, '00001.jpg')) && fs.statSync(path.join(d, '00001.jpg')).mtimeMs > fs.statSync(src).mtimeMs;
+    if (!fresh) {
+      fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d, { recursive: true });
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', src, '-vf', "fps=30,scale='min(1920,iw)':-2", '-q:v', '3', path.join(d, '%05d.jpg')]);
+    }
+    frames[k] = { n: fs.readdirSync(d).filter(f => f.endsWith('.jpg')).length, fps: 30 };
+  }
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, 'frames.js'), 'window.__FRAMES=' + JSON.stringify(frames) + ';');
+}
+
 (async () => {
-  if (mode !== 'stills') execFileSync(process.platform === 'win32' ? 'python' : 'python3', [path.join(__dirname, 'score.py'), dir], { stdio: 'inherit' });
+  extractClips();
+  if (mode !== 'stills' && mode !== 'audit') execFileSync(process.platform === 'win32' ? 'python' : 'python3', [path.join(__dirname, 'score.py'), dir], { stdio: 'inherit' });
   const browser = await chromium.launch({ executablePath: chromiumPath(), args: ['--allow-file-access-from-files'] });
   await Promise.all(fmts.map(f => renderFormat(browser, f)));
   await browser.close();
-  if (mode !== 'stills') remember();
+  if (mode !== 'stills' && mode !== 'audit') remember();
 })();
 
 // The look of every finished video, newest first, so the next one can be

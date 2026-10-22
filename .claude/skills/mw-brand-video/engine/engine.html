@@ -12,6 +12,7 @@ html,body{margin:0;background:#000}canvas{display:block}
 <link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/700.css">
 <script src="shapes.js"></script>
 <script src="core.js"></script>
+<script src="audit.js"></script>
 </head><body>
 <canvas id="c"></canvas>
 <script>
@@ -28,9 +29,31 @@ window.ready = load(`${PDIR}/vo.js`).then(() => load(`${PDIR}/spec.js`)).then(as
   const TEX = { dark: await img('connection_dots_1.png'), light: await img('connection_dots_4.png'), photos: {} };
   // cut-outs: SPEC.photos = { key: 'relative/path.png' } inside the project folder
   for (const [k, p] of Object.entries(SPEC.photos || {})) TEX.photos[k] = await img(`${PDIR}/${p}`);
+  // the user's own media: SPEC.media = { key: 'path.jpg' | 'path.mp4' }. Clips arrive as
+  // frames render.js extracted with ffmpeg (out/.frames/<key>/00001.jpg…), so every frame
+  // is exact whatever codecs this browser has.
+  TEX.media = {};
+  await load(`${PDIR}/out/.frames/frames.js`);
+  for (const [k, p] of Object.entries(SPEC.media || {})) {
+    const fr = (window.__FRAMES || {})[k];
+    TEX.media[k] = fr ? { current: null, ...fr } : await img(`${PDIR}/${p}`);
+  }
   await Promise.all([...['400', '600', '700', '800', 'italic 600', 'italic 400'].map(w => document.fonts.load(`${w} 20px Poppins`)),
     document.fonts.load("700 20px 'Noto Sans SC'", '中文').catch(() => 0)]);
   window.render = createEngine(cv.getContext('2d'), W, H, SPEC, SHAPES, TEX);
+  window.runAudit = () => auditFilm(cv.getContext('2d'), W, H, SPEC, window.render);
+  // Before each frame: put the right frame of every clip on screen at t in place.
+  const cache = new Map();
+  window.prepare = async t => {
+    for (const s of SPEC.scenes) {
+      const m = s.media && TEX.media[s.media];
+      if (!m || !m.n || t < s.a - .6 || t > s.b + .6) continue;
+      const i = Math.min(m.n, Math.max(1, Math.floor(((s.from || 0) + Math.max(0, t - s.a)) * m.fps) + 1));
+      const src = `${PDIR}/out/.frames/${s.media}/${String(i).padStart(5, '0')}.jpg`;
+      if (!cache.has(src)) { cache.set(src, await img(src)); if (cache.size > 24) cache.delete(cache.keys().next().value); }
+      m.current = cache.get(src);
+    }
+  };
   return true;
 });
 </script></body></html>
