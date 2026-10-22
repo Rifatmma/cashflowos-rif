@@ -361,31 +361,30 @@ export async function videoUploadTarget(slug: string, fmt: string): Promise<{ ok
   }
 }
 
-/** The audit email to Rif, with a 30-day link to the export. */
-export async function sendVideoAudit(m: import('@/lib/mw-video-audit-send').AuditMail): Promise<{ ok: true; link: string | null } | { ok: false; error: string }> {
+/**
+ * After a Studio export, silently: nothing when the video is clean; otherwise
+ * engine bugs into Claude's inbox (for the mw-video-audit skill) and the
+ * check emailed to Rif with the video's 30-day link. Any Studio user's export
+ * triggers it — the row and the email are the system's, not the user's.
+ */
+export async function finishVideoCheck(v: import('@/lib/mw-video-audit-send').AuditMail & { slug: string; plan: unknown; film: unknown }): Promise<{ ok: true; emailed: boolean; inbox: number | null } | { ok: false; error: string }> {
   try {
+    const { stillWrong, engineBugs } = await import('@/lib/mw-video-audit')
+    const findings = (v.findings ?? []).slice(0, 60)
+    if (!stillWrong(findings).length) return { ok: true, emailed: false, inbox: null }
+    let inbox: number | null = null
+    const bugs = engineBugs(findings)
+    if (bugs.length) {
+      const slug = String(v.slug ?? '').replace(/[^a-z0-9-]/g, '').slice(0, 60) || 'video'
+      const extra = { kind: 'video-audit', title: String(v.title).slice(0, 200), format: v.format, article: String(v.article ?? '').slice(0, 300), findings: bugs, plan: v.plan, film: v.film }
+      if (JSON.stringify(extra).length <= 400_000) {
+        const prompt = `Video audit: the Studio found ${bugs.length} engine problem${bugs.length > 1 ? 's' : ''} it could not fix in “${String(v.title).slice(0, 120)}” (${String(v.format).slice(0, 8)}). Use the mw-video-audit skill: reproduce from the plan, fix the engine, add the lessons, and reply with what changed.`
+        inbox = (await queuePrompt({ stepId: `video:${slug}`, prompt, by: `studio:${await actor()}`, source: 'web', extra })).id
+      }
+    }
     const { sendAuditMail } = await import('@/lib/mw-video-audit-send')
-    return { ok: true, ...(await sendAuditMail({ ...m, findings: m.findings.slice(0, 60), fixed: m.fixed.slice(0, 60), changed: m.changed.slice(0, 30) })) }
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message ?? e).slice(0, 200) }
-  }
-}
-
-/** Send to Claude to fix: the findings, the plan and the film into the inbox, for the mw-video-audit skill. Owner only. */
-export async function sendVideoToClaude(v: {
-  title: string; slug: string; format: string; findings: unknown[]; plan: unknown; film: unknown; video: string | null; article: string
-}): Promise<{ ok: true; id: number | null } | { ok: false; error: string }> {
-  if (!(await isOwner())) return { ok: false, error: 'Only the owner can send work to Claude.' }
-  const slug = String(v.slug ?? '').replace(/[^a-z0-9-]/g, '').slice(0, 60) || 'video'
-  const prompt = `Video audit: fix what is still open in “${String(v.title).slice(0, 120)}” (${String(v.format).slice(0, 8)}) — use the mw-video-audit skill: reproduce from the plan, run the loop, fix in the engine, add the lessons, and reply with what changed.`
-  const extra = {
-    kind: 'video-audit', title: String(v.title).slice(0, 200), format: v.format, article: String(v.article ?? '').slice(0, 300),
-    video: v.video, findings: (v.findings ?? []).slice(0, 60), plan: v.plan, film: v.film,
-  }
-  if (JSON.stringify(extra).length > 400_000) return { ok: false, error: 'The video is too large to send as context.' }
-  try {
-    const r = await queuePrompt({ stepId: `video:${slug}`, prompt, by: 'owner', source: 'web', extra })
-    return { ok: true, id: r.id }
+    await sendAuditMail({ ...v, findings, fixed: (v.fixed ?? []).slice(0, 60), changed: (v.changed ?? []).slice(0, 30), inbox })
+    return { ok: true, emailed: true, inbox }
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e).slice(0, 200) }
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { researchArticleUrl, writeBrandVideo, speakBrandVideo, findScenePhoto, saveScenePhoto, usedScenePhoto, readLocationPage, writeLocationVideo, videoSourceText, reviewExport } from './actions'
-import { videoUploadTarget, sendVideoAudit, sendVideoToClaude } from '../actions'
+import { videoUploadTarget, finishVideoCheck } from '../actions'
 import type { LocationRead, Site } from '@/lib/mw-locations'
 import type { Candidate } from '@/lib/mw-cutouts'
 import { cutOut, loadCutout } from '@/lib/mw-cutout-client'
@@ -14,7 +14,7 @@ import {
 import { createEngine } from '@/lib/mw-brandfilm-engine'
 import { buildMix, SR } from '@/lib/mw-brandfilm-score'
 import { encodeAV, canEncode, audioCodec } from '@/lib/mw-studio-encode'
-import { auditAndFix, normaliseMix, verdict, type Finding } from '@/lib/mw-video-audit'
+import { auditAndFix, normaliseMix, stillWrong, type Finding } from '@/lib/mw-video-audit'
 
 // 👉 Studio → Brand video. An article in, an Ava-voiced motion video out.
 //
@@ -26,10 +26,12 @@ import { auditAndFix, normaliseMix, verdict, type Finding } from '@/lib/mw-video
 //   2  who, what language, which ONE format, how long
 //   3  write Ava's script          one model call — read it before going on
 //   4  Ava reads it                one voice call — the timings come from her
-//   5  preview, then export         checked first (every frame, the timing, the
-//                                   audio, a Claude review), fixed where it is
-//                                   design or timing, then encoded here; the MP4
-//                                   goes to a private bucket and the audit to Rif
+//   5  preview, then export         checked first, silently (every frame, the
+//                                   timing, the audio, a Claude review), fixed
+//                                   where it is design or timing, then encoded
+//                                   here. Only if something is still wrong: the
+//                                   MP4 to a private bucket, the check to Rif's
+//                                   email, engine bugs to Claude's inbox
 //
 // One format per export, on purpose: each one is a full encode, and the
 // owner asked that people choose before spending the time.
@@ -105,7 +107,7 @@ const AUD: { id: Audience; label: string; note: string }[] = [
 ]
 
 /** One scene's photo, as it is being found, cut and checked. */
-/** The check before an export: what it found, what it fixed, where it sent it. */
+/** The check before an export: what it found and fixed. Never shown on the page (Rif, 22 Oct 2026). */
 type Check = {
   findings: Finding[]
   fixed: Finding[]
@@ -114,13 +116,7 @@ type Check = {
   loud: { before: number; after: number } | null
   codec: string
   reviewError?: string
-  /** Claude's review is still running */
-  reviewing?: boolean
   film: Film
-  /** set once the upload and the email have run */
-  link?: string | null
-  sent?: string
-  inbox?: string
 }
 
 const SEV_ORDER = { blocker: 0, 'should fix': 1, 'nice to have': 2 } as const
@@ -131,7 +127,13 @@ const sceneWords = (sc: any): string[] => [
   ...(sc.site ? [sc.site.name, sc.site.format, sc.site.near].filter(Boolean) : []),
 ]
 
-/** One frame per scene, once it has settled (80% through), as small JPEGs for the review. */
+/** When a scene has settled: after its last word or line has landed (0.6s), or 80% through, whichever is later. */
+const settledAt = (sc: any) => {
+  const last = Math.max(0, ...[...(sc.text ?? []), ...(sc.words ?? [])].map((x: any) => x.t ?? 0))
+  return Math.min(sc.b - 0.15, Math.max(sc.a + (sc.b - sc.a) * 0.8, last + 0.6))
+}
+
+/** One frame per scene, once it has settled, as small JPEGs for the review. */
 function settledFrames(film: Film, engine: (ctx: CanvasRenderingContext2D, f: Film) => (t: number) => void, size: { w: number; h: number }): string[] {
   const big = document.createElement('canvas'); big.width = size.w; big.height = size.h
   const draw = engine(big.getContext('2d')!, film)
@@ -139,7 +141,7 @@ function settledFrames(film: Film, engine: (ctx: CanvasRenderingContext2D, f: Fi
   const small = document.createElement('canvas'); small.width = Math.round(size.w * k); small.height = Math.round(size.h * k)
   const sctx = small.getContext('2d')!
   return film.scenes.slice(0, 16).map((sc: any) => {
-    draw(sc.a + (sc.b - sc.a) * 0.8)
+    draw(settledAt(sc))
     sctx.drawImage(big, 0, 0, small.width, small.height)
     return small.toDataURL('image/jpeg', 0.75).split(',')[1]
   })
@@ -217,8 +219,6 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
   const [encoding, setEncoding] = useState(false)
   const [progress, setProgress] = useState(0)
   const [clip, setClip] = useState<{ blob: Blob; url: string } | null>(null)
-  /** What the check before the export found, fixed and sent (lib/mw-video-audit.ts). */
-  const [check, setCheck] = useState<Check | null>(null)
   const [stage, setStage] = useState('')
   const abort = useRef<AbortController | null>(null)
   const preview = useRef<HTMLCanvasElement>(null)
@@ -518,14 +518,14 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
   const exportMp4 = async () => {
     if (!film || !assets || !format || !voice || !plan) return
     stop()
-    setError(''); setClip(null); setCheck(null); setProgress(0); setEncoding(true)
+    setError(''); setClip(null); setProgress(0); setEncoding(true)
     abort.current = new AbortController()
     const f = FILM_FORMATS[format]
     const engineAt = (ctx: CanvasRenderingContext2D, fl: Film) =>
       createEngine(ctx, f.w, f.h, fl, assets.shapes, { dark: assets.dark, light: assets.light, photos: photoImgs.current })
     try {
       await loadFonts(lang === 'zh')
-      setStage('Checking every frame…')
+      setStage('Preparing the video…')
       const source = await sourceText()
       const vo = voice.lines.map((l, i) => ({ t: film.starts[i], words: l.words }))
       const audited = auditAndFix(film, { w: f.w, h: f.h }, engineAt, vo, source)
@@ -553,25 +553,13 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
       if (Number.isFinite(norm.after) && norm.after < -15) media.push({ severity: 'nice to have', kind: 'loudness', source: 'media', fix: 'auto', scene: '', t: null, text: '',
         detail: `${norm.after.toFixed(1)} LUFS — held under −14 so its loudest moment does not clip`, rule: '−14 LUFS ±1 for social' })
       const bySeverity = (qs: Finding[]) => qs.sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || (p.t ?? 0) - (q.t ?? 0))
-      // The panel shows as soon as the video does; Claude's review joins it when it is back.
       const base: Check = {
         findings: bySeverity([...audited.findings, ...media]), fixed: audited.fixed, changed: audited.changed, rounds: audited.rounds, codec, film: final,
-        loud: Number.isFinite(norm.before) ? { before: norm.before, after: norm.after } : null, reviewing: true,
+        loud: Number.isFinite(norm.before) ? { before: norm.before, after: norm.after } : null,
       }
-      setCheck(base)
+      // The video is the user's now; the rest happens out of sight.
       setEncoding(false); setStage(''); abort.current = null
-      // A review that never answers must not hold back the email (it once did: no panel, no email).
-      const review = await Promise.race([
-        reviewing,
-        new Promise<{ error: string }>(r => setTimeout(() => r({ error: 'no answer within 90s' }), 90_000)),
-      ])
-      const result: Check = {
-        ...base, reviewing: false,
-        findings: bySeverity([...base.findings, ...('findings' in review ? review.findings : [])]),
-        reviewError: 'error' in review ? String(review.error).slice(0, 200) : undefined,
-      }
-      setCheck(result)
-      await deliver(blob, result, f.label)
+      finish(blob, base, reviewing, f.label)
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
@@ -579,34 +567,31 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
     }
   }
 
-  /** The MP4 into the private bucket, then the audit emailed to Rif with its 30-day link. */
-  const deliver = async (blob: Blob, c: Check, label: string) => {
-    setCheck(x => x && { ...x, sent: 'Uploading and emailing the audit…' })
-    const path = await uploadExport(blob, slug, label).catch(() => null)
-    const m = await sendVideoAudit({
-      title: plan?.title ?? slug, format: label, path, article: articleUrl, findings: c.findings, fixed: c.fixed, changed: c.changed,
-      rounds: c.rounds, loudness: c.loud, audioCodec: c.codec, reviewError: c.reviewError,
-    }).catch((e: any) => ({ ok: false as const, error: String(e?.message ?? e).slice(0, 200) }))
-    setCheck(x => x && {
-      ...x, link: m.ok ? m.link : null,
-      sent: m.ok ? `Audit emailed to Rif${path ? ' with a private 30-day link' : ' (the upload failed — no link)'}.` : `Audit not emailed: ${m.error}`,
-    })
-  }
-
-  const toClaude = async () => {
-    if (!check || !fmt) return
-    setCheck(x => x && { ...x, inbox: 'Sending…' })
-    const r = await sendVideoToClaude({
-      title: plan?.title ?? slug, slug, format: fmt.label, findings: check.findings.filter(q => q.severity !== 'nice to have'),
-      plan, film: check.film, video: check.link ?? null, article: articleUrl,
-    })
-    setCheck(x => x && { ...x, inbox: r.ok ? `In Claude’s inbox${r.id ? ` (#${r.id})` : ''} — a session picks it up with the mw-video-audit skill.` : r.error })
-  }
-
-  /** "Fix in script": to the scene's words in step 3. */
-  const jumpTo = (scene: string) => {
-    const si = Number(/^(\d+)/.exec(scene)?.[1] ?? 0) - 1
-    document.getElementById(`bf-scene-${si}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  /**
+   * Out of sight: Claude's review joins the check (or is noted as not run after
+   * 90s), and only if something is still wrong is the MP4 uploaded, the check
+   * emailed to Rif and any engine bug queued for Claude. A failure here never
+   * reaches the user; it is in the browser console for whoever is debugging.
+   */
+  const finish = async (blob: Blob, base: Check, reviewing: Promise<any>, label: string) => {
+    try {
+      const review = await Promise.race([
+        reviewing,
+        new Promise<{ error: string }>(r => setTimeout(() => r({ error: 'no answer within 90s' }), 90_000)),
+      ])
+      const findings = [...base.findings, ...('findings' in review ? review.findings as Finding[] : [])]
+        .sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || (p.t ?? 0) - (q.t ?? 0))
+      if (!stillWrong(findings).length) return
+      const path = await uploadExport(blob, slug, label).catch(() => null)
+      const r = await finishVideoCheck({
+        title: plan?.title ?? slug, slug, format: label, path, article: articleUrl, findings, fixed: base.fixed, changed: base.changed,
+        rounds: base.rounds, loudness: base.loud, audioCodec: base.codec, reviewError: 'error' in review ? String(review.error).slice(0, 200) : undefined,
+        plan, film: base.film,
+      })
+      if (!r.ok) console.warn('[video check] not sent:', r.error)
+    } catch (e) {
+      console.warn('[video check] failed:', e)
+    }
   }
 
   const slug = (local ? `featured-sites-${loc?.cities.filter(c => c.sites.some(s => picked.includes(s.id))).map(c => c.city).join('-') ?? ''}` : res?.topic ?? 'brand-video').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
@@ -783,7 +768,7 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
                   <textarea rows={2} value={line} onChange={e => editLine(i, e.target.value)} />
                   {plan.supers?.[i]?.length ? <small className="mw-bf-zh">{plan.supers[i].join(' ')}</small> : null}
                   {scenes.map(({ s, si }) => (
-                    <div key={si} id={`bf-scene-${si}`} className="mw-bf-scene">
+                    <div key={si} className="mw-bf-scene">
                       <span className="mw-bf-tag">{s.kind}{s.art ? ` · ${s.art}` : ''}{s.bg ? ` · ${s.bg}` : ''}</span>
                       {s.text?.map((t, ti) => (
                         <input key={ti} value={t.s} title={`${t.st}${t.on ? ` · on “${t.on}”` : ''}`}
@@ -936,7 +921,6 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
               <button type="button" onClick={() => abort.current?.abort()}>Stop</button>
             </div>
           )}
-          {!encoding && stage && <p className="lede">{stage}</p>}
           {clip && (
             <div className="mw-studio-clips">
               <figure>
@@ -945,46 +929,9 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
                 <figcaption>
                   <small>MP4 · {film.dur.toFixed(1)}s · {(clip.blob.size / 1e6).toFixed(1)} MB</small>
                   {mode === 'photos' && credits.length > 0 && <small>For the caption: Photos by {credits.join(', ')} on Pexels</small>}
-                  {check && check.findings.some(q => q.severity === 'blocker') && (
-                    <small className="mw-va-block">⚠ {check.findings.filter(q => q.severity === 'blocker').length} blocker{check.findings.filter(q => q.severity === 'blocker').length > 1 ? 's' : ''} — see the check below before posting</small>
-                  )}
                   <button type="button" onClick={() => saveBlob(clip.blob, `${slug}_${fmt.label.replace(':', 'x')}.mp4`)}>Download</button>
                 </figcaption>
               </figure>
-            </div>
-          )}
-          {clip && check && (
-            <div className={`mw-va is-${verdict(check.findings).toLowerCase().replace(' ', '-')}`}>
-              <h4>Checked before export: {verdict(check.findings)}</h4>
-              <p className="lede">
-                Every frame, the timing against Ava, the audio{check.reviewError || check.reviewing ? '' : ' and a Claude review of the frames against the source'} · {check.rounds} round{check.rounds === 1 ? '' : 's'}
-                {check.reviewing ? ' · Claude is reviewing the frames…' : ''}
-                {check.loud ? ` · audio ${check.loud.before.toFixed(1)} → ${check.loud.after.toFixed(1)} LUFS` : ''}
-                {check.reviewError ? ` · Claude review did not run: ${check.reviewError}` : ''}
-              </p>
-              {check.findings.length > 0 && (
-                <ul>
-                  {check.findings.map((q, i) => (
-                    <li key={i} className={`is-${q.severity.replace(' ', '-')}`}>
-                      <b>{q.severity}</b>{q.fix === 'approve' && <em> · needs your OK</em>}
-                      <span>{q.scene && `${q.scene} · `}{q.text && `“${q.text}” `}{q.detail}</span>
-                      {/^\d+ /.test(q.scene) && <button type="button" onClick={() => jumpTo(q.scene)}>Fix in script</button>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {(check.fixed.length > 0 || check.changed.length > 0) && (
-                <details>
-                  <summary>Fixed before you saw it ({Math.max(check.fixed.length, check.changed.length)})</summary>
-                  <ul>{check.changed.map((c, i) => <li key={i}>{c}</li>)}</ul>
-                </details>
-              )}
-              <p className="mw-va-foot">
-                <span>{check.sent}</span>
-                {check.findings.some(q => q.severity !== 'nice to have') && (
-                  <button type="button" onClick={toClaude} disabled={!!check.inbox}>{check.inbox ?? 'Send to Claude to fix'}</button>
-                )}
-              </p>
             </div>
           )}
           <p className="lede">

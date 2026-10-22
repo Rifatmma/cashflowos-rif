@@ -10,7 +10,8 @@ import { fixClass, type Finding, type Severity } from './mw-video-audit'
 // ("3050%", words cut mid-way, a chart icon drawn as a bare "L") and two only by
 // reading the script against the article (a comparison without its "than",
 // "Feature 1, 2, 4"). This sends one settled frame per scene, the script and
-// the article, and asks for exactly that review. Copy findings come back as
+// the article, and asks for exactly that review — wrong facts and visible
+// mistakes only, never taste (Rif, 22 Oct 2026). A wrong fact comes back as
 // `approve` (the Studio never rewrites what a video says on its own).
 
 const MODEL = 'claude-sonnet-5-5'
@@ -49,13 +50,13 @@ ${r.source.slice(0, 14_000)}
 
 Then one frame per scene follows, in order, each taken once the scene has settled.
 
-Report only real problems, each once:
-- claim: stronger than the source, a comparison without what it is compared with, a forecast shown as a fact, a figure not in the source or different from it
-- copy: spelling, a word cut off, numbered labels with a gap, a line that will not make sense on its own
-- visual: something that looks broken or wrong in a frame — a missing part of an icon or chart, text over text, a stray mark, a clipped photo, an illustration that says the wrong thing
-Not taste, not things that are fine.
+Report only three kinds of problem, each once:
+- claim — a WRONG FACT: a figure that differs from the source or is not in it (31.8% shown as 32% is wrong), a claim stronger than the source, a comparison without what it is compared with, a forecast shown as a fact
+- words — a VISIBLE MISTAKE in the words on screen: a misspelt or cut-off word, numbered labels with a gap
+- visual — a VISIBLE MISTAKE in the drawing: a missing part of an icon or chart, text over text, unreadable text, a stray mark, a clipped photo
+Never report taste or style: repetition, a caption that echoes the headline, a better chart type, a nicer word. Those are not problems. If a frame looks mid-animation, say nothing about motion.
 
-Answer with JSON only: {"findings":[{"severity":"blocker|should fix|nice to have","kind":"claim|copy|visual","scene":"<the scene label>","text":"<the words on screen it is about, if any>","detail":"<what is wrong, and the fix: for claim/copy the exact wording you propose>","rule":"<the rule, short>"}]}. An empty list is a fine answer.`,
+Answer with JSON only: {"findings":[{"severity":"blocker|should fix|nice to have","kind":"claim|words|visual","scene":"<the scene label>","text":"<the words on screen it is about, if any>","detail":"<what is wrong, and the fix: for claim/copy the exact wording you propose>","rule":"<the rule, short>"}]}. An empty list is a fine answer.`,
   }]
   r.frames.forEach((b64, i) => {
     content.push({ type: 'text', text: `Frame — ${r.scenes[i]?.label ?? `scene ${i + 1}`}:` })
@@ -72,10 +73,11 @@ Answer with JSON only: {"findings":[{"severity":"blocker|should fix|nice to have
     const i = body.indexOf('{'), j = body.lastIndexOf('}')
     const parsed = i >= 0 && j > i ? JSON.parse(body.slice(i, j + 1)) : { findings: [] }
     const findings: Finding[] = (Array.isArray(parsed.findings) ? parsed.findings : []).slice(0, 20).map((q: any) => {
-      const kind = ['claim', 'copy', 'visual'].includes(q.kind) ? q.kind : 'visual'
+      // a wrong fact or wrong words are Rif's to OK; a drawing mistake is the engine's to fix
+      const kind = q.kind === 'claim' ? 'claim' : q.kind === 'words' ? 'copy' : 'visual'
       return {
         severity: SEV.has(q.severity) ? q.severity : 'should fix', kind, source: 'review' as const,
-        fix: kind === 'visual' ? 'auto' : fixClass('copy'),
+        fix: kind === 'visual' ? 'auto' : fixClass(kind),
         scene: String(q.scene ?? '').slice(0, 60), t: null, text: String(q.text ?? '').slice(0, 120),
         detail: String(q.detail ?? '').slice(0, 500), rule: String(q.rule ?? '').slice(0, 160),
       }

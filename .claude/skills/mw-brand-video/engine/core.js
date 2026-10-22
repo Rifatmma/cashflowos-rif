@@ -405,9 +405,10 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.save(); x.translate(cx, cy + (1 - clamp(p)) * 400); x.rotate(ang * clamp(p));
         x.shadowColor = 'rgba(0,0,0,.25)'; x.shadowBlur = 30; x.shadowOffsetY = 14;
         x.fillStyle = C.white; x.beginPath(); x.roundRect(-150, -210, 300, 420, 16); x.fill(); x.shadowColor = 'transparent';
-        const hue = [C.blue, C.sun2, '#25534A', '#871A1C', C.sky][i % 5];
+        const hue = [C.blue, C.accDeep, '#25534A', '#871A1C', C.sky][i % 5];   // the deep accent: white reads on it in every accent
         x.fillStyle = hue; x.fillRect(-150, -210, 300, 64);
-        x.font = '700 34px Poppins'; x.fillStyle = C.white; x.fillText(code, -126, -166);
+        // the code on its header: white on the deep hues, navy on sky (white on Sunburst orange, the old second card, was 2.3:1)
+        x.font = '700 34px Poppins'; x.fillStyle = hue === C.sky ? C.navy : C.white; x.fillText(code, -126, -166);
         // each report has its own layout: bars, pie, table
         const kind = i % 3;
         if (kind === 0) for (let k = 0; k < 6; k++) { const h = 40 + rr() * 140; x.fillStyle = hue; x.globalAlpha = .7; x.fillRect(-120 + k * 42, 150 - h, 28, h); x.globalAlpha = 1; }
@@ -646,7 +647,9 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.lineWidth = 90; x.lineCap = 'butt';
       x.strokeStyle = soft(dark); x.beginPath(); x.arc(500, 350, 260, 0, 7); x.stroke();
       x.strokeStyle = accGrad(240, 760); x.beginPath(); x.arc(500, 350, 260, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p); x.stroke();
-      const shown = Math.round((+ev.value || 0) * (p / (v || 1)));
+      // the figure as the article gives it: 31.8 stays 31.8 (it was rounded to 32 — a different number on screen)
+      const dec = Math.min(2, (String(ev.value).split('.')[1] || '').length);
+      const shown = ((+ev.value || 0) * (p / (v || 1))).toFixed(dec);
       fitFont(`${shown}%`, 800, 170, 380); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(`${shown}%`, 500, 410);
       if (ev.label) { fitFont(ev.label, 600, 46, 980, true); x.fillStyle = dark ? C.sky : C.navy; x.globalAlpha = P(u, 1, 1.3); x.fillText(ev.label, 500, 720); }
       x.restore();

@@ -3,8 +3,9 @@
 Every finding has a `severity` (blocker · should fix · nice to have) and a `fix` class:
 
 - **auto** — design, timing, voice and engine problems. Fix them in the hidden loop without asking.
-- **approve** — anything that changes what the video *says*: words, claims, figures that differ from the
-  article, numbering. List them for Rif with a proposed wording; do not change them.
+- **approve** — a wrong fact or a visible word mistake: a figure that differs from the article, a claim
+  stronger than the source, a missing comparison, a misspelt or cut-off word, a numbering gap. List
+  them for Rif with a proposed fix; do not change them. **Taste is never a finding** (Rif, 22 Oct 2026).
 
 ## Layout audit — `node $ENGINE/render.js <project> <fmts> audit` (engine/audit.js)
 
@@ -47,9 +48,11 @@ Look at a contact sheet of every scene's settled frame (`scripts/sheets.py`) and
 against `source.txt`. Write findings to `out/review.json` (same shape: severity, kind, scene, t, text,
 detail, rule, fix). Look for what the checks cannot see:
 
-- claims stronger than the source, comparisons without their comparison, a forecast shown as a fact
-- the art saying the wrong thing (a funnel for four separate metrics)
-- anything that looks broken: a missing icon part, a stray mark, a clipped photo, a busy background
-- spelling on screen, the right word on screen at the right time
+- wrong facts: a figure that differs from the source (31.8% shown as 32%), a claim stronger than the
+  source, a comparison without what it is compared with, a forecast shown as a fact
+- visible word mistakes: spelling, a cut-off word, a numbering gap
+- anything that looks broken: a missing icon part, text over text, a stray mark, a clipped photo
 
-Copy findings are **approve**; design findings are **auto**.
+Never taste — repetition, an echoing caption, a better chart type. Judge a scene once its last word
+has landed (`sheets.py` takes the frame then), never mid-animation. Fact and word findings are
+**approve**; drawing findings are **auto**.

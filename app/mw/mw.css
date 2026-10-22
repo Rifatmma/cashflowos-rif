@@ -900,29 +900,6 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 }
 .mw-studio-clips figcaption { display: grid; gap: 5px; margin-top: 8px; font-size: 13px; }
 .mw-studio-clips figcaption small { opacity: .7; }
-.mw-studio-clips figcaption small.mw-va-block { opacity: 1; color: var(--mw-bad); font-weight: 600; }
-
-/* The check before an export (lib/mw-video-audit.ts): verdict, findings, what was fixed */
-.mw-va { margin-top: 16px; padding: 14px 16px; border-radius: var(--mw-r); border: 1px solid var(--mw-line-strong); background: var(--mw-surface); max-width: 760px; }
-.mw-va.is-blocked { border-color: var(--mw-bad); }
-.mw-va.is-should-fix { border-color: var(--mw-warn); }
-.mw-va.is-pass { border-color: var(--mw-good); }
-.mw-va h4 { margin: 0 0 4px; font-size: 15px; }
-.mw-va.is-blocked h4 { color: var(--mw-bad); }
-.mw-va.is-pass h4 { color: var(--mw-good); }
-.mw-va ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
-.mw-va li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: start; font-size: 13px; }
-.mw-va li b { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; white-space: nowrap; }
-.mw-va li.is-blocker b { background: var(--mw-bad-bg); color: var(--mw-bad); }
-.mw-va li.is-should-fix b { background: var(--mw-warn-bg); color: var(--mw-warn); }
-.mw-va li.is-nice-to-have b { background: var(--mw-surface-2); color: var(--mw-ink-2); }
-.mw-va li em { grid-column: 1; font-size: 11px; color: var(--mw-bad); font-style: normal; }
-.mw-va li span { grid-column: 2; grid-row: 1 / span 2; }
-.mw-va li button, .mw-va-foot button { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--mw-line-strong); background: transparent; color: inherit; cursor: pointer; font-size: 12px; white-space: nowrap; }
-.mw-va details { margin-top: 10px; font-size: 13px; }
-.mw-va details ul { gap: 4px; }
-.mw-va-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 12px 0 0; font-size: 12px; color: var(--mw-ink-2); }
-@media (max-width: 560px) { .mw-va li { grid-template-columns: auto 1fr; } .mw-va li button { grid-column: 2; justify-self: start; } }
 .mw-studio-clips figcaption button {
   justify-self: start; padding: 6px 14px; border-radius: 999px;
   border: 1px solid var(--mw-line-strong); background: transparent;

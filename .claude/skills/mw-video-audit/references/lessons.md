@@ -36,6 +36,9 @@ Format: **rule** — what happened (video, date) · how the audit catches it now
 - **No invented numbers in illustrations.** Demo figures baked into new arts were removed; an art shows
   the real figure or none (22 Oct 2026).
 
+- **A figure keeps the article's decimals.** The donut rounded 31.8% to "32%" — a different number on
+  screen (Europe article, 22 Oct 2026). It now shows the value as given · layout audit `figure`.
+
 ## Timing
 
 - **A source credit lands with its figure, not at the end of the line.** — "Source: eMarketer" came
@@ -59,6 +62,10 @@ Format: **rule** — what happened (video, date) · how the audit catches it now
   bottom for the ad UI); the flip burst sat off-centre (22 Oct 2026) · `unsafe`.
 - **Small counts lay out as their number.** 7 in 10 drew as rows of 8 + 2; ≤ 12 people now lay out in
   two even rows (diwali, 22 Oct 2026).
+- **Text on a coloured header takes the ink that reads on it.** The reports cards wrote white on every
+  header; on the accent's second hue (Sunburst orange) that was 2.3:1, on Crimson's 4.3:1 (Europe article,
+  22 Oct 2026). That card now takes the deep accent (white reads on it in every accent), sky takes navy ·
+  layout audit `contrast`.
 - **Art captions in 9:16 are ≥ 28px at 1080 wide.** Captions at 23–27px pass the 20px floor but are
   small in a phone feed (22 Oct 2026) · `tiny` (nice to have).
 
@@ -67,5 +74,10 @@ Format: **rule** — what happened (video, date) · how the audit catches it now
 - **An audit that could not run is not a clean audit.** The engine once failed to load (a syntax error
   from an inline comment cutting a line short) and the audit reported "no issues". `render.js … audit`
   now exits non-zero on any page error (22 Oct 2026).
+- **Taste is not a finding.** Rif: raise wording only when it is a wrong fact or a visible mistake; a
+  caption that repeats the headline, a better chart type, a nicer word are not problems. Email only when
+  something is still wrong; the Studio's team never sees the check (22 Oct 2026).
+- **Review a scene after its last word has landed.** A frame taken 80% through caught the last burst
+  word ("Paris.") mid-blur and was reported as broken (Europe article, 22 Oct 2026).
 - **Look at every scene's settled frame yourself.** The automatic checks measure; they do not read.
   Three of the first test's real defects were found by eye (22 Oct 2026).

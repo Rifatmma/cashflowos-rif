@@ -156,6 +156,20 @@ export function normaliseMix(mix: { left: Float32Array; right: Float32Array }, t
   return { left, right, before, after: before + 20 * Math.log10(g), gainDb: 20 * Math.log10(g) }
 }
 
+// ------------------------------------------------------------------ policy
+//
+// Rif's rules (22 Oct 2026): the team never sees the check. Rif is emailed only
+// when something is still wrong after the automatic fixes; wording is raised
+// only when it is a wrong FACT or a visible mistake, never taste; and what the
+// Studio cannot fix itself — an engine bug — goes to Claude's inbox on its own.
+
+/** Still wrong after the loop: worth an email. Nice-to-haves never are. */
+export const stillWrong = (qs: Finding[]) => qs.filter(q => q.severity !== 'nice to have')
+
+const ENGINE = new Set(['off-frame', 'unsafe', 'overlap', 'contrast', 'graphic', 'tiny', 'cut-off', 'visual'])
+/** Problems in how the engine draws (not in the words, not timing the script can't fit): for Claude to fix in code. */
+export const engineBugs = (qs: Finding[]) => stillWrong(qs).filter(q => q.fix === 'auto' && ENGINE.has(q.kind))
+
 // ----------------------------------------------------------------- verdict
 
 export function verdict(findings: Finding[]): 'Blocked' | 'Should fix' | 'Pass' {
