@@ -28,12 +28,15 @@ function chromiumPath() {
 
 async function renderFormat(browser, f) {
   const page = await browser.newPage();
-  page.on('pageerror', e => console.error('PAGEERR', f, e.message));
+  // a page error means the engine did not run: never let that pass as a clean audit or a render
+  page.on('pageerror', e => { console.error('PAGEERR', f, e.message); process.exitCode = 1; if (mode === 'audit') { console.error('AUDIT FAILED: the engine did not load'); process.exit(2); } });
   await page.goto(`${pathToFileURL(path.join(__dirname, 'engine.html')).href}?f=${f}&dir=${encodeURIComponent(pathToFileURL(dir).href)}`);
   await page.evaluate(() => window.ready);
   const grab = t => page.evaluate(async t => { if (window.prepare) await window.prepare(t); render(t); return document.getElementById('c').toDataURL('image/png'); }, t);
   if (mode === 'audit') {
-    const issues = await page.evaluate(() => window.runAudit());
+    // source.txt (the article or page text, saved when it was read) lets the audit check figures and cut-off words
+    const src = path.join(dir, 'source.txt'), source = fs.existsSync(src) ? fs.readFileSync(src, 'utf8') : '';
+    const issues = await page.evaluate(s => window.runAudit(s), source);
     fs.writeFileSync(path.join(out, `audit_${f}.json`), JSON.stringify(issues, null, 1));
     console.log(`\n${f}: ${issues.length ? issues.length + ' issue(s)' : 'no layout issues'}`);
     for (const q of issues) console.log(`  ${q.severity.toUpperCase().padEnd(10)} [${q.kind}] scene ${q.scene} @${q.t}s  "${q.text}" — ${q.detail}`);

@@ -20,6 +20,9 @@ Network needs: `speech.platform.bing.com` (Ava), the article's site, npm/pip reg
 
 ### 1. Read the article
 Fetch the page and extract the real text (headings, claims, every number, named places, case studies, CTA). If the site can't be fetched, say so and ask the user to paste it or allow the domain — don't write from search snippets when the article itself is reachable later.
+Save the article text as `source.txt` in the project folder — the audit checks every figure and word on screen against it.
+
+**Before writing anything, read `../mw-video-audit/references/lessons.md`** — every mistake a past audit caught, as a rule. Follow them all.
 
 ### 2. Ask before spending credit
 Settle these with the user in one round of questions (skip any they already answered):
@@ -69,18 +72,10 @@ node $ENGINE/render.js ./videos/<slug> 916,45      # or: all
 ```
 Output: `out/<slug>_<fmt>.mp4` (+ `out/mix.wav`). ~1–2 min per format per 30s on a normal machine; formats render in parallel. Run long renders in the background and wait for completion rather than polling.
 
-### 7. QC and hand over
-Run the three audits and fix every blocker and should-fix before handing over (re-render, re-audit):
-```bash
-node $ENGINE/render.js ./videos/<slug> all audit                       # layout: off-frame, unsafe, overlap, contrast, size, timing → out/audit_<fmt>.json
-python3 <skill-dir>/scripts/audit_media.py out/<slug>_916.mp4 916      # the file: codec, loudness −14 LUFS, true peak, flashing, fast start
-python3 <skill-dir>/scripts/audit_voice.py ./videos/<slug>            # Ava: English-only en-US voice, accent, every word heard as written
-```
-The audits only see what they measure. Also look at every scene's settled frame yourself: figures exactly as in the article (ranges keep their dash), no cut-off words, numbered labels without gaps, icons visible on their tile, claims as strong as the source and no stronger.
+### 7. Audit, then hand over — `mw-video-audit`
+Never hand over a render straight away. Run the **mw-video-audit** skill on the project: it audits layout, timing, the files and Ava's voice, reviews the frames and the copy against `source.txt`, fixes every design/timing/voice problem in a hidden loop (re-render, re-audit, up to 3 rounds), emails Rif the report and adds what it learned to `../mw-video-audit/references/lessons.md`. Only then send the final MP4s with: what each scene shows, the script, the facts used and where they came from, and what needs Rif's OK.
 
-**Ava's accent.** Ava is always `en-US-AvaNeural`, the English-only voice — one consistent American accent. Never the Multilingual voice: it guesses the language phrase by phrase and slips into other accents on names like Diwali, AirAsia or Kuala Lumpur. `vo.py` enforces this and spells acronyms out (LMX → "L M X"). If `audit_voice.py` hears a name wrong, respell or reword the line (never the on-screen text).
-
-Make a contact sheet (`ffmpeg -i out/<slug>_916.mp4 -vf "fps=1.5,scale=120:-1,tile=12x5" -frames:v 1 qc.png`) and look at it — catch anything that flashes before its cue. Then send the MP4s and report: what each scene shows, the script, the facts used and where they came from, length, and anything needing human review (translations, claims).
+**Ava's accent.** Ava is always `en-US-AvaNeural`, the English-only voice — one consistent American accent. Never the Multilingual voice: it guesses the language phrase by phrase and slips into other accents on names like Diwali, AirAsia or Kuala Lumpur. `vo.py` enforces this and spells acronyms out (LMX → "L M X").
 
 ## Static frames / carousel
 Same spec, `stills` mode at the moments where each scene has fully landed (≈ 0.3s before its `b`). Each PNG is a carousel slide in the chosen format.

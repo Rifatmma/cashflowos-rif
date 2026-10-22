@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { fetchArticle } from './mw-article'
 import type { Research } from './mw-studio'
 import { sanitizePlan, ICON_NAMES, type Audience, type Plan, type SubLang } from './mw-brandfilm'
+import { VIDEO_LESSONS } from './mw-video-lessons'
 
 const ICONS = ICON_NAMES.join(', ')
 
@@ -24,6 +25,9 @@ const AUDIENCE: Record<Audience, string> = {
   brands: 'brand marketers — speak to reach, trust and results in new markets',
   'media-owners': 'media owners — speak to filling inventory and proving it to buyers',
 }
+
+// What past video audits caught, as rules (generated from the mw-video-audit skill's lessons.md).
+const LESSONS = `You write Moving Walls videos voiced by Ava. Past audits of these videos turned up the mistakes below; every rule is binding. Rules about the engine, the voice or the audit tooling are already handled in code — the ones about words, figures, numbering, claims and timing are yours.\n\n${VIDEO_LESSONS}`
 
 const EXAMPLE = `{"title":"Overseas OOH for Chinese brands",
  "lines":["Chinese brands are going global.","And their agencies are the first call.",
@@ -218,7 +222,7 @@ export async function writeBrandFilm(
   let res: Anthropic.Message
   try {
     res = await a.messages.create({
-      model: MODEL, max_tokens: 6000,
+      model: MODEL, max_tokens: 6000, system: LESSONS,
       messages: [{ role: 'user', content: prompt(r.topic, text, facts, audience, lang, seconds, [...new Set(recentArts)].slice(0, 12)) }],
     })
   } catch (e: any) {

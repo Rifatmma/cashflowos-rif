@@ -13,6 +13,14 @@
 //    contrast    text vs the worst background pixel behind it,
 //                WCAG 1.4.3 (4.5:1, 3:1 large; W3C F83)           should fix (blocker < 3:1)
 //    tiny        x-height below ~20px at 1080 (legibility)        should fix
+//                in 9:16 also 20–28px (phones are held further away) nice to have
+//    graphic     an illustration's line nearly invisible on what it
+//                is drawn over (< 1.5:1; WCAG 1.4.11 asks 3:1)    should fix
+//    sequence    numbered labels with a gap (Feature 1, 2, 4)      should fix
+//    figure      a number on screen that is not in the source
+//                (opts.source: the article / page text)            should fix
+//    cut-off     a word on screen that stops part-way through a
+//                word of the source (“their su”)                   blocker
 //    hold        on screen for less than max(1s, 0.33s/word)
 //                (BBC subtitle pace 160–180 wpm)                  should fix
 //    late/early  a sub-line, burst word or figure lands more than
@@ -43,7 +51,31 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
   const lum = (r, g, b) => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }; return .2126 * f(r) + .7152 * f(g) + .0722 * f(b); };
   const ratio = (a, b) => { const [hi, lo] = a > b ? [a, b] : [b, a]; return (hi + .05) / (lo + .05); };
 
-  let boxes = null, wantPixels = false;
+  let boxes = null, wantPixels = false, strokes = null;
+  // graphic contrast: each opaque line drawn inside an illustration, on a settled
+  // frame, against the pixels it covers (read before it is drawn)
+  const strokeDraw = ctx.stroke;
+  ctx.stroke = function (path) {
+    const R = ctx.__art, st = ctx.strokeStyle;
+    if (strokes && R && typeof st === 'string' && ctx.globalAlpha >= .9 && colour(st)[3] >= .9) {
+      const tr = ctx.getTransform(), lw = ctx.lineWidth * Math.hypot(tr.a, tr.b);
+      if (lw >= 4 * k) {
+        const x0 = Math.max(0, Math.floor(R.x - R.w * .02)), y0 = Math.max(0, Math.floor(R.y - R.h * .02));
+        const x1 = Math.min(W, Math.ceil(R.x + R.w * 1.02)), y1 = Math.min(H, Math.ceil(R.y + R.h * 1.02));
+        if (x1 - x0 > 4 && y1 - y0 > 4) {
+          const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data, [sr, sg, sb] = colour(st), sl = lum(sr, sg, sb), rs = [];
+          const g = Math.max(4, Math.round(Math.min(lw, 12 * k)));
+          for (let py = y0; py < y1; py += g) for (let px = x0; px < x1; px += g) {
+            if (!(path ? ctx.isPointInStroke(path, px, py) : ctx.isPointInStroke(px, py))) continue;
+            const i = ((py - y0) * (x1 - x0) + (px - x0)) * 4;
+            rs.push(ratio(sl, lum(img[i], img[i + 1], img[i + 2])));
+          }
+          if (rs.length >= 4) { rs.sort((a, b) => a - b); strokes.push({ colour: st, ratio: rs[rs.length >> 1] }); }
+        }
+      }
+    }
+    return strokeDraw.apply(this, arguments);
+  };
   const draw = ctx.fillText;
   ctx.fillText = function (str, x, y, maxW) {
     if (boxes && !ctx.__clipped && ctx.globalAlpha >= 0.5 && String(str).trim() && !/blur\((?:[2-9]|\d{2})/.test(ctx.filter || '')) {
@@ -72,7 +104,7 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
     return draw.call(this, str, x, y, maxW);
   };
 
-  const found = new Map();
+  const found = new Map(), seen = [];
   const add = (sev, kind, scene, t, s, detail, rule) => {
     const key = `${kind}|${scene}|${s}`;
     if (!found.has(key)) found.set(key, { severity: sev, kind, scene, t: +t.toFixed(2), text: s, detail, rule });
@@ -89,7 +121,9 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
       // ---- sampled frames: from the moment things have landed to just before the cut
       for (let t = Math.min(sc.b - 0.35, sc.a + 0.6); t < sc.b - 0.3; t += step) {
         const settled = t + step >= sc.b - 0.3;
-        boxes = []; wantPixels = settled; render(t); const bx = boxes; boxes = null; wantPixels = false;
+        boxes = []; wantPixels = settled; strokes = settled ? [] : null; render(t); const bx = boxes, sx = strokes || []; boxes = null; strokes = null; wantPixels = false;
+        if (settled) for (const q of sx) if (q.ratio < 1.5) add('should fix', 'graphic', label, t, q.colour, `a ${q.colour} line in the illustration is ${q.ratio.toFixed(1)}:1 against what it is drawn over — it all but disappears`, 'Graphics must stand out from what they sit on (WCAG 2.2 SC 1.4.11 asks 3:1)');
+        if (settled) for (const q of bx) seen.push({ s: q.s, t, label });
         for (const q of bx) {
           const past = Math.max(-q.l, q.r - W, -q.t, q.b - H);
           if (past > 2) add('blocker', 'off-frame', label, t, q.s, `${Math.round(past)}px past the ${-q.l === past ? 'left' : q.r - W === past ? 'right' : -q.t === past ? 'top' : 'bottom'} edge`, 'Inside the frame (SMPTE ST 2046-1 graphics-safe)');
@@ -101,6 +135,7 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
           }
           if (!settled) continue;
           if (q.size > 0 && q.size < 20 * k && q.s.length > 1) add('should fix', 'tiny', label, t, q.s, `${Math.round(q.size)}px text — hard to read on a phone`, 'x-height ≥ ~20px at 1080 wide (Legge; inferred)');
+          else if (FMT === '916' && q.size > 0 && q.size < 28 * k && q.s.length > 1) add('nice to have', 'tiny', label, t, q.s, `${Math.round(q.size)}px text — small in a phone feed`, '≥ 28px at 1080 wide for 9:16 (phones are held further away; inferred)');
           if (q.contrast != null) {
             const large = q.size >= 40 * k, need = large ? 3 : 4.5;
             if (q.contrast < need) add(q.contrast < 3 ? 'blocker' : 'should fix', 'contrast', label, t, q.s, `contrast ${q.contrast.toFixed(1)}:1 against the background behind it (needs ${need}:1)`, 'WCAG 2.2 SC 1.4.3, worst-case background (W3C F83)');
@@ -138,12 +173,62 @@ function auditFilm(ctx, W, H, SPEC, render, opts = {}) {
         else if (d < -0.6) add('should fix', 'early', label, it.t, it.s, `appears ${(-d).toFixed(2)}s before Ava says “${hit[0]}”`, 'Text with or just before its word (inferred)');
       }
     });
+    // ---- across the film: numbered labels run without gaps (Feature 1, 2, 4)
+    const seq = new Map();
+    for (const q of seen) {
+      const m = /^\s*(feature|step|tip|part|reason|benefit|way|phase|stage|myth|trend|lesson|rule)\s*#?(\d{1,2})\b/i.exec(q.s);
+      if (!m) continue;
+      const key = m[1].toLowerCase(), n = +m[2];
+      if (!seq.has(key)) seq.set(key, new Map());
+      if (!seq.get(key).has(n)) seq.get(key).set(n, q);
+    }
+    for (const [key, m] of seq) {
+      const ns = [...m.keys()].sort((a, b) => a - b);
+      for (let i = 1; i < ns.length; i++) if (ns[i] - ns[i - 1] > 1) {
+        const q = m.get(ns[i]);
+        add('should fix', 'sequence', q.label, q.t, q.s, `“${key} ${ns[i - 1]}” is followed by “${key} ${ns[i]}” — ${ns[i] - ns[i - 1] - 1 > 1 ? 'numbers' : 'number'} ${Array.from({ length: ns[i] - ns[i - 1] - 1 }, (_, j) => ns[i - 1] + j + 1).join(', ')} missing`, 'Numbered labels run without gaps (renumber, or say “one of five”)');
+      }
+    }
+    // ---- against the source text (article or page): figures and cut-off words
+    if (opts.source) {
+      const src = String(opts.source);
+      const nums = new Set((src.match(/\d[\d,]*(?:\.\d+)?/g) || []).map(v => +v.replace(/,/g, '')));
+      const vocab = new Set((src.toLowerCase().match(/[\p{L}][\p{L}'’-]*/gu) || []).map(w => w.replace(/['’].*$/, '')));
+      const longer = [...vocab].filter(w => w.length > 3), low = src.toLowerCase().replace(/\s+/g, ' ');
+      const spoken = new Set(said.map(([w]) => w));
+      // figures are checked as written in the spec too: the number art draws a rolling figure digit by digit
+      const strs = (v, out = []) => { if (typeof v === 'string' || typeof v === 'number') out.push(String(v)); else if (v && typeof v === 'object') Object.values(v).forEach(w => strs(w, out)); return out; };
+      SPEC.scenes.forEach((sc, si) => {
+        const label = `${si + 1} ${sc.kind}${sc.art ? ' · ' + sc.art : ''}`;
+        const ev = { ...(sc.ev || {}) }; delete ev.at;                      // cue words, not figures
+        for (const v of strs(ev)) if (/\d/.test(v) && /[%$€£¥]|\d\s*[KMB]\b/i.test(v)) seen.push({ s: v, t: sc.a, label });
+      });
+      for (const q of seen) {
+        // a figure: every number in it (a range has two) must be in the source; small counts and years are left alone
+        if (/\d/.test(q.s) && !/[./@]\w/.test(q.s)) {
+          const money = /[%$€£¥]|\d\s*[KMB]\b|million|billion/i.test(q.s);
+          for (const v of (q.s.match(/\d[\d,]*(?:\.\d+)?/g) || []).map(v => +v.replace(/,/g, ''))) {
+            if ((!money && v <= 12) || (v >= 1990 && v <= 2040 && Number.isInteger(v))) continue;
+            if (!nums.has(v)) add('should fix', 'figure', q.label, q.t, q.s, `${v} is not a number in the source — check the figure`, 'Every figure on screen as in the source (ranges keep their dash)');
+          }
+        }
+        // a cut-off word: the text runs on into more letters in the source (“…their su” → “…their surroundings”),
+        // or a long label ends in a short fragment that is no word of the source or of Ava's
+        const flat = q.s.toLowerCase().replace(/\s+/g, ' ').trim(), at = flat.length >= 12 ? low.indexOf(flat) : -1;
+        const last = (flat.match(/[\p{L}]+$/u) || [''])[0];
+        const runsOn = at >= 0 && /\p{L}/u.test(low[at + flat.length] || '');
+        const fragment = !runsOn && flat.length >= 24 && last.length >= 2 && last.length <= 4 && !vocab.has(last) && !spoken.has(last) && /[a-z]$/.test(q.s)
+          && longer.some(w => w.startsWith(last));
+        if (runsOn || fragment)
+          add('blocker', 'cut-off', q.label, q.t, q.s, `ends in “${last}”, part of a word${runsOn ? ` (the source goes on: “${low.slice(at + flat.length - last.length, at + flat.length + 12).split(/[^\p{L}]/u)[0]}”)` : ''}`, 'No truncated words on screen');
+      }
+    }
     // the last thing on screen must be readable before the video ends
     const end = SPEC.scenes[SPEC.scenes.length - 1];
     for (const it of end?.text || []) if (SPEC.dur - (it.t + 0.3) < 1) add('should fix', 'hold', `${SPEC.scenes.length} end`, it.t, it.s, `only ${(SPEC.dur - it.t - 0.3).toFixed(1)}s before the video ends`, '≥1s readable');
   } finally {
-    ctx.fillText = draw;
-    boxes = null;
+    ctx.fillText = draw; ctx.stroke = strokeDraw;
+    boxes = null; strokes = null;
   }
   const order = { blocker: 0, 'should fix': 1, 'nice to have': 2 };
   return [...found.values()].sort((a, b) => order[a.severity] - order[b.severity] || a.t - b.t);

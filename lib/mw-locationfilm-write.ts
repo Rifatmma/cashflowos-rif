@@ -1,6 +1,7 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
 import { sanitizePlan, type Plan } from './mw-brandfilm'
+import { VIDEO_LESSONS } from './mw-video-lessons'
 import type { LocationPage, Site } from './mw-locations'
 
 // 👉 Writing a location video (Ava for local pages): the script, and a site
@@ -16,6 +17,9 @@ import type { LocationPage, Site } from './mw-locations'
 // down so every city comes out the same way.
 
 const MODEL = 'claude-sonnet-5-5'
+
+// What past video audits caught, as rules (generated from the mw-video-audit skill's lessons.md).
+const LESSONS = `You write Moving Walls videos voiced by Ava. Past audits of these videos turned up the mistakes below; every rule is binding. Rules about the engine, the voice or the audit tooling are already handled in code — the ones about words, figures, numbering, claims and timing are yours.\n\n${VIDEO_LESSONS}`
 
 const EXAMPLE = `{"title":"Featured sites · Kuala Lumpur",
  "lines":["Kuala Lumpur. Where Malaysia moves.",
@@ -118,7 +122,7 @@ export async function writeLocationFilm(
   const a = new Anthropic({ apiKey })
   let res: Anthropic.Message
   try {
-    res = await a.messages.create({ model: MODEL, max_tokens: 6000, messages: [{ role: 'user', content }] })
+    res = await a.messages.create({ model: MODEL, max_tokens: 6000, system: LESSONS, messages: [{ role: 'user', content }] })
   } catch (e: any) {
     return { error: `Writing the video failed: ${String(e?.message ?? e).slice(0, 180)}` }
   }

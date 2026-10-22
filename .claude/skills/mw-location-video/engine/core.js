@@ -752,7 +752,8 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       it.forEach((lab, i) => {
         const t0 = cue(ev, i, .35, .2), p = P(u, t0, t0 + .3), y = i * 140;
         x.globalAlpha = P(u, t0 - .2, t0); x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 8; x.beginPath(); x.roundRect(10, y + 20, 90, 90, 18); x.stroke();
-        if (p > 0) { x.strokeStyle = C.sun1; x.lineWidth = 14; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); x.moveTo(30, y + 66); x.lineTo(30 + 22 * clamp(p * 2), y + 66 + 22 * clamp(p * 2)); if (p > .5) x.lineTo(52 + 40 * clamp(p * 2 - 1), y + 88 - 50 * clamp(p * 2 - 1)); x.stroke(); }
+        // the tick takes the deep accent on light grounds (Sunburst on white is 1.3:1)
+        if (p > 0) { x.strokeStyle = accentText(dark); x.lineWidth = 14; x.lineCap = 'round'; x.lineJoin = 'round'; x.beginPath(); x.moveTo(30, y + 66); x.lineTo(30 + 22 * clamp(p * 2), y + 66 + 22 * clamp(p * 2)); if (p > .5) x.lineTo(52 + 40 * clamp(p * 2 - 1), y + 88 - 50 * clamp(p * 2 - 1)); x.stroke(); }
         fitFont(lab, 700, 54, 860); x.textAlign = 'left'; x.fillStyle = fg(dark); x.fillText(lab, 140, y + 84); x.globalAlpha = 1;
       });
       x.restore();
@@ -887,7 +888,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const a = -Math.PI / 2 + i * Math.PI * 2 / n, t0 = cue(ev, i, .22, .3), p = ioCub(P(u, t0, t0 + .6));
         const far = [cx + Math.cos(a) * 380, cy + Math.sin(a) * 320], near = [cx + Math.cos(a) * 320, cy + Math.sin(a) * 250];   // starts inside the box: nothing flies in past the frame
         const jit = (1 - p) * Math.sin(u * 7 + i) * 10, px = lerp(far[0], near[0], p) + jit, py = lerp(far[1], near[1], p);
-        if (p > 0) { x.strokeStyle = i === n - 1 ? C.sun1 : (dark ? C.sky : C.blue); x.lineWidth = 6; x.setLineDash([14, 10]); x.lineDashOffset = -u * 60; x.beginPath(); x.moveTo(cx, cy); x.lineTo(lerp(cx, px, p), lerp(cy, py, p)); x.stroke(); x.setLineDash([]); }
+        if (p > 0) { x.strokeStyle = i === n - 1 ? accentText(dark) : (dark ? C.sky : C.blue); x.lineWidth = 6; x.setLineDash([14, 10]); x.lineDashOffset = -u * 60; x.beginPath(); x.moveTo(cx, cy); x.lineTo(lerp(cx, px, p), lerp(cy, py, p)); x.stroke(); x.setLineDash([]); }
         x.save(); x.translate(px, py); x.rotate((1 - p) * (i % 2 ? .25 : -.25)); x.globalAlpha = P(u, t0 - .3, t0);
         x.fillStyle = dark ? '#262C52' : C.white; x.strokeStyle = dark ? 'rgba(191,231,251,.4)' : 'rgba(43,60,146,.25)'; x.lineWidth = 3;
         x.beginPath(); x.roundRect(-160, -46, 320, 92, 46); x.fill(); x.stroke();
@@ -1541,7 +1542,7 @@ function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       x.translate(ac.x, ac.y); x.scale(push, push); x.translate(-ac.x, -ac.y);
       const ap = sc.artAt ?? sc.a;
       if (usePhoto) ART.photo(T - ap, art, dark, sc.photo);
-      else if (sc.art && ART[sc.art]) { x.save(); ART[sc.art](T - ap, art, dark, sc.ev || {}); x.restore(); }
+      else if (sc.art && ART[sc.art]) { x.save(); x.__art = art; ART[sc.art](T - ap, art, dark, sc.ev || {}); x.__art = null; x.restore(); }   // __art: the audit checks the art's strokes
       x.restore();
       textBlock(T, sc.text, L.text, dark, L.align);
     },

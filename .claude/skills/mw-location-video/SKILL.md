@@ -23,6 +23,10 @@ python3 <skill-dir>/scripts/read_location.py ./videos/<slug> <locations-url>
 ```
 A country URL reads the country page and every city page it links to; a city URL reads that city and its country page (whose inventory carousel often holds more sites in the city). It writes `sites.json` (sites grouped by city), `context.md` (each page's words, including collapsed FAQ answers such as "71 active sites across 78 screens"), and `sites/<id>.png` (photos exactly as published).
 
+Save the pages' text as `source.txt` (`cat context.md > source.txt` is enough) — the audit checks every figure on screen against it.
+
+**Before writing anything, read `../mw-video-audit/references/lessons.md`** — every mistake a past audit caught, as a rule. Follow them all.
+
 Only sites with a **photo, reach and impressions** are kept. Sites whose numbers contradict themselves on the page (a card saying "1.35 M" while its description says 132,145) are printed as *left out* — mention them to the user, never use them.
 
 ### 2. Ask before spending credit
@@ -40,7 +44,7 @@ One round of questions (skip what the user already said):
 
 ### 4. Script → approval
 Shape (≈ 9–11 lines): **cover** (city + a hook) · **audience** (one sourced city figure, `number` art) · **network** (sites count, `pins` art on 3–5 named districts) · **one line per site** (≤ 12 words: the name and ONE thing — its reach, its impressions, or where it is) · **rhythm line** (`burst`: Plan. Buy. Measure.) · **close**.
-- The close is **"<City>, live on Moving Walls. Out-of-home, no boundaries."** with "No boundaries." on screen in the accent colour. Keep "no boundaries" inside that English sentence: on its own, or straight after a Malay/foreign place name, the multilingual voice switches accent.
+- The close is **"<City>, live on Moving Walls. Out-of-home, no boundaries."** with "No boundaries." on screen in the accent colour. Ava is the English-only `en-US-AvaNeural`, so the accent stays American even after a Malay place name; keep the close as written anyway.
 - Write place names so Ava can read them (as on the page), acronyms as spoken ("out-of-home").
 Show the lines to the user; get a yes before recording.
 
@@ -55,18 +59,8 @@ Copy `examples/kuala-lumpur/spec.js`, keep its structure, replace lines/sites. S
 ### 5b. Extra footage
 If the user brings their own photos or clips of the sites (a drive-by, a night shot), add them as `media` scenes — full-frame or as a card — next to that site's card (`references/spec.md` → Your own photos and video clips).
 
-### 6. Hand over
-Run the three audits and fix every blocker and should-fix before handing over (re-render, re-audit):
-```bash
-node $ENGINE/render.js ./videos/<slug> all audit                       # layout: off-frame, unsafe, overlap, contrast, size, timing → out/audit_<fmt>.json
-python3 <skill-dir>/scripts/audit_media.py out/<slug>_916.mp4 916      # the file: codec, loudness −14 LUFS, true peak, flashing, fast start
-python3 <skill-dir>/scripts/audit_voice.py ./videos/<slug>            # Ava: English-only en-US voice, accent, every word heard as written
-```
-The audits only see what they measure. Also look at every scene's settled frame yourself: figures exactly as in the article (ranges keep their dash), no cut-off words, numbered labels without gaps, icons visible on their tile, claims as strong as the source and no stronger.
-
-**Ava's accent.** Ava is always `en-US-AvaNeural`, the English-only voice — one consistent American accent. Never the Multilingual voice: it guesses the language phrase by phrase and slips into other accents on names like Diwali, AirAsia or Kuala Lumpur. `vo.py` enforces this and spells acronyms out (LMX → "L M X"). If `audit_voice.py` hears a name wrong, respell or reword the line (never the on-screen text).
-
-Send the MP4s and report: the sites used (with their numbers and source page), anything left out and why, every "format" and "near" that came from the photo or your own knowledge (for review), and the label decision (monthly).
+### 6. Audit, then hand over — `mw-video-audit`
+Never hand over a render straight away. Run the **mw-video-audit** skill on the project (layout, timing, files, Ava's voice, a review of every site card against `source.txt`; design/timing/voice problems fixed in a hidden loop; report emailed to Rif; lessons added). Then send the MP4s and report: the sites used (with their numbers and source page), anything left out and why, every "format" and "near" that came from the photo or your own knowledge (for review), the label decision (monthly), and what needs Rif's OK.
 
 ## Keeping it consistent
 The engine is shared with `mw-brand-video` and the /mw/studio tab ("Ava · local page"). If you change `engine/core.js`, copy it to the other skill too and run `node scripts/brandfilm-sync.mjs` in the app repo, then bump `engine/VERSION` in both.
