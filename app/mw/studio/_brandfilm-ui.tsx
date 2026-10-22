@@ -114,6 +114,8 @@ type Check = {
   loud: { before: number; after: number } | null
   codec: string
   reviewError?: string
+  /** Claude's review is still running */
+  reviewing?: boolean
   film: Film
   /** set once the upload and the email have run */
   link?: string | null
@@ -545,23 +547,31 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
         { onProgress: setProgress, signal: abort.current.signal },
       )
       setClip({ blob, url: URL.createObjectURL(blob) })
-
-      setStage('Claude is reviewing the frames…')
-      const review = await reviewing
       const media: Finding[] = []
       if (codec !== 'aac') media.push({ severity: 'should fix', kind: 'container', source: 'media', fix: 'auto', scene: '', t: null, text: '',
         detail: `audio encoded as ${codec} — this browser has no AAC encoder`, rule: 'AAC-LC audio plays everywhere: export from Chrome or Edge' })
       if (Number.isFinite(norm.after) && norm.after < -15) media.push({ severity: 'nice to have', kind: 'loudness', source: 'media', fix: 'auto', scene: '', t: null, text: '',
         detail: `${norm.after.toFixed(1)} LUFS — held under −14 so its loudest moment does not clip`, rule: '−14 LUFS ±1 for social' })
-      const findings = [...audited.findings, ...media, ...('findings' in review ? review.findings : [])]
-        .sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || (p.t ?? 0) - (q.t ?? 0))
+      const bySeverity = (qs: Finding[]) => qs.sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || (p.t ?? 0) - (q.t ?? 0))
+      // The panel shows as soon as the video does; Claude's review joins it when it is back.
+      const base: Check = {
+        findings: bySeverity([...audited.findings, ...media]), fixed: audited.fixed, changed: audited.changed, rounds: audited.rounds, codec, film: final,
+        loud: Number.isFinite(norm.before) ? { before: norm.before, after: norm.after } : null, reviewing: true,
+      }
+      setCheck(base)
+      setEncoding(false); setStage(''); abort.current = null
+      // A review that never answers must not hold back the email (it once did: no panel, no email).
+      const review = await Promise.race([
+        reviewing,
+        new Promise<{ error: string }>(r => setTimeout(() => r({ error: 'no answer within 90s' }), 90_000)),
+      ])
       const result: Check = {
-        findings, fixed: audited.fixed, changed: audited.changed, rounds: audited.rounds, codec, film: final,
-        loud: Number.isFinite(norm.before) ? { before: norm.before, after: norm.after } : null,
-        reviewError: 'error' in review ? review.error : undefined,
+        ...base, reviewing: false,
+        findings: bySeverity([...base.findings, ...('findings' in review ? review.findings : [])]),
+        reviewError: 'error' in review ? String(review.error).slice(0, 200) : undefined,
       }
       setCheck(result)
-      deliver(blob, result, f.label)
+      await deliver(blob, result, f.label)
     } catch (e: any) {
       setError(String(e?.message ?? e))
     } finally {
@@ -576,7 +586,7 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
     const m = await sendVideoAudit({
       title: plan?.title ?? slug, format: label, path, article: articleUrl, findings: c.findings, fixed: c.fixed, changed: c.changed,
       rounds: c.rounds, loudness: c.loud, audioCodec: c.codec, reviewError: c.reviewError,
-    })
+    }).catch((e: any) => ({ ok: false as const, error: String(e?.message ?? e).slice(0, 200) }))
     setCheck(x => x && {
       ...x, link: m.ok ? m.link : null,
       sent: m.ok ? `Audit emailed to Rif${path ? ' with a private 30-day link' : ' (the upload failed — no link)'}.` : `Audit not emailed: ${m.error}`,
@@ -947,7 +957,8 @@ export function BrandFilm({ photosReady = false, source = 'article' }: { photosR
             <div className={`mw-va is-${verdict(check.findings).toLowerCase().replace(' ', '-')}`}>
               <h4>Checked before export: {verdict(check.findings)}</h4>
               <p className="lede">
-                Every frame, the timing against Ava, the audio{check.reviewError ? '' : ' and a Claude review of the frames against the source'} · {check.rounds} round{check.rounds === 1 ? '' : 's'}
+                Every frame, the timing against Ava, the audio{check.reviewError || check.reviewing ? '' : ' and a Claude review of the frames against the source'} · {check.rounds} round{check.rounds === 1 ? '' : 's'}
+                {check.reviewing ? ' · Claude is reviewing the frames…' : ''}
                 {check.loud ? ` · audio ${check.loud.before.toFixed(1)} → ${check.loud.after.toFixed(1)} LUFS` : ''}
                 {check.reviewError ? ` · Claude review did not run: ${check.reviewError}` : ''}
               </p>
