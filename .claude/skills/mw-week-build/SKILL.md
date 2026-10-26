@@ -73,7 +73,12 @@ Rules by card kind:
 | `facts` | One question only the lead can answer, with an example answer. | Type the answer, Send |
 | `check` | What to look at, and where. | Check it, press Done |
 
-**Google Docs:**
+**Google Docs:** each week gets its own folder (Rif, 26 Oct 2026).
+- Inside "MW Content" (Drive folder `1hu-lMVEzsXJtx_T6BxxzkAHitDCvr4UR`, shared with the team), create `Wk NN · D–D Mon YYYY` (for example `Wk 44 · 26–30 Oct 2026`, Monday to Friday) with `GOOGLEDRIVE_CREATE_FOLDER`.
+- Pass that folder's ID to `scripts/mw-week-docs.mts`.
+- Work accounts: Docs `googledocs_hairen-tarr`, Drive `googledrive_coss-serail`.
+
+Then:
 - Use Composio `GOOGLEDOCS_CREATE_DOCUMENT_MARKDOWN`, then `GOOGLEDRIVE_MOVE_FILE` into the shared "MW Content" folder.
 - Use the **work** Google account only. Check `connected accounts` first. If only a personal account is connected, stop and tell Rif. Never put work drafts in a personal Drive.
 - Name docs `W44 · <market> · <topic>`.
