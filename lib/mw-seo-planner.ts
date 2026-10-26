@@ -12,7 +12,7 @@ import { isBrand, MARKETS, SPECIALIST_SEED } from './mw-markets'
 import { rankedByPage } from './mw-seo-protect'
 import { openProposals } from './mw-proposals'
 import {
-  STEPS, STEP, GUARDRAILS, withGuardrails, scoreSteps, focusCut, progressOf, thisWeek, tally, weekOf, orderFor, currentStep, neighbours,
+  STEPS, STEP, GUARDRAILS, withGuardrails, liveSteps, scoreSteps, focusCut, progressOf, thisWeek, tally, weekOf, orderFor, currentStep, neighbours,
   type Evidence, type LinkedAction, type StepState, type StepProgress, type Scored, type FocusCut, type PlanStep,
 } from './mw-seo-plan'
 import { buildContext, type ContextPack } from './mw-seo-context'
@@ -59,7 +59,13 @@ export function evidenceFrom(markets: MarketSeo[]): Evidence {
       }
     }
   }
-  return { keywords, funnel: markets.map(m => ({ market: m.market.key, sessions: m.sessions, leads: m.leads })) }
+  return {
+    keywords,
+    funnel: markets.map(m => ({
+      market: m.market.key, sessions: m.sessions, leads: m.leads,
+      countries: m.countries.map(c => ({ country: c.country, sessions: c.ga4Sessions, leads: c.ga4Leads })),
+    })),
+  }
 }
 
 export const linkedFrom = (rows: ActionRow[]): LinkedAction[] =>
@@ -81,18 +87,19 @@ export async function loadPlanner(pre?: { rows?: ActionRow[]; markets?: MarketSe
     stepStates(),
   ])
   const evidence = evidenceFrom(markets)
+  const steps = liveSteps(STEPS, evidence)
   const actions = linkedFrom(rows.filter(r => r.source === 'generated'))
-  const scored = new Map(scoreSteps(STEPS, evidence).map(s => [s.step.id, s]))
-  const focus = focusCut(STEPS, evidence)
-  const prog = new Map(STEPS.map(s => [s.id, progressOf(s, own, actions)]))
+  const scored = new Map(scoreSteps(steps, evidence).map(s => [s.step.id, s]))
+  const focus = focusCut(steps, evidence)
+  const prog = new Map(steps.map(s => [s.id, progressOf(s, own, actions)]))
   const week = weekOf(nowMyt())
   const owners = new Set<string>([SPECIALIST_SEED.pages ?? 'Dinesh'])
   for (const m of MARKETS) if (m.owner) owners.add(m.owner)
   for (const r of rows) if (r.owner) owners.add(r.owner)
   return {
-    week, steps: STEPS, scored, focus, prog, own, actions, evidence, markets,
-    thisWeek: tally(thisWeek(STEPS, week, prog), prog),
-    whole: tally(STEPS, prog),
+    week, steps, scored, focus, prog, own, actions, evidence, markets,
+    thisWeek: tally(thisWeek(steps, week, prog), prog),
+    whole: tally(steps, prog),
     assignees: [...owners, 'Me'],
   }
 }
@@ -100,7 +107,7 @@ export async function loadPlanner(pre?: { rows?: ActionRow[]; markets?: MarketSe
 /** The step list for a cut, and where the card should open. */
 export function viewOf(p: Planner, cut: 'focus' | 'all', want?: string) {
   const list = orderFor(cut, p.steps, p.focus)
-  const step = (want && list.find(s => s.id === want)) || (want && STEP[want]) || currentStep(list, p.prog)
+  const step = (want && list.find(s => s.id === want)) || (want && p.steps.find(s => s.id === want)) || currentStep(list, p.prog)
   const inList = list.includes(step)
   return { list, step, inList, nav: neighbours(inList ? list : p.steps, step.id) }
 }
@@ -133,7 +140,7 @@ export async function getInbox(id: number): Promise<InboxRow | null> {
 
 /** The frozen pack for one step. */
 export async function contextFor(p: Planner, stepId: string, prompt: string): Promise<ContextPack> {
-  const step = STEP[stepId]
+  const step = p.steps.find(s => s.id === stepId) ?? STEP[stepId]
   const [proposals, previous, raw] = await Promise.all([
     openProposals().catch(() => []),
     latestForStep(stepId, 3),

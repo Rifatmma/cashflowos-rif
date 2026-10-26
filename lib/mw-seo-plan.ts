@@ -29,7 +29,7 @@ import { rollup, type Stage } from './mw-status'
 export const PLAN_TITLE = 'From 5% non-brand to a lead a week from search'
 export const PLAN_STARTS = '2026-10-20'
 /** Bumped whenever step content changes, so a frozen context pack can say which plan it saw. */
-export const PLAN_VERSION = 1
+export const PLAN_VERSION = 2
 
 /**
  * Organic visits that become an enquiry. The site-wide organic rate from the
@@ -292,10 +292,13 @@ export const STEPS: PlanStep[] = [
   },
 
   // ── 5 · Turn visits into enquiries ──────────────────────────────────────
+  // The three leak steps below get their title and the first half of `why`
+  // from live GA4 numbers (liveSteps). What is written here is the fallback
+  // when there is no data, plus what to check.
   {
     id: 'leak-africa', chapter: 5, week: 3, size: 'M', who: 'Claude', website: true,
-    title: 'Sub-Saharan Africa: 112 visits, no enquiries',
-    why: 'Traffic with no leads at all is a page problem — the wrong searches, a weak call to action, or a form that does not fire.',
+    title: 'Sub-Saharan Africa: visits, no enquiries',
+    why: 'Check which searches land there (buyers or students?), the call to action, and the form.',
     funnel: ['africa'],
     go: 'For Sub-Saharan Africa: which searches land there (are they buyers or students?), what the call to action and form look like on the landing pages, and whether the lead event fires. Propose the fix as a page proposal with an applier prompt.',
     apply: "You're editing the Sub-Saharan Africa landing pages on movingwalls.com.\n1. Apply the call-to-action change in the proposal.\n2. Submit the form once with a test enquiry marked TEST and check it arrives.\n3. Publish.",
@@ -304,26 +307,30 @@ export const STEPS: PlanStep[] = [
   {
     id: 'leak-anz-japan', chapter: 5, week: 4, size: 'M', who: 'Claude', website: true,
     title: 'ANZ and Japan: visits, no enquiries',
-    why: 'ANZ 32 sessions and Japan 26, with no leads. Japan also needs a language check.',
+    why: 'Same checks as Sub-Saharan Africa, plus whether the Japanese page is in Japanese where the searches are.',
     funnel: ['anz', 'japan'],
     go: 'Same check as Sub-Saharan Africa for ANZ and Japan, plus whether the Japanese page is in Japanese where the searches are. Propose fixes with applier prompts.',
     doneWhen: 'Both fixes are live.',
   },
   {
     id: 'leak-sea', chapter: 5, week: 4, size: 'M', who: 'Claude', website: true,
-    title: 'SEA converts at 0.9%',
-    why: "Half India's rate on real traffic. Compare the page structure to India's and fix where the call to action sits.",
+    title: 'SEA: visits below the site enquiry rate',
+    why: 'Check the call to action, the form and the page language against the searches bringing people in.',
     funnel: ['sea'],
-    go: "Compare the SEA landing pages to /locations/india for call-to-action placement, form length and trust signals, and propose the change with an applier prompt.",
+    go: "For SEA, start with the country that has the most organic visits. List the movingwalls.com pages SEA visitors land on from organic search (GA4 landing page by country), and for each check the call to action, the form and the page language against the searches that bring people there. Propose the changes with applier prompts. Note: until the form-tracking fix is live, GA4 credits enquiries to the Zoho form rather than the page, so judge pages on what they show, not on per-page conversion.",
     doneWhen: 'The change is live and the conversion rate is re-checked after four weeks.',
   },
   {
-    id: 'leak-tracking', chapter: 5, week: 3, size: 'S', who: 'Claude in Chrome',
-    title: 'Check the lead event fires everywhere',
-    why: 'Rules out a tracking cause before anyone rewrites a page.',
+    // Answered 26 Oct 2026: the events fire; the page credit does not. It is
+    // a priority because it is how we SEE what works, but it gates nothing —
+    // people visit and enquire whether or not we can measure it (owner).
+    id: 'leak-tracking', chapter: 5, week: 3, size: 'S', who: 'Dinesh', website: true,
+    title: 'Finish lead tracking so each page gets credit',
+    why: "Enquiries arrive either way — this is about seeing which pages bring them. The lead event fires on every form, but GA4 credits it to the Zoho form instead of the page. GA4's settings were fixed on 26 Oct; the form pop-up change is with Dinesh.",
     unblocks: ['leak-sea', 'leak-africa', 'leak-anz-japan'],
-    go: 'Read-only: in GA4 DebugView, check the lead event fires on the enquiry form of each location page with traffic and no leads. Report any page where it does not. Do not submit any real form.',
-    doneWhen: 'Every location page with traffic is confirmed to record leads.',
+    go: 'Read-only: check whether the form pop-up change is live (the Zoho iframe src carries _gl=), and in GA4 whether lead events now show against movingwalls.com landing pages. Report what is still missing. Do not submit any real form.',
+    apply: "You're editing the form pop-up on movingwalls.com (ZohoPopupProvider).\n1. When building the iframe src from formUrl, append GA4's _gl linker parameter (window.google_tag_data.glBridge.generate over the _ga cookies), falling back to the plain URL.\n2. Append &referrername= with the current page URL.\n3. Check in GA4 DebugView that a test lead shows in the same session as the page view.",
+    doneWhen: 'Lead events show against movingwalls.com landing pages in GA4.',
   },
 
   // ── 6 · Unblock the coverage gap ────────────────────────────────────────
@@ -410,8 +417,8 @@ export const withGuardrails = (prompt: string) =>
 export type EvidenceRow = { q: string; url: string; country: string; pos: number; impr: number; clicks: number; vol?: number }
 export type Evidence = {
   keywords: EvidenceRow[]
-  /** Per market: GA4 organic sessions and leads. */
-  funnel: { market: string; sessions: number; leads: number }[]
+  /** Per market: GA4 organic sessions and leads, with the countries inside it. */
+  funnel: { market: string; sessions: number; leads: number; countries?: { country: string; sessions: number; leads: number }[] }[]
 }
 
 export type Gain = {
@@ -498,6 +505,46 @@ export function gains(steps: PlanStep[], ev: Evidence): Map<string, Gain> {
   return out
 }
 
+// ─────────────────────────────────────────────────── live step wording
+//
+// "SEA converts at 0.9%" was typed into the title on 20 Oct and would have
+// said 0.9% for ever, next to a why that compared it with India while the
+// scorer compared it with the site average. A leak step now states its own
+// numbers, against the same benchmark the gain is worked out from.
+
+const MARKET_LABEL: Record<string, string> = { sea: 'SEA', africa: 'Sub-Saharan Africa', anz: 'ANZ', japan: 'Japan' }
+const titleCase = (k: string) => k.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+const marketLabel = (k: string) => MARKET_LABEL[k] ?? titleCase(k)
+const enq = (n: number) => `${n} ${n === 1 ? 'enquiry' : 'enquiries'}`
+
+/** A leak step's title and opening sentence from this month's GA4 numbers, or null with no traffic. */
+export function funnelText(s: PlanStep, ev: Evidence): { title: string; why: string } | null {
+  const rows = (s.funnel ?? []).map(k => ({ k, f: ev.funnel.find(x => x.market === k) })).filter(r => r.f && r.f.sessions > 0)
+  if (!rows.length) return null
+  const sessions = rows.reduce((t, r) => t + r.f!.sessions, 0)
+  const leads = rows.reduce((t, r) => t + r.f!.leads, 0)
+  const names = rows.map(r => marketLabel(r.k)).join(' and ')
+  const title = leads
+    ? `${names}: ${sessions} visits, ${enq(leads)} (${((leads / sessions) * 100).toFixed(1)}%)`
+    : `${names}: ${sessions} visits, no enquiries`
+  const site = (LEAD_RATE * 100).toFixed(1)
+  const expected = sessions * LEAD_RATE
+  let why = expected - leads >= 0.5
+    ? `Organic visits across the site become an enquiry ${site}% of the time. At that rate ${names} would bring about ${Math.round(expected)} a month, so about ${Math.round(expected - leads)} are missing.`
+    : `Already at or above the site average of ${site}%.`
+  const top = rows.flatMap(r => r.f!.countries ?? []).filter(c => c.sessions > 0).sort((a, b) => b.sessions - a.sessions)
+  if (top.length > 1) why += ` Most of the traffic is ${titleCase(top[0].country)} (${top[0].sessions} visits, ${enq(top[0].leads)}), so start there.`
+  return { title, why }
+}
+
+/** The plan as the card shows it: leak steps reworded from live numbers, everything else as written. */
+export function liveSteps(steps: PlanStep[], ev: Evidence): PlanStep[] {
+  return steps.map(s => {
+    const t = s.funnel ? funnelText(s, ev) : null
+    return t ? { ...s, title: t.title, why: `${t.why} ${s.why}` } : s
+  })
+}
+
 export type Scored = { step: PlanStep; gain: Gain; effort: number; score: number }
 
 /** Every step, highest return first. Ties keep plan order. */
@@ -542,8 +589,9 @@ export function focusCut(steps: PlanStep[], ev: Evidence, share = FOCUS_SHARE): 
 
 /**
  * Within Focus, a step that unblocks another Focus step goes before it —
- * checking the lead event fires comes before rewriting a page to get more
- * leads, whatever their scores say. Otherwise the return order stands.
+ * fixing lead tracking is listed before rewriting a page to get more leads,
+ * whatever their scores say. This orders; it never holds a step back.
+ * Otherwise the return order stands.
  */
 export function prerequisitesFirst(ids: string[]): string[] {
   const out = [...ids]

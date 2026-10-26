@@ -120,7 +120,11 @@ export function SeoPlanner({
         </p>
       )}
 
-      <AutoGo>
+      {/* Keyed on the step: these are uncontrolled (defaultValue), and on a
+          client-side step change React would otherwise keep the previous
+          step's choice in both pickers and its prompt in the box below — so
+          "Send to Claude" filed one step's prompt under another. */}
+      <AutoGo key={`nav-${step.id}`}>
         <input type="hidden" name="cut" value={cut} />
         <input type="hidden" name="from" value={step.id} />
         {Object.entries(keep).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
@@ -155,11 +159,11 @@ export function SeoPlanner({
       <div className="mw-planner-grid">
         <article className={`mw-planner-step${done ? ' is-done' : ''}`}>
           <div className="mw-planner-pills">
-            {focusRank >= 0 && <span className="mw-pill is-focus">{focusRank === 0 ? 'Do this first' : `Focus #${focusRank + 1}`}</span>}
+            {focusRank >= 0 && <span className="mw-pill is-focus">{focusRank === 0 ? 'Do this first' : `Priority ${focusRank + 1}`}</span>}
             {step.week === p.week && <span className="mw-pill">This week</span>}
             {carried && <span className="mw-pill is-warn">Carried over</span>}
             {step.week > p.week && focusRank < 0 && <span className="mw-pill is-quiet">Week {step.week}</span>}
-            <span className="mw-planner-lab">{chapter.title} · {inChapter.indexOf(step) + 1} of {inChapter.length}</span>
+            <span className="mw-planner-lab">Step {inChapter.findIndex(s => s.id === step.id) + 1} of {inChapter.length} in &ldquo;{chapter.title}&rdquo;</span>
           </div>
 
           <h3 className="mw-planner-title">{step.title}</h3>
@@ -188,7 +192,7 @@ export function SeoPlanner({
 
           {isOwner ? (
             <div className="mw-planner-box">
-              <form action={sendToClaude}>
+              <form action={sendToClaude} key={`ask-${step.id}`}>
                 <input type="hidden" name="step_id" value={step.id} />
                 <label className="mw-planner-lab" htmlFor={`go-${step.id}`}>Ask Claude about this step</label>
                 <textarea id={`go-${step.id}`} name="prompt" defaultValue={step.go} rows={4} maxLength={4000} required />

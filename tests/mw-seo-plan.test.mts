@@ -2,7 +2,7 @@
 //   npx -y tsx --conditions=react-server tests/mw-seo-plan.test.mts
 import {
   STEPS, CHAPTERS, GUARDRAILS, focusCut, scoreSteps, gains, progressOf, weekOf, thisWeek,
-  orderFor, currentStep, neighbours, tally, withGuardrails, prerequisitesFirst,
+  orderFor, currentStep, neighbours, tally, withGuardrails, prerequisitesFirst, liveSteps, funnelText, STEP,
   type PlanStep, type Evidence, type StepProgress,
 } from '../lib/mw-seo-plan'
 import { isBrand } from '../lib/mw-markets'
@@ -98,6 +98,25 @@ check(orderFor('focus', STEPS, { ids: [], share: 0, totalLeads: 0, measured: fal
 check(currentStep(STEPS, prog).id === STEPS[1].id, 'the card opens on the first open step')
 const n = neighbours(STEPS, STEPS[1].id)
 check(n.prev?.id === STEPS[0].id && n.next?.id === STEPS[2].id && n.index === 1, 'prev and next')
+
+// ── leak steps are worded from live numbers ──────────────────────────────
+const liveEv: Evidence = {
+  keywords: [],
+  funnel: [
+    { market: 'sea', sessions: 696, leads: 6, countries: [{ country: 'malaysia', sessions: 336, leads: 2 }, { country: 'singapore', sessions: 179, leads: 1 }] },
+    { market: 'africa', sessions: 112, leads: 0 },
+  ],
+}
+const live = liveSteps(STEPS, liveEv)
+const sea = live.find(s => s.id === 'leak-sea')!
+check(sea.title === 'SEA: 696 visits, 6 enquiries (0.9%)', 'the SEA title states this month\'s visits, enquiries and rate')
+check(sea.why.includes('1.7%') && sea.why.includes('about 12') && sea.why.includes('about 6 are missing'), 'the why uses the same site benchmark the gain is scored on')
+check(!/india/i.test(sea.title + sea.why), 'no comparison with India the scorer does not make')
+check(sea.why.includes('Malaysia (336 visits, 2 enquiries)'), 'it names the country with most of the traffic')
+check(live.find(s => s.id === 'leak-africa')!.title === 'Sub-Saharan Africa: 112 visits, no enquiries', 'zero enquiries reads as "no enquiries"')
+check(live.find(s => s.id === 'leak-anz-japan')!.title === STEP['leak-anz-japan'].title, 'no traffic → the written fallback stays')
+check(funnelText(mk('x', { funnel: ['sea'] }), { keywords: [], funnel: [{ market: 'sea', sessions: 100, leads: 5 }] })!.why.startsWith('Already at or above'), 'a market at or above the benchmark is not called a leak')
+check(live.filter(s => !s.funnel).every(s => s === STEPS.find(x => x.id === s.id)), 'steps without a funnel are untouched')
 
 console.log(bad ? `\n${bad} FAILED` : '\nall passed')
 process.exit(bad ? 1 : 0)
