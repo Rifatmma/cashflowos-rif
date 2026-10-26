@@ -81,6 +81,11 @@ export function SeoPlanner({
   const assignee = p.own.get(step.id)?.assignee ?? (step.who === 'Dinesh' ? 'Dinesh' : null)
   const apply = step.apply ? `${assignee ? `Assigned to ${assignee}. ` : ''}${step.apply}` : null
   const pending = replies.some(r => r.status === 'queued' || r.status === 'claimed')
+  // A step Claude has already answered must not look untouched. The prompt
+  // box used to sit open and pre-filled above the answer, so a finished step
+  // read as "not sent yet" (owner, 26 Oct 2026). The answer now comes first
+  // and the box becomes a follow-up.
+  const answered = replies.find(r => r.status === 'done')
   const side = cut === 'focus' && p.focus.ids.length ? list : inChapter
   const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
 
@@ -190,32 +195,20 @@ export function SeoPlanner({
             </p>
           )}
 
-          {isOwner ? (
-            <div className="mw-planner-box">
-              <form action={sendToClaude} key={`ask-${step.id}`}>
-                <input type="hidden" name="step_id" value={step.id} />
-                <label className="mw-planner-lab" htmlFor={`go-${step.id}`}>Ask Claude about this step</label>
-                <textarea id={`go-${step.id}`} name="prompt" defaultValue={step.go} rows={4} maxLength={4000} required />
-                <div className="mw-planner-row">
-                  <button type="submit" className="mw-planner-btn">Send to Claude</button>
-                  <span className="mw-planner-lab">Claude picks it up when you say &ldquo;check the SEO inbox&rdquo; in Claude Code, or from Telegram with /seo.</span>
-                </div>
-              </form>
-              <details className="mw-planner-told">
-                <summary>What Claude will be told</summary>
-                <ul>
-                  <li>This step, why it matters, and when it counts as done</li>
-                  {(step.targets?.length ?? 0) > 0 && <li>{step.targets!.length} target search{step.targets!.length === 1 ? '' : 'es'}, with this month&apos;s Search Console rows</li>}
-                  <li>The rankings on these pages it must not lose</li>
-                  {step.funnel && <li>Sessions and enquiries for {step.funnel.join(', ')}</li>}
-                  {step.links && <li>The related tasks on /mw/plan, with any decline reasons</li>}
-                  <li>Your last three replies on this step</li>
-                  <li>The guardrails: non-brand only, no new page just for a keyword, never drop a protected ranking, prepare — don&apos;t publish</li>
-                </ul>
-              </details>
+          {answered && !done && (
+            <div className="mw-planner-answered">
+              <p>
+                <b>Claude finished this {ago(answered.finished_at ?? answered.created_at)}.</b>{' '}Read the answer below.
+                If it did what &ldquo;Done when&rdquo; says, mark it done; if not, ask a follow-up.
+              </p>
+              {isOwner && !step.links && (
+                <form action={setPlanStep}>
+                  <input type="hidden" name="id" value={step.id} />
+                  <input type="hidden" name="stage" value="done" />
+                  <button className="mw-planner-btn">Mark done</button>
+                </form>
+              )}
             </div>
-          ) : (
-            <p className="mw-planner-lab">Only Rif can send work to Claude.</p>
           )}
 
           {replies.length > 0 && (
@@ -259,6 +252,47 @@ export function SeoPlanner({
             </ol>
           )}
 
+          {isOwner ? (
+            <div className="mw-planner-box">
+              {answered || done ? (
+                <details key={`ask-${step.id}`}>
+                  <summary className="mw-planner-lab">Ask Claude a follow-up</summary>
+                  <form action={sendToClaude}>
+                    <input type="hidden" name="step_id" value={step.id} />
+                    <textarea name="prompt" defaultValue="" placeholder="What should Claude do next on this step?" rows={3} maxLength={4000} required />
+                    <div className="mw-planner-row">
+                      <button type="submit" className="mw-planner-btn">Send to Claude</button>
+                    </div>
+                  </form>
+                </details>
+              ) : (
+                <form action={sendToClaude} key={`ask-${step.id}`}>
+                  <input type="hidden" name="step_id" value={step.id} />
+                  <label className="mw-planner-lab" htmlFor={`go-${step.id}`}>Not sent yet — this is what Claude would be asked</label>
+                  <textarea id={`go-${step.id}`} name="prompt" defaultValue={step.go} rows={4} maxLength={4000} required />
+                  <div className="mw-planner-row">
+                    <button type="submit" className="mw-planner-btn">Send to Claude</button>
+                    <span className="mw-planner-lab">Claude picks it up when you say &ldquo;check the SEO inbox&rdquo; in Claude Code, or from Telegram with /seo.</span>
+                  </div>
+                </form>
+              )}
+              <details className="mw-planner-told">
+                <summary>What Claude will be told</summary>
+                <ul>
+                  <li>This step, why it matters, and when it counts as done</li>
+                  {(step.targets?.length ?? 0) > 0 && <li>{step.targets!.length} target search{step.targets!.length === 1 ? '' : 'es'}, with this month&apos;s Search Console rows</li>}
+                  <li>The rankings on these pages it must not lose</li>
+                  {step.funnel && <li>Sessions and enquiries for {step.funnel.join(', ')}</li>}
+                  {step.links && <li>The related tasks on /mw/plan, with any decline reasons</li>}
+                  <li>Your last three replies on this step</li>
+                  <li>The guardrails: non-brand only, no new page just for a keyword, never drop a protected ranking, prepare — don&apos;t publish</li>
+                </ul>
+              </details>
+            </div>
+          ) : (
+            <p className="mw-planner-lab">Only Rif can send work to Claude.</p>
+          )}
+
           {apply && (
             <div className="mw-planner-box">
               <div className="mw-planner-row is-split">
@@ -284,11 +318,12 @@ export function SeoPlanner({
               <form action={setPlanStep}>
                 <input type="hidden" name="id" value={step.id} />
                 <input type="hidden" name="stage" value={done ? 'not_started' : 'done'} />
-                <button className="mw-tick" aria-pressed={done} aria-label={done ? 'Mark not done' : 'Mark done'}>{done ? '✓' : ''}</button>
+                <button className="mw-tick" aria-pressed={done} aria-label={done ? 'Mark not done' : 'Mark done'}
+                  title={done ? 'Done — click to reopen' : 'Mark done'}>{done ? '✓' : ''}</button>
               </form>
             ) : <span className="mw-tick is-static" aria-hidden="true">{done ? '✓' : ''}</span>}
             <div>
-              <span className="mw-planner-lab">Done when</span>
+              <span className="mw-planner-lab">{done ? 'Done · click the tick to reopen' : 'Done when'}</span>
               <p>{step.doneWhen}</p>
             </div>
           </div>

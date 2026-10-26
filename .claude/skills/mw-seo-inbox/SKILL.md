@@ -119,7 +119,13 @@ sentence. Don't retry silently.
 Updating the step's progress (`mw_seo_step_state`):
 - Upsert `stage = 'done'` (`updated_by = 'claude'`) only when the step's
   "done when" is objectively met and the step's `who` is Claude.
-- Otherwise use `stage = 'in_progress'`.
+- Otherwise use `stage = 'in_progress'`, and put what it is waiting on in
+  `reason` in plain words (for example "Fixed in code — waiting for Rif to
+  push"). Never leave a step you finished at `not_started`: an answered step
+  that still reads "Not started" looks like nothing happened (owner, 26 Oct
+  2026).
+- If the step is a code change and its commit is already on origin/main
+  when you run, it counts as met — mark it done.
 - Never write a step that has `links` in `lib/mw-seo-plan.ts`. Never touch
   `mw_decisions`.
 

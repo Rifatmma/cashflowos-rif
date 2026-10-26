@@ -1120,6 +1120,10 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 
 .mw-planner-box { border: .8px solid var(--mw-line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; display: grid; gap: 8px; }
 .mw-planner-box form { display: grid; gap: 8px; }
+.mw-planner-box details summary { cursor: pointer; }
+.mw-planner-box details[open] summary { margin-bottom: 8px; }
+.mw-planner-answered { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--mw-tint, #eef6ee); border: .8px solid var(--mw-good); display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.mw-planner-answered p { margin: 0; font-size: 14px; flex: 1 1 260px; }
 .mw-planner-box textarea { font: inherit; font-size: 16px; line-height: 1.5; padding: 10px 12px; border: 1px solid var(--mw-line-strong); border-radius: 8px;
   background: var(--mw-surface); color: var(--mw-ink); width: 100%; box-sizing: border-box; resize: vertical; }
 .mw-planner-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
