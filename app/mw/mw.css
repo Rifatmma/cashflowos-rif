@@ -1240,3 +1240,24 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
   .mw-next-head .mw-planner-cut { display: flex; flex-wrap: wrap; width: auto; border-radius: 999px; }
   .mw-next-head .mw-planner-cut a { padding: 5px 11px; font-size: 13px; border-radius: 999px; }
 }
+
+/* ── My week (app/mw/_week-ui.tsx) ─────────────────────────────────────── */
+.mw-week-list { display: grid; gap: 12px; }
+.mw-week-card { border: .8px solid var(--mw-line); border-left: 4px solid var(--mw-brand); border-radius: 10px; padding: 14px 16px; background: var(--mw-surface); }
+.mw-week-card.is-done, .mw-week-card.is-submitted { border-left-color: var(--mw-good); opacity: .8; }
+.mw-week-card.is-cant { border-left-color: var(--mw-line-strong); opacity: .7; }
+.mw-week-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.mw-week-title { font-size: 17px; line-height: 1.35; margin: 2px 0 4px; }
+.mw-week-why { margin: 0 0 8px; font-size: 14px; color: var(--mw-ink-2, inherit); }
+.mw-week-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.mw-week-steps { margin: 6px 0 8px; padding-left: 22px; display: grid; gap: 6px; font-size: 15px; line-height: 1.5; }
+.mw-week-done { margin: 0 0 8px; font-size: 14px; }
+.mw-week-state { margin: 0; font-size: 14px; font-weight: 600; }
+.mw-week-act { display: grid; gap: 10px; margin-top: 6px; }
+.mw-week-form { display: grid; gap: 6px; max-width: 560px; }
+.mw-week-form input, .mw-week-form textarea { font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--mw-line-strong); border-radius: 8px; background: var(--mw-surface); color: inherit; }
+.mw-week-form button { justify-self: start; }
+.mw-week-cant summary { cursor: pointer; font-size: 13px; color: var(--mw-ink-3, inherit); }
+.mw-week-cant[open] summary { margin-bottom: 6px; }
+.mw-week-person { margin-top: 16px; }
+.mw-week-person h3 { font-size: 16px; margin: 0 0 8px; }

@@ -276,3 +276,32 @@ create index if not exists mw_claude_inbox_status on mw_claude_inbox (status, cr
 create index if not exists mw_claude_inbox_step on mw_claude_inbox (step_id, created_at desc);
 alter table mw_seo_step_state enable row level security;
 alter table mw_claude_inbox   enable row level security;
+
+-- "My week" (lib/mw-week.ts): the few finished cards each person gets on
+-- Monday — numbered steps, links, done-when. Selection is code; the words are
+-- written by the Monday run (.claude/skills/mw-week-build). 26 Oct 2026.
+create table if not exists mw_week_tasks (
+  id          text primary key,                 -- '<ISO week>:<queue id>', or '<lead card>:publish'
+  week        text not null,                    -- '2026-W44'
+  owner       text not null,                    -- person name (lib/mw-people.ts)
+  kind        text not null check (kind in ('content-new','content-improve','publish','tech','paid-apply','facts','check')),
+  market      text,
+  title       text not null,
+  why         text not null default '',
+  steps       jsonb not null default '[]'::jsonb,  -- numbered, imperative; a card with none is not shown
+  links       jsonb not null default '[]'::jsonb,  -- [{label,url}]
+  done_when   text not null default '',
+  due         date not null,
+  value       numeric not null default 0,
+  state       text not null default 'todo' check (state in ('todo','submitted','done','cant')),
+  reason      text,
+  payload     jsonb,                            -- doc, page, Google Ads operations
+  source_id   text,                             -- the queue candidate it came from
+  carried     int not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  updated_by  text
+);
+create index if not exists mw_week_tasks_week_owner on mw_week_tasks (week, owner);
+create index if not exists mw_week_tasks_open on mw_week_tasks (state) where state in ('todo');
+alter table mw_week_tasks enable row level security;

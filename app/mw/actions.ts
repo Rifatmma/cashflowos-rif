@@ -32,11 +32,32 @@ async function actor(): Promise<string> {
   return (await currentGuest()) ?? 'owner'
 }
 
+/**
+ * What a signed-in guest may answer. Before 26 Oct 2026 any guest could
+ * decide any task, proposal or city page — one click from a lead could close
+ * someone else's work. Now: their own tasks; proposals for the site
+ * specialist; city pages for market leads and the specialist.
+ */
+async function guestMay(what: 'action' | 'proposal' | 'city', id: string): Promise<boolean> {
+  const who = await actor()
+  if (who === 'owner') return true
+  const { getPeople } = await import('@/lib/mw-people-store')
+  const { personByActor, personByName } = await import('@/lib/mw-people')
+  const people = await getPeople()
+  const me = personByActor(people, who)
+  if (!me) return false
+  if (what === 'proposal') return me.role === 'specialist'
+  if (what === 'city') return me.role === 'specialist' || me.role === 'market'
+  const { data } = await supabase.from('mw_actions').select('owner').eq('id', id).maybeSingle()
+  return personByName(people, (data as any)?.owner)?.name === me.name
+}
+
 export async function setDecision(formData: FormData) {
   const id = String(formData.get('id') ?? '')
   const choice = String(formData.get('choice') ?? '')
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 300)
   if (!id || !CHOICES.has(choice)) return
+  if (!(await guestMay('action', id))) return
 
   await supabase.from('mw_decisions').upsert(
     { action_id: id, choice, reason: reason || null, decided_by: await actor(), updated_at: new Date().toISOString() },
@@ -53,7 +74,7 @@ export async function setDecision(formData: FormData) {
 export async function setProposedDue(formData: FormData) {
   const id = String(formData.get('id') ?? '')
   const raw = String(formData.get('proposed_due') ?? '').slice(0, 10)
-  if (!id) return
+  if (!id || !(await guestMay('action', id))) return
   const due = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null
 
   // A date is not a decision: if the lead dates a task they have not answered
@@ -175,7 +196,7 @@ export async function decideProposal(formData: FormData) {
   const id = String(formData.get('id') ?? '')
   const choice = String(formData.get('choice') ?? '')
   const reason = String(formData.get('reason') ?? '')
-  if (!id) return
+  if (!id || !(await guestMay('proposal', id))) return
   if (choice === 'undo') await undecide(id)
   else if (choice === 'approved' || choice === 'rejected') await decide(id, choice, await actor(), reason)
   revalidatePath('/mw/plan')
@@ -186,6 +207,7 @@ export async function setCityStatusAction(formData: FormData) {
   const url = String(formData.get('url') ?? '')
   const status = String(formData.get('status') ?? '')
   if (!url || !['not_started', 'in_progress', 'done'].includes(status)) return
+  if (!(await guestMay('city', url))) return
   await setCityStatus(url, status as any, await actor())
   revalidatePath('/mw/plan')
 }
@@ -216,6 +238,8 @@ export async function setStage(formData: FormData) {
   // a control that writes a state its store cannot keep is a control that
   // lies about what it did.
   if (!stagesFor(kind as any).includes(stage)) return
+  if (kind !== 'action' && kind !== 'city' && kind !== 'proposal') return
+  if (!(await guestMay(kind, id))) return
 
   const who = await actor()
   if (kind === 'action') {
@@ -319,6 +343,92 @@ export async function setQueueStage(formData: FormData) {
 
   const { writeStage } = await import('@/lib/mw-queue-write')
   await writeStage(id, stage as Stage, reason || null, who)
+}
+
+// ---------------------------------------------------------------------------
+// "My week" cards (lib/mw-week.ts). A card is answered by the person it
+// belongs to; the owner (Rif) may answer any. Every answer is also written to
+// the queue item the card came from, so the ranked list agrees with the card
+// and a "Can't" is never picked again.
+// ---------------------------------------------------------------------------
+
+async function weekCard(id: string) {
+  const { getTask } = await import('@/lib/mw-week-store')
+  const t = id ? await getTask(id) : null
+  if (!t) return null
+  const who = await actor()
+  if (who === 'owner') return { t, who }
+  const { getPeople } = await import('@/lib/mw-people-store')
+  const { personByActor } = await import('@/lib/mw-people')
+  const me = personByActor(await getPeople(), who)
+  return me && me.name === t.owner ? { t, who } : null
+}
+
+async function mirror(sourceId: string | null, stage: Stage, reason: string | null, who: string) {
+  if (!sourceId) return
+  const { writeStage } = await import('@/lib/mw-queue-write')
+  await writeStage(sourceId, stage, reason, who).catch(() => {})
+}
+
+const weekPaths = () => { revalidatePath('/mw'); revalidatePath('/mw/people') }
+
+/** A lead hands their edited Google Doc to Dinesh: their card is finished, his appears. */
+export async function weekSubmit(formData: FormData) {
+  const doc = String(formData.get('doc') ?? '').trim()
+  const c = await weekCard(String(formData.get('id') ?? ''))
+  if (!c || (c.t.kind !== 'content-new' && c.t.kind !== 'content-improve') || c.t.state !== 'todo') return
+  if (!/^https:\/\/docs\.google\.com\//.test(doc)) return
+  const { setState, saveTasks, getTask } = await import('@/lib/mw-week-store')
+  const { publishCardFor } = await import('@/lib/mw-week')
+  const { getPeople } = await import('@/lib/mw-people-store')
+  const dinesh = (await getPeople()).find(p => p.role === 'specialist')?.name ?? 'Dinesh'
+  await setState(c.t.id, 'submitted', c.who, { payload: { ...(c.t.payload ?? {}), doc } })
+  const card = publishCardFor(c.t, doc, dinesh)
+  // Same id every time: a second press finds the card and changes nothing.
+  if (!(await getTask(card.id))) await saveTasks([card], c.who)
+  await mirror(c.t.sourceId, 'in_progress', null, c.who)
+  weekPaths()
+}
+
+/** Dinesh: it is live. Closes his card and the lead's, and the queue item behind them. */
+export async function weekPublished(formData: FormData) {
+  const url = String(formData.get('url') ?? '').trim()
+  const c = await weekCard(String(formData.get('id') ?? ''))
+  if (!c || c.t.kind !== 'publish' || c.t.state !== 'todo') return
+  if (!/^https:\/\/(www\.)?movingwalls\.com\//.test(url)) return
+  const { setState, getTask } = await import('@/lib/mw-week-store')
+  await setState(c.t.id, 'done', c.who, { payload: { ...(c.t.payload ?? {}), url } })
+  const from = String(c.t.payload?.from ?? '')
+  const lead = from ? await getTask(from) : null
+  if (lead) {
+    await setState(lead.id, 'done', c.who, { payload: { ...(lead.payload ?? {}), url } })
+    await mirror(lead.sourceId, 'done', null, c.who)
+  }
+  weekPaths()
+}
+
+/** Any other card: done, with an optional note (a fact a lead was asked for). */
+export async function weekDone(formData: FormData) {
+  const note = String(formData.get('note') ?? '').trim().slice(0, 1000)
+  const c = await weekCard(String(formData.get('id') ?? ''))
+  if (!c || c.t.state !== 'todo') return
+  if (c.t.kind === 'content-new' || c.t.kind === 'content-improve' || c.t.kind === 'publish' || c.t.kind === 'paid-apply') return
+  if (c.t.kind === 'facts' && !note) return
+  const { setState } = await import('@/lib/mw-week-store')
+  await setState(c.t.id, 'done', c.who, note ? { payload: { ...(c.t.payload ?? {}), note } } : {})
+  await mirror(c.t.sourceId, 'done', null, c.who)
+  weekPaths()
+}
+
+/** "Can't do this", with the reason. The card closes and its topic is not picked again. */
+export async function weekCant(formData: FormData) {
+  const reason = String(formData.get('reason') ?? '').trim().slice(0, 300)
+  const c = await weekCard(String(formData.get('id') ?? ''))
+  if (!c || c.t.state !== 'todo' || !reason) return
+  const { setState } = await import('@/lib/mw-week-store')
+  await setState(c.t.id, 'cant', c.who, { reason })
+  await mirror(c.t.sourceId, 'declined', reason, c.who)
+  weekPaths()
 }
 
 // ---------------------------------------------------------------------------

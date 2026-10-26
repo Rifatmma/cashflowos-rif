@@ -112,7 +112,9 @@ const SUPERSEDED = new Set(['leak-tracking', 'blind-semrush-import', 'rhythm-rev
 const STEP_HOURS = { S: 1, M: 3, L: 8 } as const
 
 export function seoStepCandidates(steps: PlanStep[], scored: Map<string, Scored>, prog: Map<string, StepProgress>, people: Person[]): Candidate[] {
-  return steps.filter(s => !SUPERSEDED.has(s.id) && !s.links).map(s => {
+  // A check whose work isn't finished is not a task yet.
+  const ready = (s: PlanStep) => (s.after ?? []).every(id => { const st = prog.get(id); return !!st && isDone(st) })
+  return steps.filter(s => !SUPERSEDED.has(s.id) && !s.links && ready(s)).map(s => {
     const g = scored.get(s.id)?.gain
     const p = prog.get(s.id)
     const website = s.website || s.who === 'Dinesh'

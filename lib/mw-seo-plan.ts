@@ -72,6 +72,8 @@ export type PlanStep = {
   funnel?: string[]
   /** Steps whose gain this one makes possible (a share is inherited). */
   unblocks?: string[]
+  /** Steps that must be done first. Until they are, this step is nobody's task (a check before the work is noise). */
+  after?: string[]
   /** What Claude is asked to do. Guardrails are appended in code. */
   go: string
   /** Instructions for whoever applies it on the website. */
@@ -214,7 +216,7 @@ export const STEPS: PlanStep[] = [
     doneWhen: 'All six titles are under 60 characters and live.',
   },
   {
-    id: 'std-confirm', chapter: 3, week: 3, size: 'S', who: 'Rif',
+    id: 'std-confirm', chapter: 3, week: 3, size: 'S', who: 'Rif', after: ['std-schema', 'std-titles'],
     title: 'Confirm Google has re-read them',
     why: 'Make sure Google has re-read the pages, not just that they changed.',
     go: 'Tell me which location pages to request indexing for in Search Console, in order of impressions, and after a week check whether the enhancements report shows the new structured data.',
@@ -285,6 +287,7 @@ export const STEPS: PlanStep[] = [
   },
   {
     id: 'strike-remeasure', chapter: 4, week: 6, size: 'S', who: 'Rif',
+    after: ['strike-pdooh', 'strike-hyderabad', 'strike-india-ooh', 'strike-unipole', 'strike-head-terms'],
     title: 'Re-measure after 28 days',
     why: 'Confirms the chapter 4 work paid off, and moves the wins onto the protection list.',
     go: 'Compare positions today for every chapter 4 search against the 20 Oct 2026 baseline, and list which moved, which did not, and why.',
