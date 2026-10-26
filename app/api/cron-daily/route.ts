@@ -314,20 +314,15 @@ export async function GET(req: Request) {
       .catch(e => `failed: ${String(e?.message || e).slice(0, 80)}`)
   }
 
-  // Mondays (Malaysia): the marketing emails. Its own endpoint and its own 60
-  // seconds, started and not awaited past a few seconds — same arrangement as
-  // mw-refresh. Until Rif switches them on in Settings they go to him alone.
-  let mwDigest = 'not Monday'
-  const myt = new Date(Date.now() + 8 * 3600_000)
-  if (cronSecret && myt.getUTCDay() === 1) {
-    mwDigest = await Promise.race([
-      fetch(new URL('/api/mw-digest', req.url).toString(), {
-        method: 'POST', headers: { authorization: `Bearer ${cronSecret}` }, redirect: 'manual',
-      }).then(r => (r.status >= 300 && r.status < 400 ? `BOUNCED (${r.status}) — add api/mw-digest to the proxy matcher` : `started (${r.status})`))
-        .catch(e => `could not start: ${String(e?.message || e).slice(0, 80)}`),
-      new Promise<string>(resolve => setTimeout(() => resolve('started, still running'), 4_000)),
-    ])
-  }
+  // The Monday marketing emails are OFF and no longer scheduled:
+  //
+  //   "let's not do that it disturbs people a lot … it waste credit also. If
+  //    the tasks are in the dashboard then people should use the dashboard."
+  //                                                       (owner, 26 Oct 2026)
+  //
+  // Tasks live on /mw (Today and People). /api/mw-digest is left in place but
+  // nothing calls it; don't re-add the Monday call without asking him.
+  const mwDigest = 'off (owner, 26 Oct 2026)'
 
   return Response.json({
     ok: true,

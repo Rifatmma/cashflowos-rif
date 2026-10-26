@@ -7,9 +7,6 @@ import { getMarketSeo, withData } from '@/lib/mw-market-data'
 import { getGaps } from '@/lib/mw-gap-run'
 import { MwHero, Section } from '../_ui'
 import { ImportForm } from './_import-ui'
-import { DigestPreviewButton } from './_digest-ui'
-import { setDigestEnabled } from '../actions'
-import { digestSettings, SENDER } from '@/lib/mw-digest-send'
 
 // 👉 Moving Walls → Import. Semrush data without Semrush API access.
 //
@@ -48,7 +45,7 @@ export default async function MwImport() {
   const jar = await cookies()
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
 
-  const [markets, gaps, digest] = await Promise.all([getMarketSeo(), getGaps(), digestSettings()])
+  const [markets, gaps] = await Promise.all([getMarketSeo(), getGaps()])
   const isOwner = guest === null
   const live = withData(markets)
 
@@ -85,20 +82,10 @@ export default async function MwImport() {
       </MwHero>
 
       {isOwner && (
-        <Section title="Monday emails"
-          sub={`Every Monday each person gets their tasks for the week, copied to Mehul and Safwaan; the two of them get a team summary; you get the scorecard. Sent from ${SENDER}.`}>
-          <p className="lede" style={{ marginBottom: 12 }}>
-            {digest.enabled
-              ? <><b>On.</b> The team gets them every Monday{digest.lastWeek ? ` (last sent ${digest.lastWeek})` : ''}.</>
-              : <><b>Preview only.</b> Until you switch them on, every email goes to you alone, marked with who it would have gone to.</>}
+        <Section title="Monday emails" sub="Turned off on 26 Oct 2026.">
+          <p className="lede">
+            <b>Off.</b> No task emails go out — everyone&apos;s tasks are on <a href="/mw">Today</a> and <a href="/mw/people">People</a>.
           </p>
-          <DigestPreviewButton />
-          <form action={setDigestEnabled} style={{ marginTop: 12 }}>
-            <input type="hidden" name="enabled" value={digest.enabled ? '0' : '1'} />
-            <button className={`mw-planner-btn${digest.enabled ? ' is-quiet' : ''}`}>
-              {digest.enabled ? 'Switch back to preview only' : 'Switch on for the team'}
-            </button>
-          </form>
         </Section>
       )}
 

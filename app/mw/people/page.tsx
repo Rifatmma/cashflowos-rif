@@ -37,8 +37,8 @@ export default async function MwPeople() {
           ? `${never.length} ${never.length === 1 ? 'person has' : 'people have'} open tasks and ${never.length === 1 ? 'has' : 'have'} never opened the app`
           : 'Everyone with open tasks has opened the app'}>
         <p>
-          Each person gets only what fits their week. Every Monday they get an email with their tasks,
-          copied to {bosses(stack.people).map(b => b.name).join(' and ')}.
+          Each person gets only what fits their week. Their tasks live here and on Today — no emails go
+          out, so {bosses(stack.people).map(b => b.name).join(' and ')} follow up from this page.
         </p>
       </MwHero>
 
