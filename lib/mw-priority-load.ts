@@ -1,6 +1,6 @@
 import 'server-only'
 // 👉 The one ranked list, built from live data. Today, People, the SEO card,
-// the Monday emails and Telegram all read this, so none of them can disagree
+// and the weekly cards all read this, so none of them can disagree
 // about what comes first or whose it is.
 
 import { supabase, supabaseConfigured } from './supabase'

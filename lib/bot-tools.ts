@@ -33,15 +33,6 @@ import { isSalesRow, salesDayOf } from './sales'
 // something outside these read tools.
 export const BOT_TOOLS = [
   {
-    name: 'seo_plan_status',
-    description:
-      'Read-only: the Moving Walls SEO plan — the Focus steps (the 20% that carry 80% of the expected gain), ' +
-      'progress this week and across the whole plan, what Claude is working on in the SEO inbox, and what a step is waiting on. ' +
-      'Use for "how is the SEO plan going?", "what should I do first on SEO?", "what is Claude doing?". ' +
-      'It never sends work to Claude — tell the owner to use /seo go or /seo <prompt> for that.',
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
     name: 'get_cash_summary',
     description:
       'Get cash in, cash out, net, and how much is still owed to the owner, for a time window. ' +
@@ -315,23 +306,6 @@ export async function runBotTool(name: string, input: any, rows: Rec[]): Promise
   try {
     if (name === 'escalate') {
       return JSON.stringify({ escalated: true, reason: String(input?.reason || 'flagged') })
-    }
-
-    if (name === 'seo_plan_status') {
-      const { loadPlanner, recentInbox } = await import('./mw-seo-planner')
-      const p = await loadPlanner()
-      const inbox = await recentInbox(5)
-      return JSON.stringify({
-        thisWeek: p.thisWeek, wholePlan: p.whole,
-        focus: { share: Math.round(p.focus.share * 100) + '%', expectedEnquiriesPerMonth: Number(p.focus.totalLeads.toFixed(1)) },
-        focusSteps: p.focus.ids.map((id, i) => {
-          const s = p.steps.find(x => x.id === id)!
-          const pr = p.prog.get(id)!
-          return { rank: i + 1, title: s.title, who: s.who, stage: pr.stage, enquiriesPerMonth: Number((p.scored.get(id)?.gain.leads ?? 0).toFixed(1)), doneWhen: s.doneWhen, waitingOn: pr.linked?.owners ?? [] }
-        }),
-        inbox: inbox.map(r => ({ id: r.id, step: p.steps.find(s => s.id === r.step_id)?.title ?? null, status: r.status, result: r.result?.slice(0, 300) ?? null })),
-        howToAct: 'Send /seo to see the step, /seo go to send it to Claude, or reply to an SEO card with a prompt.',
-      })
     }
 
     if (name === 'get_cash_summary') {

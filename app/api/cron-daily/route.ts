@@ -303,16 +303,8 @@ export async function GET(req: Request) {
     ])
   }
 
-  // Backstop for the SEO inbox: any job Claude finished whose Telegram message
-  // never went out (session closed before it called the route) is sent now.
-  let seoInbox = 'skipped'
-  if (cronSecret) {
-    seoInbox = await fetch(new URL('/api/mw-inbox-notify', req.url).toString(), {
-      method: 'POST', headers: { authorization: `Bearer ${cronSecret}` }, redirect: 'manual',
-    })
-      .then(async r => (r.status >= 300 && r.status < 400 ? `BOUNCED (${r.status})` : JSON.stringify(await r.json().catch(() => r.status))))
-      .catch(e => `failed: ${String(e?.message || e).slice(0, 80)}`)
-  }
+  // Moving Walls has no Telegram (owner, 26 Oct 2026): SEO inbox results live
+  // on the /mw cards only, so there is nothing to post from here.
 
   // The Monday marketing emails are OFF and no longer scheduled:
   //
@@ -326,7 +318,6 @@ export async function GET(req: Request) {
 
   return Response.json({
     ok: true,
-    seoInbox,
     mwDigest,
     sent,
     recipients: to.length,

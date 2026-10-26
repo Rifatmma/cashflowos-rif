@@ -1,9 +1,8 @@
 import 'server-only'
 // 👉 Loading the SEO planner card: the plan, scored on today's numbers.
 //
-// One read assembles everything the card, the Telegram /seo command and the
-// context pack need, so the three can never disagree about which step is
-// first or how far along it is.
+// One read assembles everything the card and the context pack need, so the
+// two can never disagree about which step is first or how far along it is.
 
 import { supabase, supabaseConfigured } from './supabase'
 import { getActions, type ActionRow } from './mw-actions'

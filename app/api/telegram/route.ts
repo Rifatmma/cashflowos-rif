@@ -37,7 +37,6 @@ import { replyIntent, approveWithInfo } from '@/lib/reply-intent'
 import { BOT_TOOLS, runBotTool } from '@/lib/bot-tools'
 import { BOT_ACTION_TOOLS, ACTION_TOOL_NAMES, runBotAction } from '@/lib/bot-actions'
 import { SCHEDULED } from '@/agents/registry'
-import { maybeHandleSeoText, handleSeoCallback } from '@/lib/mw-seo-bot'
 import { jarvisIdentity, jarvisName, ownerName } from '@/jarvis/config'
 import { logRun } from '@/lib/runs'
 import { ITEM, fmtQty, stockFromLine } from '@/lib/stock-items'
@@ -140,7 +139,6 @@ const HELP_CARD =
   `"add lead Angela 8000", "mark ABC invoice paid", "move Koochester to appointment".\n` +
   `🧾 <b>Handwritten bill?</b> Type it: <code>Item Name: … / Weight: 2 kg / Quantity: 2 / Price: RM 40</code> ` +
   `(one block per item), then send a photo of the bill.\n` +
-  `🧭 <b>SEO plan</b> — <code>/seo</code> shows the step to do now; <code>/seo go</code> sends it to Claude.\n` +
   `Small stuff I just do (reply <code>/undo-&lt;id&gt;</code> to reverse). Money stuff I propose ` +
   `and YOU tap ✅ Approve. I never message your customers.`
 
@@ -251,17 +249,6 @@ async function handleCallback(cb: any): Promise<Response> {
 
   const [verb, idStr, extra] = data.split(':')
   const actionId = Number(idStr)
-
-  // The SEO planner (lib/mw-seo-bot.ts). Owner only: a tap here queues work for
-  // Claude Code with the owner's authority, so the allowlist is not enough.
-  if (verb === 'seo') {
-    if (!isOwner(fromId)) { await answerCallbackQuery(cbId, 'Only the owner can use the SEO planner.'); return Response.json({ ok: true }) }
-    await handleSeoCallback(data, cbId, chatId).catch(async e => {
-      console.error('[CFO] seo callback failed:', e)
-      await answerCallbackQuery(cbId, 'Could not do that — try the card on /mw/seo.')
-    })
-    return Response.json({ ok: true })
-  }
 
   // An answer to "how many slices?" on a photographed meal.
   if (verb === 'meal') {
@@ -721,7 +708,7 @@ async function noteIgnored(chatId: number, msg: any, why: string): Promise<void>
 const isGroupChat = (chat: any) => chat?.type === 'group' || chat?.type === 'supergroup'
 /** The owner's own chat: where the food diary lives and stays. */
 const isOwnerChat = (chatId: number | string) => !!OWNER && String(chatId) === OWNER
-const PRIVATE_TOOLS = new Set(['get_food_today', 'log_food', 'fix_last_meal', 'seo_plan_status'])
+const PRIVATE_TOOLS = new Set(['get_food_today', 'log_food', 'fix_last_meal'])
 const privateOnly = (name: string) => PRIVATE_TOOLS.has(name)
 
 let cachedBotUsername: string | null = null
@@ -971,23 +958,6 @@ async function handleMessage(msg: any): Promise<Response> {
     const res = await undoAction(Number(undoMatch[1]))
     await sendMessage(chatId, res.message)
     return Response.json({ ok: true })
-  }
-
-  // /seo, and replies to an SEO card — the planner on the phone (lib/mw-seo-bot.ts).
-  // Matched before /<agent-key> so "/seo" is never taken for a robot's name.
-  // Owner only, private chat only: it queues work with the owner's authority.
-  const isSeoCmd = /^\/seo(?:@\w+)?(?:\s|$)/i.test(text)
-  if (isSeoCmd || /seo·/.test(String(msg.reply_to_message?.text ?? ''))) {
-    if (!isOwner(msg.from?.id) || msg.chat?.type !== 'private') {
-      if (isSeoCmd) {
-        await sendMessage(chatId, 'Only the owner can use /seo, in a private chat with me.')
-        return Response.json({ ok: true })
-      }
-    } else if (await maybeHandleSeoText(text, chatId, msg.reply_to_message?.text ?? null).catch(e => {
-      console.error('[CFO] /seo failed:', e); return false
-    })) {
-      return Response.json({ ok: true })
-    }
   }
 
   // /<agent-key> — call ONE robot by name, on demand. Runs the exact same check()

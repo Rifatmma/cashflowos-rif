@@ -105,7 +105,7 @@ For each `publish` card still `todo` with no `payload.sanity`:
    - "Press Published here and paste the live URL."
 4. Save it with the cards.
 
-If there's no Sanity access in this run, leave the card's Google Doc steps as they are and say so in the Telegram line.
+If there's no Sanity access in this run, leave the card's Google Doc steps as they are and say so in your summary.
 
 ## 6. Check last week
 
@@ -121,7 +121,6 @@ scripts/mw-week-save.mts docs/week/<week>.json
 
 The script refuses any card without steps, with a vague step, a content card with no Google Doc, or a paid card with no operations. Fix whatever it lists and run it again.
 
-Then send Rif one Telegram line through the bot (`TELEGRAM_BOT_TOKEN`, `OWNER_CHAT_ID`; never print either):
-"Week 44 is ready: N cards for M people. <one sentence on the biggest item>."
+No Telegram and no email: Moving Walls lives on the dashboard only (owner, 26 Oct 2026). The cards are the announcement.
 
 Finish with one line per person: `name · cards · first card title`.

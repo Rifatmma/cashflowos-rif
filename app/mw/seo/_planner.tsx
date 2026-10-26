@@ -217,14 +217,14 @@ export function SeoPlanner({
                 <li key={r.id} className={`mw-inbox-row is-${r.status}`}>
                   <div className="mw-planner-row">
                     <span className={`mw-pill is-${r.status}`}>{STATUS_WORD[r.status]}</span>
-                    <span className="mw-planner-lab">#{r.id} · {r.source === 'telegram' ? 'from Telegram' : 'from the card'} · {ago(r.status === 'claimed' ? r.claimed_at : r.finished_at ?? r.created_at)}</span>
+                    <span className="mw-planner-lab">#{r.id} · {r.source === 'telegram' ? 'from Telegram (old)' : 'from the card'} · {ago(r.status === 'claimed' ? r.claimed_at : r.finished_at ?? r.created_at)}</span>
                     {isOwner && r.status === 'queued' && (
                       <form action={cancelInbox}><input type="hidden" name="id" value={r.id} /><button className="mw-planner-btn is-quiet is-small">Cancel</button></form>
                     )}
                   </div>
                   <p className="mw-inbox-q">{r.prompt.length > 160 ? `${r.prompt.slice(0, 160)}…` : r.prompt}</p>
                   {r.status === 'queued' && (
-                    <p className="mw-planner-lab">Nothing runs until Claude Code is open on your PC and you say &ldquo;check the SEO inbox&rdquo;. The result comes back here and to Telegram.</p>
+                    <p className="mw-planner-lab">Nothing runs until Claude Code is open on your PC and you say &ldquo;check the SEO inbox&rdquo;. The result comes back here.</p>
                   )}
                   {r.result && <p className="mw-inbox-a">{r.result}</p>}
                   {r.error && <p className="mw-inbox-a is-bad">{r.error}</p>}
@@ -272,7 +272,7 @@ export function SeoPlanner({
                   <textarea id={`go-${step.id}`} name="prompt" defaultValue={step.go} rows={4} maxLength={4000} required />
                   <div className="mw-planner-row">
                     <button type="submit" className="mw-planner-btn">Send to Claude</button>
-                    <span className="mw-planner-lab">Claude picks it up when you say &ldquo;check the SEO inbox&rdquo; in Claude Code, or from Telegram with /seo.</span>
+                    <span className="mw-planner-lab">Claude picks it up when you say &ldquo;check the SEO inbox&rdquo; in Claude Code.</span>
                   </div>
                 </form>
               )}
