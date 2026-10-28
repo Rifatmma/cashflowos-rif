@@ -420,6 +420,27 @@ export async function weekDone(formData: FormData) {
   weekPaths()
 }
 
+/**
+ * Rif: apply the Google Ads change on a paid card. Owner only — a guest can
+ * see the card but never touch the account. The change is checked, validated
+ * by Google, then applied; on any failure the card stays open with the reason.
+ */
+export async function weekApply(formData: FormData) {
+  if ((await actor()) !== 'owner') return
+  const c = await weekCard(String(formData.get('id') ?? ''))
+  if (!c || c.t.kind !== 'paid-apply' || c.t.state !== 'todo') return
+  const { applyPaid } = await import('@/lib/mw-paid-apply')
+  const { setState } = await import('@/lib/mw-week-store')
+  const r = await applyPaid(c.t.payload)
+  if (!r.ok) {
+    await setState(c.t.id, 'todo', c.who, { payload: { ...(c.t.payload ?? {}), lastError: r.error, lastTried: new Date().toISOString() } })
+  } else {
+    await setState(c.t.id, 'done', c.who, { payload: { ...(c.t.payload ?? {}), applied: { at: new Date().toISOString(), resources: r.resources }, lastError: null } })
+    await mirror(c.t.sourceId, 'done', null, c.who)
+  }
+  weekPaths()
+}
+
 /** "Can't do this", with the reason. The card closes and its topic is not picked again. */
 export async function weekCant(formData: FormData) {
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 300)

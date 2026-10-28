@@ -1,5 +1,5 @@
 import type { WeekTask, WeekKind } from '@/lib/mw-week'
-import { weekSubmit, weekPublished, weekDone, weekCant } from './actions'
+import { weekSubmit, weekPublished, weekDone, weekCant, weekApply } from './actions'
 
 // 👉 One "My week" card: who, exactly what, where, and the one button that
 // finishes it. No ranking scores, no hours, no analysis — those decided which
@@ -51,7 +51,8 @@ export function WeekCard({ t, canAct }: { t: WeekTask; canAct: boolean }) {
       {!open ? (
         <p className="mw-week-state">
           {t.state === 'submitted' && <>Submitted to Dinesh{doc ? <> · <a href={doc} target="_blank" rel="noopener noreferrer">the doc</a></> : null}</>}
-          {t.state === 'done' && <>Done ✓{t.payload?.url ? <> · <a href={String(t.payload.url)} target="_blank" rel="noopener noreferrer">live page</a></> : null}</>}
+          {t.state === 'done' && t.kind === 'paid-apply' && t.payload?.applied ? <>Applied in Google Ads ✓</> : null}
+          {t.state === 'done' && !(t.kind === 'paid-apply' && t.payload?.applied) && <>Done ✓{t.payload?.url ? <> · <a href={String(t.payload.url)} target="_blank" rel="noopener noreferrer">live page</a></> : null}</>}
           {t.state === 'cant' && <>Can&apos;t do this — &ldquo;{t.reason}&rdquo;</>}
         </p>
       ) : canAct ? (
@@ -80,7 +81,18 @@ export function WeekCard({ t, canAct }: { t: WeekTask; canAct: boolean }) {
               <button className="mw-planner-btn">Send answer</button>
             </form>
           )}
-          {(t.kind === 'tech' || t.kind === 'check' || t.kind === 'paid-apply') && (
+          {t.kind === 'paid-apply' && (
+            <form action={weekApply} className="mw-week-form">
+              <input type="hidden" name="id" value={t.id} />
+              <span className="mw-planner-lab">The change Apply makes in Google Ads</span>
+              <ul className="mw-week-ops">
+                {((t.payload?.summary as string[] | undefined) ?? []).map((l, i) => <li key={i}>{l}</li>)}
+              </ul>
+              {t.payload?.lastError ? <p className="mw-week-err">Not applied: {String(t.payload.lastError)}</p> : null}
+              <button className="mw-planner-btn">Apply in Google Ads</button>
+            </form>
+          )}
+          {(t.kind === 'tech' || t.kind === 'check') && (
             <form action={weekDone}>
               <input type="hidden" name="id" value={t.id} />
               <button className="mw-planner-btn">Done</button>

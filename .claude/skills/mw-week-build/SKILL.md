@@ -69,7 +69,7 @@ Rules by card kind:
 | `content-improve` | A Google Doc listing each change: where, current text, new text. Every change passes `checkChange()` (`lib/mw-page-proposal.ts`), so no Locked or Protect term is lost. Set `payload.page` to the live URL. | Check the local facts, Submit to Dinesh |
 | `publish` | Nothing new. It's created by Submit to Dinesh (`publishCardFor`). | (already written) |
 | `tech` | The exact change: the HTML or schema to paste, the field to edit, the before and after. If it's a proposal, link it. | Apply, check, press Done |
-| `paid-apply` | The exact Google Ads operations in `payload.operations`, checked with `GOOGLEADS_BATCH_MUTATE` and `validate_only: true`, plus the numbers behind them. | Read the change, press Apply |
+| `paid-apply` | `payload = { customerId: "3759727500", operations: [...GOOGLEADS_BATCH_MUTATE mutate_operations], summary: ["one plain line per operation"] }`. Only negative keywords, pausing or re-enabling a keyword or ad group, and adding keywords are allowed (`checkPaid` in `lib/mw-week.ts` refuses budgets, bids, campaigns, ads and removals). Validate with `validate_only: true` before saving. Put the numbers behind it in `why`. | Read the change, press Apply |
 | `facts` | One question only the lead can answer, with an example answer. | Type the answer, Send |
 | `check` | What to look at, and where. | Check it, press Done |
 

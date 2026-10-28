@@ -7,7 +7,7 @@
 // to think about is the card he called useless.
 
 import { readFileSync } from 'fs'
-import { isReady, type WeekTask } from '../lib/mw-week'
+import { isReady, checkPaid, type WeekTask } from '../lib/mw-week'
 import { saveTasks } from '../lib/mw-week-store'
 
 const file = process.argv[2]
@@ -30,8 +30,9 @@ for (const { evidence: _e, ...t } of doc.cards) {
   if ((t.kind === 'content-new' || t.kind === 'content-improve') && !t.links.some(l => /docs\.google\.com/.test(l.url))) {
     problems.push(`${t.id}: a content card needs its Google Doc link`); continue
   }
-  if (t.kind === 'paid-apply' && !Array.isArray((t.payload as any)?.operations)) {
-    problems.push(`${t.id}: a paid card needs payload.operations`); continue
+  if (t.kind === 'paid-apply') {
+    const c = checkPaid(t.payload)
+    if (!c.ok) { problems.push(`${t.id}: ${c.errors.join('; ')}`); continue }
   }
   cards.push(t)
 }

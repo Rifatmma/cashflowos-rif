@@ -1261,3 +1261,6 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 .mw-week-cant[open] summary { margin-bottom: 6px; }
 .mw-week-person { margin-top: 16px; }
 .mw-week-person h3 { font-size: 16px; margin: 0 0 8px; }
+
+.mw-week-ops { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.mw-week-err { margin: 0; font-size: 14px; color: var(--mw-bad); font-weight: 600; }

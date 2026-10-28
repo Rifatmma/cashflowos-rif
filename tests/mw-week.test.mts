@@ -1,6 +1,6 @@
 // "My week": the weekly pick. No network.
 //   npx -y tsx --conditions=react-server tests/mw-week.test.mts
-import { pickWeek, isoWeek, mondayOf, dueOf, kindOf, publishCardFor, isReady, type WeekTask } from '../lib/mw-week'
+import { pickWeek, isoWeek, mondayOf, dueOf, kindOf, publishCardFor, isReady, checkPaid, type WeekTask } from '../lib/mw-week'
 import type { Ranked } from '../lib/mw-priorities'
 import { PEOPLE_SEED } from '../lib/mw-people'
 
