@@ -172,7 +172,9 @@ Everything above about English applies in spirit only; these rules win:
   translation of English: write it the way a Chinese speaker would say it. At most 28 characters a line.
 - Keep brand and product names in Latin script (Moving Walls, Calvin Klein). Write numbers as Arabic
   digits ("230块屏幕", "31.8%") — she reads them correctly. Say 户外广告 / 数字户外 for (D)OOH.
-- The close ends on "无界。" (No boundaries).
+- The close ends on the tagline in ENGLISH, exactly "No boundaries." — she says it in English and the
+  end scene shows "No boundaries." in English. Never translate it (no 无界): it is the brand line
+  (owner, 28 Oct 2026).
 - ALL on-screen text is Simplified Chinese too: "h" ≤ 12 characters, "s" ≤ 16, "lab" ≤ 8, burst
   words ≤ 4 characters each; art labels and items in Chinese where they are words (place names may be
   Chinese: 新加坡, 悉尼, 迪拜). Keep "movingwalls.com" as is.
