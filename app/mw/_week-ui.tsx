@@ -51,7 +51,10 @@ export function WeekCard({ t, canAct }: { t: WeekTask; canAct: boolean }) {
       {!open ? (
         <p className="mw-week-state">
           {t.state === 'submitted' && <>Submitted to Dinesh{doc ? <> · <a href={doc} target="_blank" rel="noopener noreferrer">the doc</a></> : null}</>}
-          {t.state === 'done' && t.kind === 'paid-apply' && t.payload?.applied ? <>Applied in Google Ads ✓</> : null}
+          {t.state === 'done' && t.kind === 'paid-apply' && t.payload?.applied ? <>Applied in Google Ads ✓{
+            ((t.payload.applied as any).adStrength ?? []).map((a: { strength: string }, i: number) =>
+              <span key={i}> · new ad strength: {a.strength === 'PENDING' ? 'still being rated' : a.strength.toLowerCase()}</span>)
+          }</> : null}
           {t.state === 'done' && !(t.kind === 'paid-apply' && t.payload?.applied) && <>Done ✓{t.payload?.url ? <> · <a href={String(t.payload.url)} target="_blank" rel="noopener noreferrer">live page</a></> : null}</>}
           {t.state === 'cant' && <>Can&apos;t do this — &ldquo;{t.reason}&rdquo;</>}
         </p>

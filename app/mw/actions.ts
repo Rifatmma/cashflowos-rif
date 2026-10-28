@@ -435,7 +435,7 @@ export async function weekApply(formData: FormData) {
   if (!r.ok) {
     await setState(c.t.id, 'todo', c.who, { payload: { ...(c.t.payload ?? {}), lastError: r.error, lastTried: new Date().toISOString() } })
   } else {
-    await setState(c.t.id, 'done', c.who, { payload: { ...(c.t.payload ?? {}), applied: { at: new Date().toISOString(), resources: r.resources }, lastError: null } })
+    await setState(c.t.id, 'done', c.who, { payload: { ...(c.t.payload ?? {}), applied: { at: new Date().toISOString(), resources: r.resources, adStrength: r.adStrength ?? null }, lastError: null } })
     await mirror(c.t.sourceId, 'done', null, c.who)
   }
   weekPaths()
