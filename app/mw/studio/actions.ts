@@ -84,11 +84,11 @@ export async function writeBrandVideo(
 export type VoiceResult = { ok: true; lines: SpokenLine[] } | { ok: false; error: string }
 
 /** Ava reads every line; each comes back as mp3 with its word timings. */
-export async function speakBrandVideo(lines: string[]): Promise<VoiceResult> {
+export async function speakBrandVideo(lines: string[], lang: SubLang = 'none'): Promise<VoiceResult> {
   const clean = lines.map(l => String(l ?? '').trim().slice(0, 240)).filter(Boolean).slice(0, 10)
   if (!clean.length) return { ok: false, error: 'There is nothing for Ava to say.' }
   try {
-    return { ok: true, lines: await speakAll(clean) }
+    return { ok: true, lines: await speakAll(clean, lang === 'zh-voice' ? 'xiaoxiao' : 'ava') }
   } catch (e: any) {
     return { ok: false, error: String(e?.message ?? e).slice(0, 220) }
   }

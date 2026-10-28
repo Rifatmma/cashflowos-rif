@@ -65,7 +65,7 @@ async function loadFonts(zh: boolean) {
   if (!f) return
   await Promise.all([
     ...['400', '600', '700', '800', 'italic 400', 'italic 600'].map(w => f.load(`${w} 40px Poppins`)),
-    zh ? f.load("700 40px 'Noto Sans SC'", '中文字幕') : Promise.resolve(),
+    ...(zh ? ['400', '600', '700', '800'].map(w => f.load(`${w} 40px 'Noto Sans SC'`, '中文字幕')) : []),
   ]).catch(() => undefined)
 }
 
@@ -276,13 +276,13 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
     if (!plan) return
     setError(''); setVoice(null); setClip(null)
     start(async () => {
-      const r = await speakBrandVideo(plan.lines)
+      const r = await speakBrandVideo(plan.lines, lang)
       if (!r.ok) return setError(r.error)
       try {
         const pcm = await Promise.all(r.lines.map(l => decodeMp3(l.mp3)))
         // The decoded length is the truth; the server's figure was an estimate.
         const lines = r.lines.map((l, i) => ({ text: l.text, words: l.words, dur: pcm[i].length / SR }))
-        await loadFonts(lang === 'zh')
+        await loadFonts(lang !== 'none')
         setVoice({ lines, pcm })
         setAt(0)
       } catch (e: any) {
@@ -397,7 +397,7 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
     const engineAt = (ctx: CanvasRenderingContext2D, fl: Film) =>
       createEngine(ctx, f.w, f.h, fl, assets.shapes, { dark: assets.dark, light: assets.light, photos: photoImgs.current })
     try {
-      await loadFonts(lang === 'zh')
+      await loadFonts(lang !== 'none')
       setStage('Preparing the video…')
       const source = await sourceText()
       const vo = voice.lines.map((l, i) => ({ t: film.starts[i], words: l.words }))
@@ -584,13 +584,16 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
             ))}
           </div>
 
-          <h3>Subtitles</h3>
+          <h3>Language</h3>
           <div className="mw-studio-choice">
             <button type="button" onClick={() => { setLang('none'); setPlan(null); setVoice(null) }} aria-current={lang === 'none' ? 'true' : undefined}>
               <b>English only</b><small>Ava’s voice, no subtitles.</small>
             </button>
             <button type="button" onClick={() => { setLang('zh'); setPlan(null); setVoice(null) }} aria-current={lang === 'zh' ? 'true' : undefined}>
               <b>English voice + 中文 subtitles</b><small>Simplified Chinese. Have a native speaker check them before posting.</small>
+            </button>
+            <button type="button" onClick={() => { setLang('zh-voice'); setPlan(null); setVoice(null) }} aria-current={lang === 'zh-voice' ? 'true' : undefined}>
+              <b>中文 voice + Chinese on screen</b><small>Ava in Mandarin (the Xiaoxiao voice). Have a native speaker check the script before posting.</small>
             </button>
           </div>
 
@@ -757,10 +760,11 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
         </section>
       )}
 
-      {lang === 'zh' && (
-        // Only fetched when Chinese subtitles are actually wanted: the full
-        // CJK face is heavy and nothing else on this screen draws it.
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@700&display=swap" />
+      {lang !== 'none' && (
+        // Only fetched when Chinese is actually wanted: the full CJK face is
+        // heavy and nothing else on this screen draws it. A Chinese-voiced
+        // video draws its headlines in it too, so every weight comes along.
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;700;800&display=swap" />
       )}
     </div>
   )

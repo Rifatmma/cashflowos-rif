@@ -27,7 +27,12 @@ export const FILM_FORMATS: Record<FilmFormat, { w: number; h: number; label: str
 
 /** `mixed`: articles written for everyone in out-of-home at once — generic terms, no one group singled out. */
 export type Audience = 'agencies' | 'brands' | 'media-owners' | 'mixed'
-export type SubLang = 'none' | 'zh'
+/**
+ * `zh`: Ava in English with Chinese subtitles. `zh-voice`: the whole video in
+ * Mandarin — Xiaoxiao reads a script written in Chinese and the headlines are
+ * Chinese, for the China team (owner, 28 Oct 2026).
+ */
+export type SubLang = 'none' | 'zh' | 'zh-voice'
 
 /** Backgrounds the engine knows. */
 export const BACKGROUNDS = ['cover', 'navy', 'sky', 'white'] as const
@@ -179,9 +184,29 @@ function wordTime(v: VoiceLine, word: string | undefined, after = -1): number {
   if (!want) return 0
   for (const [w, t] of v.words) if (t > after && (norm(w) === want || norm(w).startsWith(want))) return t
   for (const [w, t] of v.words) if (norm(w).includes(want)) return t
+  // Chinese has no spaces, so the service's word split rarely matches the
+  // cue the script chose ("户外" against "户外广告牌"). Find the cue in the
+  // words run together and take the word it starts in.
+  const at = joinedAt(v, want)
+  if (at !== null) return at
   const pos = v.text.toLowerCase().indexOf(word.toLowerCase())
   return pos > 0 ? (pos / Math.max(1, v.text.length)) * v.dur : 0
 }
+
+function joinedAt(v: VoiceLine, want: string): number | null {
+  let joined = ''
+  const from: number[] = []
+  for (const [w] of v.words) { from.push(joined.length); joined += norm(w) }
+  const k = joined.indexOf(want)
+  if (k < 0) return null
+  let i = 0
+  while (i + 1 < from.length && from[i + 1] <= k) i++
+  return v.words[i]?.[1] ?? null
+}
+
+/** Whether she says the cue at all — by word, or inside a run of Chinese. */
+const says = (v: VoiceLine, on: string) =>
+  !!norm(on) && (v.words.some(([x]) => norm(x).startsWith(norm(on))) || joinedAt(v, norm(on)) !== null)
 
 /** Where each line starts: on the beat, with room to breathe after the last. */
 export function lineStarts(voice: VoiceLine[]): number[] {
@@ -248,7 +273,7 @@ export function resolveFilm(
     // instead of jumping to the start of the scene.
     let last = a - 0.4
     const words = sc.words?.filter(w => w.s.trim()).map((w, k) => {
-      const said = w.on && v.words.some(([x]) => norm(x).startsWith(norm(w.on!)) && norm(w.on!))
+      const said = w.on && says(v, w.on)
       const t = +Math.max(a, last + 0.35, said ? at(sc.line, w.on) - 0.12 : 0).toFixed(3)
       last = t
       return { t, s: w.s.trim(), bg: w.bg ?? (k % 2 ? 'cover' : 'white'), ...(w.s.trim().includes(' ') ? { st: 'h' } : {}) }
@@ -523,8 +548,11 @@ export function sanitizePlan(raw: any, sites?: Record<string, { name: string; re
 
 /** Approximate length before Ava has spoken (2.6 words a second at +6%). */
 export function estimateSeconds(lines: string[]): number {
-  const words = lines.join(' ').split(/\s+/).filter(Boolean).length
-  return Math.round(words / 2.6 + lines.length * 0.6 + 1.5)
+  const all = lines.join(' ')
+  // Chinese is counted by the character (about 4.4 a second), the rest by the word.
+  const han = (all.match(/\p{Script=Han}/gu) ?? []).length
+  const words = all.replace(/\p{Script=Han}/gu, ' ').split(/\s+/).filter(Boolean).length
+  return Math.round(words / 2.6 + han / 4.4 + lines.length * 0.6 + 1.5)
 }
 
 /**

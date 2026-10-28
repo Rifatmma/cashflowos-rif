@@ -19,7 +19,14 @@ import type { VoiceLine } from './mw-brandfilm'
 // by phrase, so a place or brand name (Diwali, AirAsia, Kuala Lumpur) could tip
 // a phrase into another accent mid-line.
 export const AVA = 'en-US-AvaNeural'
-const RATE = '+6%'
+// The Mandarin voice for Chinese videos: warm and polished, picked by the
+// owner over the livelier Xiaoyi (28 Oct 2026).
+export const XIAOXIAO = 'zh-CN-XiaoxiaoNeural'
+export type Narrator = 'ava' | 'xiaoxiao'
+const VOICE: Record<Narrator, { id: string; rate: string }> = {
+  ava: { id: AVA, rate: '+6%' },
+  xiaoxiao: { id: XIAOXIAO, rate: '+4%' },
+}
 
 // Acronyms are read letter by letter ("L M X", not "lemex"). The service then
 // times each letter as its own word (a plural rides on the last: C, P, Ms), so
@@ -40,11 +47,11 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 export type SpokenLine = VoiceLine & { mp3: string }
 
-async function speakOnce(text: string): Promise<SpokenLine> {
+async function speakOnce(text: string, who: Narrator): Promise<SpokenLine> {
   const tts = new MsEdgeTTS()
   try {
-    await tts.setMetadata(AVA, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, { wordBoundaryEnabled: true })
-    const { audioStream, metadataStream } = tts.toStream(spoken(text), { rate: RATE })
+    await tts.setMetadata(VOICE[who].id, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, { wordBoundaryEnabled: true })
+    const { audioStream, metadataStream } = tts.toStream(spoken(text), { rate: VOICE[who].rate })
     const chunks: Buffer[] = []
     let meta = ''
     metadataStream?.on('data', (c: Buffer) => { meta += c.toString() })
@@ -71,20 +78,20 @@ async function speakOnce(text: string): Promise<SpokenLine> {
 }
 
 /** One line, retried: the service drops requests that arrive back to back. */
-export async function speakLine(text: string): Promise<SpokenLine> {
+export async function speakLine(text: string, who: Narrator = 'ava'): Promise<SpokenLine> {
   let last: unknown
   for (let attempt = 0; attempt < 5; attempt++) {
-    try { return await speakOnce(text) } catch (e) { last = e; await sleep(600 * (attempt + 1)) }
+    try { return await speakOnce(text, who) } catch (e) { last = e; await sleep(600 * (attempt + 1)) }
   }
-  throw new Error(`Ava could not say "${text.slice(0, 40)}…": ${String((last as any)?.message ?? last)}`)
+  throw new Error(`${who === 'ava' ? 'Ava' : 'Xiaoxiao'} could not say "${text.slice(0, 40)}…": ${String((last as any)?.message ?? last)}`)
 }
 
 /** Every line, three at a time — quick enough for a function's time limit, gentle enough not to be refused. */
-export async function speakAll(lines: string[]): Promise<SpokenLine[]> {
+export async function speakAll(lines: string[], who: Narrator = 'ava'): Promise<SpokenLine[]> {
   const out: SpokenLine[] = new Array(lines.length)
   let next = 0
   const worker = async () => {
-    while (next < lines.length) { const i = next++; out[i] = await speakLine(lines[i]) }
+    while (next < lines.length) { const i = next++; out[i] = await speakLine(lines[i], who) }
   }
   await Promise.all([worker(), worker(), worker()])
   return out

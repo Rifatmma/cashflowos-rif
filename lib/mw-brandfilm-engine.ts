@@ -166,7 +166,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
     b: { size: 44, weight: 400, lead: 1.35, track: 0 },
     lab: { size: 38, weight: 600, lead: 1.7, track: .5 },
   };
-  function font(st, size) { return `${st.italic ? 'italic ' : ''}${st.weight} ${size}px ${st.font || 'Poppins'}`; }
+  function font(st, size) { return `${st.italic ? 'italic ' : ''}${st.weight} ${size}px ${st.font || 'Poppins'}, "Noto Sans SC"`; }
   function measure(str, st, size) { x.save(); x.font = font(st, size); x.letterSpacing = st.track * size / 100 + 'px'; const w = x.measureText(str).width; x.restore(); return w; }
   function slam(t, t0, d = .3) { const p = oExpo(P(t, t0, t0 + d)); return { a: P(t, t0, t0 + d * .35), blur: (1 - p) * 26 * U, sc: lerp(1.16, 1, p) }; }
   function text(str, px, py, st, size, color, fx = {}, align = 'left') {
@@ -224,9 +224,9 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
   }
   // a single line that must fit a width (used inside illustrations)
   function fitFont(str, weight, size, maxW, italic = false) {
-    x.font = `${italic ? 'italic ' : ''}${weight} ${size}px Poppins`;
+    x.font = `${italic ? 'italic ' : ''}${weight} ${size}px Poppins, "Noto Sans SC"`;
     const w = x.measureText(str).width;
-    if (w > maxW) { size *= maxW / w; x.font = `${italic ? 'italic ' : ''}${weight} ${size}px Poppins`; }
+    if (w > maxW) { size *= maxW / w; x.font = `${italic ? 'italic ' : ''}${weight} ${size}px Poppins, "Noto Sans SC"`; }
     return size;
   }
 
@@ -263,7 +263,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const g = x.createLinearGradient(0, 0, 0, 110); g.addColorStop(0, C.sun1); g.addColorStop(1, C.sun2); x.fillStyle = g; x.fillRect(0, y, 10, 110);
         const rr = rnd(Math.floor(u * 24) * 31 + i * 7); let s = '';
         for (let j = 0; j < row.length; j++) s += (u > .1 + i * .08 + j * .02 || row[j] === ' ') ? row[j] : 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789'[Math.floor(rr() * 33)];
-        x.font = '600 52px Poppins'; x.letterSpacing = '4px'; x.fillStyle = C.white; x.globalAlpha = P(u, i * .06, i * .06 + .1); x.fillText(s, 44, y + 72); x.globalAlpha = 1;
+        x.font = '600 52px Poppins, "Noto Sans SC"'; x.letterSpacing = '4px'; x.fillStyle = C.white; x.globalAlpha = P(u, i * .06, i * .06 + .1); x.fillText(s, 44, y + 72); x.globalAlpha = 1;
       });
       x.restore();
     },
@@ -331,7 +331,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       });
       const op = oBack(P(u, 0, .4), 2);
       x.save(); x.translate(o[0], o[1]); x.scale(op, op); x.fillStyle = C.sun1; x.beginPath(); x.arc(0, 0, 30, 0, 7); x.fill(); x.restore();
-      x.font = '800 44px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.sun1 : C.type; x.globalAlpha = P(u, .2, .4); x.fillText(o[2], o[0], o[1] + 92); x.globalAlpha = 1;
+      x.font = '800 44px Poppins, "Noto Sans SC"'; x.textAlign = 'center'; x.fillStyle = dark ? C.sun1 : C.type; x.globalAlpha = P(u, .2, .4); x.fillText(o[2], o[0], o[1] + 92); x.globalAlpha = 1;
       x.restore();
     },
     // media formats: tiles flip in (airport / transit / retail …)
@@ -396,7 +396,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.beginPath(); x.roundRect(0, y, wd, 116, 58); x.fill();
         x.globalAlpha = P(u, t0 + .2, t0 + .4); fitFont(lab, fresh ? 700 : 600, 44, (fresh ? 1000 : 820 - i * 90) - (fresh ? 150 : 80)); x.fillStyle = fresh ? C.navy : (dark ? C.white : C.type);
         x.fillText(lab, 44, y + 74);
-        if (fresh) { x.textAlign = 'right'; x.font = '800 54px Poppins'; x.fillText('+', wd - 44, y + 76); x.textAlign = 'left'; }
+        if (fresh) { x.textAlign = 'right'; x.font = '800 54px Poppins, "Noto Sans SC"'; x.fillText('+', wd - 44, y + 76); x.textAlign = 'left'; }
         x.globalAlpha = 1;
       });
       x.restore();
@@ -415,7 +415,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const hue = [C.blue, C.accDeep, '#25534A', '#871A1C', C.sky][i % 5];   // the deep accent: white reads on it in every accent
         x.fillStyle = hue; x.fillRect(-150, -210, 300, 64);
         // the code on its header: white on the deep hues, navy on sky (white on Sunburst orange, the old second card, was 2.3:1)
-        x.font = '700 34px Poppins'; x.fillStyle = hue === C.sky ? C.navy : C.white; x.fillText(code, -126, -166);
+        x.font = '700 34px Poppins, "Noto Sans SC"'; x.fillStyle = hue === C.sky ? C.navy : C.white; x.fillText(code, -126, -166);
         // each report has its own layout: bars, pie, table
         const kind = i % 3;
         if (kind === 0) for (let k = 0; k < 6; k++) { const h = 40 + rr() * 140; x.fillStyle = hue; x.globalAlpha = .7; x.fillRect(-120 + k * 42, 150 - h, 28, h); x.globalAlpha = 1; }
@@ -532,7 +532,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       gift() { R(-54, -16, 108, 74, 8); R(-60, -36, 120, 22, 6); L([0, -36], [0, 58]); hot(() => { O(-16, -48, 14); O(16, -48, 14); }); },
       sale() { O(0, 0, 58); hot(() => { L([-24, 26], [26, -26]); O(-20, -18, 9); O(20, 18, 9); }); },
       cube() { Lc([0, -60], [56, -30], [0, 0], [-56, -30]); L([-56, -30], [-56, 34], [0, 64], [56, 34], [56, -30]); hot(() => L([0, 0], [0, 64])); },
-      ai() { R(-50, -50, 100, 100, 18); x.font = '800 44px Poppins'; x.textAlign = 'center'; x.fillStyle = ink; x.fillText('AI', 0, 16); hot(() => { L([-50, -20], [-66, -20]); L([50, 20], [66, 20]); }); },
+      ai() { R(-50, -50, 100, 100, 18); x.font = '800 44px Poppins, "Noto Sans SC"'; x.textAlign = 'center'; x.fillStyle = ink; x.fillText('AI', 0, 16); hot(() => { L([-50, -20], [-66, -20]); L([50, 20], [66, 20]); }); },
       chat() { x.beginPath(); x.roundRect(-58, -48, 116, 80, 20); x.stroke(); L([-20, 32], [-34, 58], [6, 32]); hot(() => { F(-24, -8, 6); F(0, -8, 6); F(24, -8, 6); }); },
       email() { R(-60, -40, 120, 80, 10); hot(() => L([-60, -36], [0, 6], [60, -36])); },
       link() { x.save(); x.rotate(-.78); R(-56, -18, 60, 36, 18); hot(() => R(-4, -18, 60, 36, 18)); x.restore(); },
@@ -783,7 +783,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         x.globalAlpha = 1;
       });
       const v = oBack(P(u, .5, .8), 2);
-      if (v > 0) { x.save(); x.translate(500, 320); x.scale(v, v); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.arc(0, 0, 58, 0, 7); x.fill(); x.font = '800 40px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('VS', 0, 16); x.restore(); }
+      if (v > 0) { x.save(); x.translate(500, 320); x.scale(v, v); x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.arc(0, 0, 58, 0, 7); x.fill(); x.font = '800 40px Poppins, "Noto Sans SC"'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('VS', 0, 16); x.restore(); }
       x.restore();
     },
     // rising bars with a trend line
@@ -1109,7 +1109,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         if (c <= 0) { x.beginPath(); x.arc(0, 0, 80, 0, 7); x.fill(); for (let k = 0; k < 8; k++) { x.save(); x.rotate(k * Math.PI / 4 + u * .5); x.fillRect(100, -6, 40, 12); x.restore(); } }
         else { x.beginPath(); x.arc(-50, 10, 60, 0, 7); x.arc(20, -20, 80, 0, 7); x.arc(80, 20, 55, 0, 7); x.rect(-50, 10, 130, 65); x.fill(); x.strokeStyle = dark ? C.sky : C.blue; x.lineWidth = 8; x.lineCap = 'round'; for (let k = 0; k < 6; k++) { const f = (u * 1.4 + k * .17) % 1; x.globalAlpha = c; x.beginPath(); x.moveTo(-60 + k * 30, 100 + f * 120); x.lineTo(-70 + k * 30, 130 + f * 120); x.stroke(); } x.globalAlpha = 1; } }
       else if (kind === 'temp') { const lv = lerp(.3, .9, P(u, at - .4, at)); x.fillStyle = soft(dark); x.beginPath(); x.roundRect(-30, -170, 60, 280, 30); x.arc(0, 150, 60, 0, 7); x.fill(); x.fillStyle = lv > .7 ? C.sun2 : C.sky; x.beginPath(); x.roundRect(-16, 110 - 260 * lv, 32, 260 * lv, 16); x.arc(0, 150, 44, 0, 7); x.fill(); }
-      else { x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-150, -90, 300, 180, 20); x.fill(); const s = u > at ? '2 – 1' : '1 – 1'; x.font = '800 90px Poppins'; x.textAlign = 'center'; x.fillStyle = u > at ? C.sun1 : (dark ? C.navy : C.white); x.fillText(s, 0, 32); }
+      else { x.fillStyle = dark ? C.white : C.navy; x.beginPath(); x.roundRect(-150, -90, 300, 180, 20); x.fill(); const s = u > at ? '2 – 1' : '1 – 1'; x.font = '800 90px Poppins, "Noto Sans SC"'; x.textAlign = 'center'; x.fillStyle = u > at ? C.sun1 : (dark ? C.navy : C.white); x.fillText(s, 0, 32); }
       x.restore();
       if (ev.signalLabel) { fitFont(ev.signalLabel, 700, 42, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.fillText(ev.signalLabel, 200, 640); }
       // arrow
@@ -1305,7 +1305,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       const sh = 1 - .45 * oCub(P(u, 1.0, 2.0)), gp = oCub(P(u, 1.0, 2.0));
       x.save(); x.translate(300, 330); x.scale(sh * oBack(P(u, .05, .45), 1.4), sh * oBack(P(u, .05, .45), 1.4)); x.fillStyle = dark ? 'rgba(191,231,251,.35)' : '#B8C6D8';
       x.beginPath(); x.arc(-110, 40, 110, Math.PI * .5, Math.PI * 1.5); x.arc(0, -40, 150, Math.PI, 0); x.arc(120, 40, 110, -Math.PI * .5, Math.PI * .5); x.closePath(); x.fill();
-      x.font = '800 110px Poppins'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('CO₂', 0, 70); x.restore();
+      x.font = '800 110px Poppins, "Noto Sans SC"'; x.textAlign = 'center'; x.fillStyle = dark ? C.navy : C.white; x.fillText('CO₂', 0, 70); x.restore();
       if (ev.from && ev.to) { const val = gp < .5 ? String(ev.from) : String(ev.to); fitFont(val, 800, 60, 360); x.textAlign = 'center'; x.fillStyle = fg(dark); x.globalAlpha = P(u, .4, .7); x.fillText(val, 300, 640); x.globalAlpha = 1; }
       x.strokeStyle = soft(dark); x.lineWidth = 34; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * 2.25); x.stroke();
       x.strokeStyle = C.sun1; x.lineCap = 'round'; x.beginPath(); x.arc(760, 330, 160, Math.PI * .75, Math.PI * .75 + Math.PI * 1.5 * gp); x.stroke(); ICON.leaf(760, 330, 1.1, dark);
@@ -1648,7 +1648,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
       y += 26 * U * k + gx;
       if (sc.chip && T >= sc.chip.t) {
         const a = P(T, sc.chip.t, sc.chip.t + .3), cs = fitFont(sc.chip.s, 600, 32 * U * k, info.w - 110 * U * k);
-        x.font = `600 ${cs}px Poppins`; const cw = x.measureText(sc.chip.s).width + 104 * U * k, h = chipH * k;
+        x.font = `600 ${cs}px Poppins, "Noto Sans SC"`; const cw = x.measureText(sc.chip.s).width + 104 * U * k, h = chipH * k;
         x.save(); x.globalAlpha = a; x.translate((1 - oExpo(a)) * -30 * U, 0);
         x.strokeStyle = 'rgba(191,231,251,.6)'; x.lineWidth = 2.5 * U; x.fillStyle = 'rgba(43,60,146,.55)';
         x.beginPath(); x.roundRect(info.x, y, cw, h, h / 2); x.fill(); x.stroke();
@@ -1667,7 +1667,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const shown = Math.round(s.value * p).toLocaleString('en-US');
         const ns = fitFont(s.value.toLocaleString('en-US'), 800, numS * k, colW);
         x.save(); x.globalAlpha = P(T, s.t, s.t + .2);
-        x.font = `800 ${ns}px Poppins`; x.letterSpacing = -ns * .02 + 'px'; x.textAlign = 'left';
+        x.font = `800 ${ns}px Poppins, "Noto Sans SC"`; x.letterSpacing = -ns * .02 + 'px'; x.textAlign = 'left';
         x.fillStyle = s.accent ? accGrad(cx, cx + colW) : C.white; x.fillText(shown, cx, y + numS * k * .82);
         x.letterSpacing = '0px';
         const ls = fitFont(s.label, 500, labS * k, colW); x.fillStyle = 'rgba(255,255,255,.78)';
@@ -1683,7 +1683,7 @@ export function createEngine(x, W, H, SPEC, SHAPES, TEX) {
         const px = info.x + pr, py = y + ps * .1;
         x.fillStyle = C.sun1; x.beginPath(); x.arc(px, py - pr * 1.2, pr, Math.PI * .85, Math.PI * 2.15); x.lineTo(px, py + pr * .5); x.closePath(); x.fill();
         x.fillStyle = C.navy; x.beginPath(); x.arc(px, py - pr * 1.25, pr * .4, 0, 7); x.fill();
-        x.font = `italic 600 ${ns}px Poppins`; x.fillStyle = C.sky; x.textAlign = 'left'; x.fillText(sc.near.s, info.x + ps * 1.1, py + ns * .05);
+        x.font = `italic 600 ${ns}px Poppins, "Noto Sans SC"`; x.fillStyle = C.sky; x.textAlign = 'left'; x.fillText(sc.near.s, info.x + ps * 1.1, py + ns * .05);
         x.restore();
       }
     },

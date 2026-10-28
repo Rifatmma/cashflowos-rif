@@ -9,7 +9,10 @@
 @font-face{font-family:Poppins;font-weight:400;font-style:italic;src:url(node_modules/@fontsource/poppins/files/poppins-latin-400-italic.woff2)}
 html,body{margin:0;background:#000}canvas{display:block}
 </style>
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/400.css">
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/600.css">
 <link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/700.css">
+<link rel="stylesheet" href="node_modules/@fontsource/noto-sans-sc/800.css">
 <script src="shapes.js"></script>
 <script src="core.js"></script>
 <script src="audit.js"></script>
@@ -39,7 +42,7 @@ window.ready = load(`${PDIR}/vo.js`).then(() => load(`${PDIR}/spec.js`)).then(as
     TEX.media[k] = fr ? { current: null, ...fr } : await img(`${PDIR}/${p}`);
   }
   await Promise.all([...['400', '600', '700', '800', 'italic 600', 'italic 400'].map(w => document.fonts.load(`${w} 20px Poppins`)),
-    document.fonts.load("700 20px 'Noto Sans SC'", '中文').catch(() => 0)]);
+    ...['400', '600', '700', '800'].map(w => document.fonts.load(`${w} 20px 'Noto Sans SC'`, '中文').catch(() => 0))]);
   window.render = createEngine(cv.getContext('2d'), W, H, SPEC, SHAPES, TEX);
   window.runAudit = (source = '') => auditFilm(cv.getContext('2d'), W, H, SPEC, window.render, {
     vo: (SPEC.vo || []).map((v, i) => ({ t: v.t, words: (window.__VO || [])[i]?.words || [] })),

@@ -70,7 +70,7 @@ FACTS ALREADY CHECKED FROM IT:
 ${facts}
 
 AUDIENCE: ${AUDIENCE[audience]}
-LENGTH: about ${seconds} seconds — ${Math.round(seconds * 2.3)} words, 7 or 8 lines.
+LENGTH: about ${seconds} seconds — ${lang === 'zh-voice' ? `${Math.round(seconds * 4.2)} Chinese characters` : `${Math.round(seconds * 2.3)} words`}, 7 or 8 lines.
 
 THE SCRIPT ("lines"):
 1 hook: the market shift in six words or fewer · 2 who it matters to · 3-4 the concrete tension,
@@ -164,7 +164,22 @@ VARIETY: pick the illustration that shows THIS line's idea most specifically —
 people is "people" or "compare", not a street. Use each illustration at most once per video.
 ${recent.length ? `These were used in the last few videos — avoid them unless nothing else fits: ${recent.join(', ')}.` : ''}
 
-${lang === 'zh' ? `
+${lang === 'zh-voice' ? `
+LANGUAGE — THIS VIDEO IS IN MANDARIN. The narrator is Xiaoxiao, a native Mandarin voice, not Ava.
+Everything above about English applies in spirit only; these rules win:
+- "lines" are written in Simplified Chinese for mainland China marketers: natural spoken Mandarin,
+  casual but professional — how a confident account director talks, not a press release. Not a
+  translation of English: write it the way a Chinese speaker would say it. At most 28 characters a line.
+- Keep brand and product names in Latin script (Moving Walls, Calvin Klein). Write numbers as Arabic
+  digits ("230块屏幕", "31.8%") — she reads them correctly. Say 户外广告 / 数字户外 for (D)OOH.
+- The close ends on "无界。" (No boundaries).
+- ALL on-screen text is Simplified Chinese too: "h" ≤ 12 characters, "s" ≤ 16, "lab" ≤ 8, burst
+  words ≤ 4 characters each; art labels and items in Chinese where they are words (place names may be
+  Chinese: 新加坡, 悉尼, 迪拜). Keep "movingwalls.com" as is.
+- "on" is a short run of characters copied EXACTLY from that scene's line (2–4 characters, e.g. "出海"),
+  so the screen can find the moment she says it.
+- The example below is in English to show the shape only — your words are Chinese.
+- No "supers".` : lang === 'zh' ? `
 "supers": Simplified Chinese subtitles, one entry per line; split a long line into two chunks at a
 natural pause (≤ 22 characters each). Translate meaning, not words; use the terms Moving Walls uses
 in Chinese (出海, 一张网络, 户外广告); keep brand names in Latin script.` : '\nNo "supers".'}
