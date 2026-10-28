@@ -20,7 +20,7 @@
 // PURE. No network, no database — rows in, Markdown out — so the banding and
 // the wording can be tested without a Semrush pull.
 
-import { isBrand } from './mw-markets'
+import { isBrand, isRelevant } from './mw-markets'
 
 export type RankedTerm = {
   q: string
@@ -46,12 +46,18 @@ export type PageRanks = {
  * protection doc (scripts/seo-protect.mts) and the SEO planner's context
  * pack, so the two can never disagree about what a page holds.
  */
-export function rankedByPage(rows: { cycle: unknown; market?: unknown; country?: unknown; keywords?: unknown }[], cycle: string): Map<string, RankedTerm[]> {
+export function rankedByPage(rows: { cycle: unknown; market?: unknown; country?: unknown; keywords?: unknown; gsc_keywords?: unknown }[], cycle: string): Map<string, RankedTerm[]> {
   const byUrl = new Map<string, RankedTerm[]>()
   for (const r of rows as any[]) {
     if (String(r.cycle) !== cycle) continue
-    for (const k of (Array.isArray(r.keywords) ? r.keywords : [])) {
-      const u = String(k?.url ?? '').trim()
+    // Semrush rows AND Search Console rows. Search Console is the ranking source
+    // now (Semrush v3 is gone); reading only `keywords` left the list empty in a
+    // month with no Semrush import, and the context pack told Claude a page held
+    // nothing to protect (28 Oct 2026).
+    const gsc = (Array.isArray(r.gsc_keywords) ? r.gsc_keywords : []).map((g: any) => ({ q: g?.q, pos: g?.pos, url: g?.url, traffic: g?.clicks, vol: g?.impr }))
+    for (const k of [...(Array.isArray(r.keywords) ? r.keywords : []), ...gsc]) {
+      const raw = String(k?.url ?? '').trim()
+      const u = raw ? raw.replace(/^https?:\/\/(www\.)?movingwalls\.com/i, '') || '/' : ''
       const q = String(k?.q ?? '').trim()
       if (!u || !q) continue
       // NOT OUR OWN NAME. The doc was listing "moving walls" at #1 as a phrase
@@ -63,6 +69,10 @@ export function rankedByPage(rows: { cycle: unknown; market?: unknown; country?:
       //    want to focus more on is non-brand terms I actually mentioned this
       //    already since we started creating this page."   (owner, 14 Oct 2026)
       if (isBrand(q)) continue
+      // Off-topic searches (wall stains, curtains, termites) rank on the homepage
+      // only because of the word "walls". Protecting them binds edits for nothing
+      // and hides the rankings that matter (owner, 20 Oct 2026).
+      if (!isRelevant(q)) continue
       const list = byUrl.get(u) ?? []
       // The same term can arrive from several country pulls. Keep the best
       // position: that is the one with traffic to lose.

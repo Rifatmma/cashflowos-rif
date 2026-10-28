@@ -2,168 +2,272 @@ import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { currentGuest } from '@/lib/guest'
-import { getTargets } from '@/lib/mw-data'
-import { loadStack } from '@/lib/mw-priority-load'
-import { forPerson } from '@/lib/mw-priorities'
-import { personByActor, doers, OWNER_NAME } from '@/lib/mw-people'
-import { seenByPerson } from '@/lib/mw-presence'
-import { stackSignals } from '@/lib/mw-stack-signals'
-import { MwHero } from './_ui'
-import { Signals, DoFirst, TaskList, PeopleCards, peopleRows } from './_stack-ui'
-import { WeekList } from './_week-ui'
-import { isoWeek, mondayOf, dueOf, isReady } from '@/lib/mw-week'
+import { getMwData, getMwMonths, num, type MwData } from '@/lib/mw-data'
+import { getMarketSeo, withData, type MarketSeo } from '@/lib/mw-market-data'
+import { getPeople } from '@/lib/mw-people-store'
+import { personByActor, doers } from '@/lib/mw-people'
+import { crmMonths, monthBefore } from '@/lib/mw-home'
+import { isoWeek, isReady } from '@/lib/mw-week'
 import { weekTasks } from '@/lib/mw-week-store'
+import { MwHero } from './_ui'
 
-// 👉 Moving Walls → Today. One look, then the one list of what to do.
+// 👉 Moving Walls → Home. The overall picture, not a list of work (owner,
+// 28 Oct 2026): "The home should show the numbers current standings and page
+// health … As an overall picture, for example Google Analytics will show total
+// traffic, pie chart by channels." Work lives on To do.
 //
-// This replaced the Overview (21 Oct 2026). The Overview answered "what
-// happened" in four sections and asked nobody to do anything; three of its
-// cards had been written by hand on 28 Sep and shown as current ever since.
+// Qualified CRM leads come first: it is the number Mehul and Safwaan judge
+// marketing by. GA4 enquiries are shown but marked unreliable until the Zoho
+// pop-up fix gives landing pages their credit. One brand number is allowed here
+// and nowhere else (owner's exception to the non-brand rule).
 //
-//   "I need clear action plans, clear direction based on the data shown."
-//                                                        (owner, 21 Oct 2026)
+// The filter at the top (owner, 28 Oct 2026): month over month by default, or
+// any month against any other. A month in progress is compared a day at a time.
 //
-// Since 26 Oct 2026 the page opens on "My week" (lib/mw-week.ts): each person
-// sees only their own few cards, each with numbered steps and one button. Rif,
-// Mehul and Safwaan see every person's cards. The ranked list that decides
-// which cards exist is still here, behind "Full ranked list", for Rif.
-//
-//   "I need everyone to know what they have to do and how to do them."
-//                                                        (owner, 26 Oct 2026)
+// A market lead or Dinesh who opens /mw goes straight to To do.
 
 export const dynamic = 'force-dynamic'
 
-type Q = { who?: string; ch?: string; all?: string; view?: string }
-const CHANNELS = ['Tracking', 'Paid', 'SEO', 'Content', 'Sales'] as const
+type Q = { m?: string; vs?: string }
 
-export default async function MwToday({ searchParams }: { searchParams: Promise<Q> }) {
+const COLORS: Record<string, string> = {
+  'Organic Search': 'var(--mw-s3)', 'Paid Search': 'var(--mw-s1)', Direct: 'var(--mw-ink-3)', Referral: 'var(--mw-s2)',
+  Email: '#8B5CF6', Display: '#DB2777', Other: 'var(--mw-line-strong)',
+}
+const pct = (a: number, b: number) => (b ? Math.round((a / b) * 100) : 0)
+const delta = (a: number, b: number) => (b ? `${a >= b ? '+' : ''}${Math.round(((a - b) / b) * 100)}%` : '—')
+const pos = (p: number) => (p ? Math.round(p) : '—')
+const KEY = /^[0-9]{4}-[0-9]{2}$/
+const label = (key: string) => new Date(`${key}-01T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+
+type Ch = { n: string; s: number; sl: number; b: { s: number; sl: number } }
+
+export default async function MwHome({ searchParams }: { searchParams: Promise<Q> }) {
   const guest = await currentGuest()
   const jar = await cookies()
   if (!jar.get('cfo_session')?.value && jar.get('cfo_guest')?.value && !guest) redirect('/login')
-  // Same rule as actor() in ./actions: anyone who is not a guest is the owner.
   const isOwner = guest === null
   const q = await searchParams
 
-  const week = isoWeek(new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10))
-  const [stack, seen, targets, cards] = await Promise.all([loadStack(), seenByPerson(), getTargets(), weekTasks(week)])
-  const { queue, people, facts, markets } = stack
+  const myt = new Date(Date.now() + 8 * 3600_000).toISOString()
+  const week = isoWeek(myt.slice(0, 10))
+  const thisMonth = myt.slice(0, 7)
+  const mA = q.m && KEY.test(q.m) && q.m <= thisMonth ? q.m : thisMonth
+  const compare = !!(q.vs && KEY.test(q.vs) && q.vs !== mA)
+  const mB = compare ? q.vs! : monthBefore(mA)
+  const isCur = (k: string) => k === thisMonth
+
+  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards] = await Promise.all([
+    getPeople(), getMwMonths(), getMwData(isCur(mA) ? undefined : mA), getMwData(mB),
+    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week),
+  ])
   const me = personByActor(people, isOwner ? 'owner' : guest)
-  // Rif and the bosses see everyone; everybody else sees their own week.
-  const seesAll = isOwner || me?.role === 'boss'
-  const ready = cards.filter(isReady)
-  const myCards = me ? ready.filter(t => t.owner === me.name) : []
-  const canAct = (t: { owner: string }) => isOwner || (!!me && t.owner === me.name)
-  const range = `${new Date(mondayOf(week) + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}–${new Date(dueOf(week) + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`
-  const board = doers(people).filter(p => p.name !== me?.name).map(p => ({ p, tasks: ready.filter(t => t.owner === p.name) })).filter(r => r.tasks.length)
-  const left = (ts: { state: string }[]) => ts.filter(t => t.state === 'todo').length
-  const showQueue = isOwner && q.view === 'queue'
-  const focus = new Set(queue.focus)
+  if (!isOwner && me?.role !== 'boss') redirect('/mw/todo')
 
-  // ── the six numbers (lib/mw-stack-signals.ts, shared with the Monday email)
-  const team = doers(people).filter(p => p.name !== OWNER_NAME)
-  const signals = stackSignals({
-    channels: facts.channels, utmFill: facts.utmFill, paid: facts.paid, cpaTarget: targets.cpa,
-    leads14: facts.leads14, unanswered14: facts.unanswered14, markets, team, seen,
-  })
+  const d = snapA?.data
+  const live = withData(marketsA)
 
-  // ── the list, filtered
-  const who = q.who && people.some(p => p.name === q.who) ? q.who : null
-  const ch = CHANNELS.find(c => c === q.ch) ?? null
-  let list = who ? forPerson(queue, who) : queue.items
-  if (ch) list = list.filter(x => x.channel === ch)
-  const showAll = q.all === '1' || !!who || !!ch
-  const shown = showAll ? list : list.filter(x => focus.has(x.id) || x.when === 'now').slice(0, 12)
-  const canAnswer = (x: { owner: string; helper?: string }) => isOwner || (!!me && (x.owner === me.name || x.helper === me.name))
-  const href = (o: Partial<Q>) => {
-    const sp = new URLSearchParams()
-    const w = 'who' in o ? o.who : who, c = 'ch' in o ? o.ch : ch
-    if (w) sp.set('who', w)
-    if (c) sp.set('ch', c)
-    if (o.all) sp.set('all', o.all)
-    const s = sp.toString()
-    return `/mw?view=queue${s ? `&${s}` : ''}#next`
+  // ── GA4 channels. Compared a day at a time: a month in progress against a
+  // whole month would read as a collapse and mean nothing.
+  const daysA = d?.meta.days || 1
+  const bData: MwData | undefined = snapB?.data
+  const prevIsB = mB === monthBefore(mA)
+  const daysB = bData?.meta.days || (prevIsB ? d?.meta.prevDays : 0) || 30
+  const hasB = !!bData || prevIsB
+  const bOf = (n: string) => {
+    if (bData) { const c = bData.channels.find(x => x.n === n); return { s: c?.s ?? 0, sl: c?.sl ?? 0 } }
+    // No snapshot of B, but A carries last month's numbers when B is the month before.
+    if (prevIsB) { const c = d?.channels.find(x => x.n === n); return { s: c?.a ?? 0, sl: c?.al ?? 0 } }
+    return { s: 0, sl: 0 }
   }
-  const first = queue.items[0] ?? null
-  const rows = peopleRows(doers(people), queue, seen, stack.doneThisWeek, () => null)
+  const all: Ch[] = (d?.channels ?? []).filter(c => c.s > 0).map(c => ({ n: c.n, s: c.s, sl: c.sl, b: bOf(c.n) })).sort((a, b) => b.s - a.s)
+  const sessions = all.reduce((t, c) => t + c.s, 0)
+  // Channels under 2% of sessions fold into one "Other" row.
+  const big = all.filter(c => c.s / (sessions || 1) >= 0.02)
+  const small = all.filter(c => c.s / (sessions || 1) < 0.02)
+  const ch: Ch[] = small.length
+    ? [...big, small.reduce<Ch>((o, c) => ({ n: 'Other', s: o.s + c.s, sl: o.sl + c.sl, b: { s: o.b.s + c.b.s, sl: o.b.sl + c.b.sl } }), { n: 'Other', s: 0, sl: 0, b: { s: 0, sl: 0 } })]
+    : big
+  const enquiries = ch.reduce((t, c) => t + c.sl, 0)
+  const enqB = ch.reduce((t, c) => t + c.b.sl, 0)
+
+  // ── Search: non-brand vs brand, every market
+  const share = (ms: MarketSeo[]) => {
+    const nb = ms.reduce((t, m) => t + m.nonBrandTraffic, 0), br = ms.reduce((t, m) => t + m.brandTraffic, 0)
+    return { br, pct: nb + br ? pct(nb, nb + br) : null }
+  }
+  const sA = share(live), sB = share(withData(marketsB))
+
+  // ── Page health across every graded location page
+  const pages = live.flatMap(m => m.health)
+  const band = (b: string) => pages.filter(p => p.band === b).length
+
+  // ── To do progress
+  const ready = cards.filter(isReady).filter(t => t.state !== 'cant')
+  const team = doers(people).map(p => ({ p, ts: ready.filter(t => t.owner === p.name) })).filter(r => r.ts.length)
+  const doneOf = (ts: typeof ready) => ts.filter(t => t.state === 'done' || t.state === 'submitted').length
+
+  const cA = crm.get(mA)!, cB = crm.get(mB)!
+  const LA = label(mA) + (isCur(mA) ? ' so far' : ''), LB = label(mB)
+  const vsTxt = (b: string) => `${LB}: ${b}`
+  const cplA = d?.sem.kpi.cpl ?? 0, cplB = bData?.sem.kpi.cpl ?? 0
+  const tiles: { k: string; v: string; d: string; tone?: 'up' | 'dn' | 'bad' }[] = [
+    { k: 'Qualified leads', v: String(cA.qualified), d: `${cA.leads} leads in all · ${vsTxt(`${cB.qualified} of ${cB.leads}`)}`, tone: cA.qualified / cA.days >= cB.qualified / (cB.days || 1) ? 'up' : 'dn' },
+    { k: 'Lead source known', v: `${pct(cA.sourced, cA.leads)}%`, d: `${cA.leads - cA.sourced} of ${cA.leads} have no source · ${vsTxt(`${pct(cB.sourced, cB.leads)}%`)}`, tone: cA.leads && cA.sourced / cA.leads < 0.5 ? 'bad' : undefined },
+    { k: 'Answered within a day', v: `${pct(cA.answered24, cA.leads)}%`, d: vsTxt(`${pct(cB.answered24, cB.leads)}%`), tone: pct(cA.answered24, cA.leads) >= pct(cB.answered24, cB.leads) ? 'up' : 'dn' },
+    { k: 'Enquiries', v: d ? String(enquiries) : '—', d: `GA4 · ${hasB ? vsTxt(String(enqB)) + ' · ' : ''}not reliable until the form fix` },
+    { k: 'Non-brand share', v: sA.pct === null ? '—' : `${sA.pct}%`, d: sB.pct === null ? 'of organic search visits' : vsTxt(`${sB.pct}%`) },
+    { k: 'Brand searches', v: live.length ? num(sA.br) : '—', d: `est. visits searching "Moving Walls"${sB.br ? ' · ' + vsTxt(num(sB.br)) : ''}` },
+    { k: 'Paid cost per lead', v: cplA ? `S$${Math.round(cplA)}` : '—', d: d ? `${d.sem.kpi.leads} leads · S$${Math.round(d.sem.kpi.spend)}${cplB ? ' · ' + vsTxt(`S$${Math.round(cplB)}`) : ''}` : '', tone: cplA && cplB ? (cplA <= cplB ? 'up' : 'dn') : undefined },
+  ]
+
+  // Donut: each channel's share of sessions as an arc of one circle.
+  const R = 54, C = 2 * Math.PI * R
+  let at = 0
+  const arcs = ch.map(c => { const len = (c.s / (sessions || 1)) * C; const a = { c, len, off: at }; at += len; return a })
+
+  // Months to pick from: every month with a snapshot, plus the past year for the CRM.
+  const keys = [...new Set([thisMonth, ...months.map(m => m.key), ...Array.from({ length: 12 }, (_, i) => {
+    let k = thisMonth; for (let j = 0; j < i; j++) k = monthBefore(k); return k
+  })])].sort().reverse()
 
   return (
     <div className="mw-wrap">
-      <MwHero tab="overview" pulled={facts.paid?.monthLabel ?? ''} stale={false}
-        sources="Moving Walls · Google Ads · GA4 · Search Console · Zoho CRM ·"
-        headline={me && !seesAll
-          ? `${me.name}, you have ${left(myCards)} task${left(myCards) === 1 ? '' : 's'} this week`
-          : `Week ${week.slice(-2)} · ${range}: ${left(ready)} of ${ready.length} tasks open`}>
-        <p>
-          {ready.length
-            ? <>Each card says exactly what to do, where, and how you know it&apos;s done. Due Friday {range.split('–')[1]}.</>
-            : <>This week&apos;s cards aren&apos;t ready yet. They&apos;re written every Monday morning.</>}
-          {guest ? ` Signed in as ${guest}.` : ''}
-        </p>
+      <MwHero tab="overview" pulled={d?.meta.pulled ?? '—'} stale={!!snapA?.stale}
+        sources="Moving Walls · Zoho CRM · GA4 · Search Console · Google Ads ·"
+        headline={`${cA.qualified} qualified lead${cA.qualified === 1 ? '' : 's'} in ${LA}, out of ${cA.leads} leads`}>
+        <p>The overall picture. This week&apos;s work is on <Link href="/mw/todo" style={{ color: 'inherit' }}>To do</Link>: {doneOf(ready)} of {ready.length} done.</p>
       </MwHero>
 
-      {me && (myCards.length > 0 || !seesAll) && (
-        <section className="mw-card" id="mine">
-          <h2 style={{ marginBottom: 10 }}>{seesAll ? 'Your cards' : 'Your week'}</h2>
-          <WeekList tasks={myCards} canAct={canAct} empty="No cards for you this week." />
-        </section>
-      )}
+      <form className="mw-period" method="get" action="/mw">
+        <nav className="mw-planner-cut" aria-label="Compare">
+          <Link href={mA === thisMonth ? '/mw' : `/mw?m=${mA}`} aria-current={!compare ? 'true' : undefined}>Month over month</Link>
+          <Link href={`/mw?m=${mA}&vs=${mB}`} aria-current={compare ? 'true' : undefined}>Compare two months</Link>
+        </nav>
+        <span className="mw-period-pick">
+          <select name="m" defaultValue={mA} aria-label="Month to show">
+            {keys.map(k => <option key={k} value={k}>{label(k)}{isCur(k) ? ' (so far)' : ''}</option>)}
+          </select>
+          {compare && <>
+            <span className="mw-planner-lab">vs</span>
+            <select name="vs" defaultValue={mB} aria-label="Month to compare with">
+              {keys.map(k => <option key={k} value={k}>{label(k)}</option>)}
+            </select>
+          </>}
+          <button className="mw-planner-btn is-small">Show</button>
+        </span>
+        <span className="mw-planner-lab">{LA} vs {LB}{isCur(mA) ? ' · traffic compared a day at a time' : ''}</span>
+      </form>
 
-      {seesAll && (
-        <section className="mw-card" id="team">
-          <h2 style={{ marginBottom: 4 }}>Team this week</h2>
-          <p className="mw-planner-note">Everyone&apos;s cards for week {week.slice(-2)}. Open ones first.</p>
-          {board.length ? board.map(({ p, tasks }) => (
-            <div key={p.name} className="mw-week-person">
-              <h3>{p.name} <span className="mw-planner-lab">· {p.title} · {tasks.length - left(tasks)} of {tasks.length} done</span></h3>
-              <WeekList tasks={tasks} canAct={canAct} />
-            </div>
-          )) : <p className="mw-planner-lab">No cards yet this week.</p>}
-        </section>
-      )}
+      {!d && <section className="mw-card"><p className="mw-planner-lab" style={{ margin: 0 }}>No GA4 or Google Ads snapshot for {label(mA)}, so only the CRM numbers are shown.</p></section>}
 
-      {seesAll && <Signals items={signals} />}
+      <div className="mw-tiles">
+        {tiles.map(t => (
+          <div className="mw-tile" key={t.k}>
+            <div className="k">{t.k}</div>
+            <div className="v">{t.v}</div>
+            <div className={`d ${t.tone === 'up' ? 'mw-up' : t.tone === 'dn' || t.tone === 'bad' ? 'mw-dn' : 'mw-nu'}`}>{t.d}</div>
+          </div>
+        ))}
+      </div>
 
-      {isOwner && !showQueue && (
-        <p className="mw-planner-lab" style={{ margin: '4px 0 18px' }}>
-          The cards come from one ranked list across every channel. <Link href="/mw?view=queue#next">Full ranked list</Link>
-        </p>
-      )}
-
-      {showQueue && <>
-      <DoFirst item={first} href={first ? `#t-${first.id.replace(/[^a-z0-9]/gi, '-')}` : '#next'} />
-
-      <section className="mw-card" id="next">
-        <div className="mw-next-head">
-          <h2>Do next{who ? ` · ${who}` : ''}</h2>
-          <nav className="mw-planner-cut" aria-label="Channel">
-            <Link href={href({ ch: undefined })} aria-current={!ch ? 'true' : undefined} scroll={false}>All</Link>
-            {CHANNELS.map(c => (
-              <Link key={c} href={href({ ch: c })} aria-current={ch === c ? 'true' : undefined} scroll={false}>{c}</Link>
-            ))}
-          </nav>
+      {d && (
+        <div className="mw-home-two">
+          <section className="mw-card">
+            <h2 style={{ marginBottom: 2 }}>Where visits come from</h2>
+            <p className="mw-planner-lab">GA4 · {LA} vs {LB} · {num(sessions)} sessions</p>
+            <table className="mw-kw wide" style={{ marginTop: 8 }}>
+              <thead><tr><th>Channel</th><th className="num">Sessions</th><th className="num">a day, vs {LB}</th><th className="num">Enquiries</th><th className="num">Rate</th></tr></thead>
+              <tbody>
+                {ch.map(c => (
+                  <tr key={c.n}>
+                    <td><span className="mw-swatch" style={{ background: COLORS[c.n] ?? 'var(--mw-line-strong)' }} />{c.n}</td>
+                    <td className="num">{num(c.s)}</td>
+                    <td className="num">{hasB ? delta(c.s / daysA, c.b.s / daysB) : '—'}</td>
+                    <td className="num">{c.sl || <span className="mw-zero">0</span>}</td>
+                    <td className="num">{c.s >= 25 ? `${((c.sl / c.s) * 100).toFixed(2)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mw-planner-lab" style={{ marginTop: 6 }}>
+              Enquiries: {enquiries} in {LA}{hasB ? <>, {enqB} in {LB}</> : null}. Every enquiry is credited to the Zoho form until Dinesh&apos;s pop-up fix lands.
+            </p>
+          </section>
+          <section className="mw-card mw-donut">
+            <h2 style={{ marginBottom: 6 }}>Share of visits</h2>
+            <svg viewBox="0 0 140 140" role="img" aria-label="Share of sessions by channel">
+              {arcs.map(a => (
+                <circle key={a.c.n} cx="70" cy="70" r={R} fill="none" stroke={COLORS[a.c.n] ?? 'var(--mw-line-strong)'} strokeWidth="18"
+                  strokeDasharray={`${a.len} ${C - a.len}`} strokeDashoffset={-a.off} transform="rotate(-90 70 70)"><title>{`${a.c.n} · ${pct(a.c.s, sessions)}%`}</title></circle>
+              ))}
+              <text x="70" y="67" textAnchor="middle" className="mw-donut-v">{num(sessions)}</text>
+              <text x="70" y="84" textAnchor="middle" className="mw-donut-k">sessions</text>
+            </svg>
+            <ul className="mw-legend">
+              {ch.slice(0, 5).map(c => <li key={c.n}><span className="mw-swatch" style={{ background: COLORS[c.n] ?? 'var(--mw-line-strong)' }} />{c.n} {pct(c.s, sessions)}%</li>)}
+            </ul>
+          </section>
         </div>
-        <p className="mw-planner-note">
-          {who
-            ? <>{who}&apos;s tasks, this week first. <Link href={href({ who: undefined })} scroll={false}>Show everyone</Link></>
-            : <>{queue.focus.length} of {queue.items.length} tasks carry {Math.round(queue.share * 100)}% of the expected gain. Each person gets only what fits their week; the rest waits.</>}
-        </p>
-        <TaskList items={shown} focus={focus} canAnswer={canAnswer} empty="Nothing open here." />
-        {!showAll && list.length > shown.length && (
-          <p className="mw-planner-lab" style={{ marginTop: 10 }}>
-            <Link href={href({ all: '1' })} scroll={false}>Show all {list.length} tasks</Link>
-          </p>
-        )}
+      )}
+
+      {live.length > 0 && (
+        <div className="mw-home-two">
+          <section className="mw-card">
+            <h2 style={{ marginBottom: 2 }}>Organic by market</h2>
+            <p className="mw-planner-lab">{LA} · GA4 sessions and enquiries · Search Console movers · non-brand only</p>
+            <table className="mw-kw wide" style={{ marginTop: 8 }}>
+              <thead><tr><th>Market</th><th className="num">Sessions</th><th className="num">Enquiries</th><th className="num">Non-brand</th><th>Biggest move</th></tr></thead>
+              <tbody>
+                {[...live].sort((a, b) => b.sessions - a.sessions).map(m => {
+                  const up = m.movers.up[0], down = m.movers.down[0]
+                  const mv = up && (!down || (up.prev - up.pos) >= (down.pos - down.prev)) ? { k: up, good: true } : down ? { k: down, good: false } : null
+                  return (
+                    <tr key={m.market.key}>
+                      <td><b>{m.market.label}</b></td>
+                      <td className="num">{num(m.sessions)}</td>
+                      <td className="num">{m.leads || <span className="mw-zero">0</span>}</td>
+                      <td className="num">{m.keywords.length ? `${m.nonBrandPct}%` : '—'}</td>
+                      <td className={mv ? (mv.good ? 'mw-up' : 'mw-dn') : ''}>{mv ? `"${mv.k.q}" #${pos(mv.k.prev)} → #${pos(mv.k.pos)}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </section>
+          <section className="mw-card">
+            <h2 style={{ marginBottom: 2 }}>Page health</h2>
+            <p className="mw-planner-lab">Every live location page, graded on title, description, H1, structured data, links and length</p>
+            <table className="mw-kw" style={{ marginTop: 8 }}>
+              <tbody>
+                <tr><td>Good</td><td className="num mw-up">{band('good')}</td></tr>
+                <tr><td>Needs work</td><td className="num">{band('warn')}</td></tr>
+                <tr><td>Bad</td><td className="num mw-dn">{band('bad')}</td></tr>
+              </tbody>
+            </table>
+            <p className="mw-planner-lab" style={{ marginTop: 6 }}><Link href="/mw/seo#health">Every page, graded</Link></p>
+          </section>
+        </div>
+      )}
+
+      <section className="mw-card">
+        <h2 style={{ marginBottom: 2 }}>To do, week {week.slice(-2)}</h2>
+        <p className="mw-planner-lab">Done or submitted, of each person&apos;s cards. <Link href="/mw/todo">Open To do</Link></p>
+        <table className="mw-kw" style={{ marginTop: 8 }}>
+          <tbody>
+            {team.map(({ p, ts }) => (
+              <tr key={p.name}>
+                <td><b>{p.name}</b> <span className="mw-planner-lab">{p.title}</span></td>
+                <td className={`num ${doneOf(ts) === 0 ? 'mw-dn' : doneOf(ts) === ts.length ? 'mw-up' : ''}`}>{doneOf(ts)} of {ts.length}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
-      <section className="mw-card" id="people">
-        <h2 style={{ marginBottom: 4 }}>People</h2>
-        <p className="mw-planner-note">Click a person to see their tasks. Mehul and Safwaan see this view and get the weekly summary.</p>
-        <PeopleCards rows={rows} active={who} hrefFor={n => href({ who: who === n ? undefined : n })} />
-        <p className="mw-planner-lab" style={{ marginTop: 10 }}>
-          The seven maintenance markets get one top task each. <Link href="/mw/people">Team summary</Link>
-        </p>
-      </section>
-      </>}
+      <p className="lede" style={{ marginTop: 8 }}>
+        Detail: <Link href="/mw/seo">organic</Link> · <Link href="/mw/gaps">content gap</Link> · <Link href="/mw/people">people</Link>
+      </p>
     </div>
   )
 }

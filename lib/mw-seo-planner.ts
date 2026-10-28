@@ -143,7 +143,7 @@ export async function contextFor(p: Planner, stepId: string, prompt: string): Pr
   const [proposals, previous, raw] = await Promise.all([
     openProposals().catch(() => []),
     latestForStep(stepId, 3),
-    supabase.from('mw_market_seo').select('cycle, market, country, keywords'),
+    supabase.from('mw_market_seo').select('cycle, market, country, keywords, gsc_keywords'),
   ])
   const rows = (raw.data ?? []) as any[]
   const cycle = rows.map(r => String(r.cycle)).sort().pop() ?? ''

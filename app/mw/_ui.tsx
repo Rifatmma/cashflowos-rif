@@ -7,7 +7,7 @@ import type { Alert } from '@/lib/mw-data'
 export function MwHero({
   tab, pulled, stale, headline, children, sources,
 }: {
-  tab: 'overview' | 'people' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook' | 'studio'
+  tab: 'overview' | 'todo' | 'people' | 'paid' | 'seo' | 'plan' | 'gaps' | 'import' | 'sales' | 'playbook' | 'studio'
   pulled: string
   stale: boolean
   headline: string
@@ -15,18 +15,17 @@ export function MwHero({
   /** Override the source list: not every tab is built from Ads, GA4 and Semrush. */
   sources?: string
 }) {
-  // Nine tabs became six plus two (owner, 21 Oct 2026). The market plan lives
-  // on as each person's page; "How we log work" is reached from Leads; the
-  // Semrush import is a setting, not a destination.
+  // Home · To do · Paid · Leads · Studio, plus the gear (owner, 28 Oct 2026):
+  // "There should only be 1 card view and everybody works on that page." Home is
+  // the overall picture; To do is the one place work happens. Organic, Content
+  // and People still exist as detail pages, reached from Home, not the menu.
   const tabs = [
-    { key: 'overview', href: '/mw', label: 'Today' },
-    { key: 'people', href: '/mw/people', label: 'People' },
+    { key: 'overview', href: '/mw', label: 'Home' },
+    { key: 'todo', href: '/mw/todo', label: 'To do' },
     { key: 'paid', href: '/mw/paid', label: 'Paid search' },
-    { key: 'seo', href: '/mw/seo', label: 'Organic' },
-    { key: 'gaps', href: '/mw/gaps', label: 'Content' },
     { key: 'sales', href: '/mw/sales', label: 'Leads' },
     { key: 'studio', href: '/mw/studio', label: 'Studio' },
-    { key: 'import', href: '/mw/import', label: 'Settings' },
+    { key: 'import', href: '/mw/import', label: '⚙ Settings' },
   ] as const
   return (
     <>

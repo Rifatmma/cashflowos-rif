@@ -53,6 +53,8 @@ check(pub.id === '2026-W44:a:publish', 'one publish card per submission: a fixed
 check(pub.owner === 'Dinesh' && pub.kind === 'publish' && isReady(pub), 'the publish card goes to Dinesh, ready, with steps')
 check(pub.links[0].url.includes('docs.google.com') && pub.steps.some(s => /Published/.test(s)), 'it carries the doc and tells him to press Published')
 check(!/consider|analy[sz]e|explore/i.test(pub.steps.join(' ')), 'no card asks the reader to consider or analyse anything')
+const pubF = publishCardFor({ ...lead, findingId: '2026-W44:f:gap-posts' }, 'https://docs.google.com/document/d/abc', 'Dinesh')
+check(pubF.findingId === '2026-W44:f:gap-posts', "Dinesh's publish card stays under the lead's finding on To do")
 
 // ── left out of everyone's week
 const extra: Ranked[] = [

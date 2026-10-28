@@ -7,12 +7,12 @@
 // to think about is the card he called useless.
 
 import { readFileSync } from 'fs'
-import { isReady, checkPaid, type WeekTask } from '../lib/mw-week'
-import { saveTasks } from '../lib/mw-week-store'
+import { isReady, checkPaid, type WeekTask, type Finding } from '../lib/mw-week'
+import { saveTasks, saveFindings } from '../lib/mw-week-store'
 
 const file = process.argv[2]
 if (!file) { console.error('usage: mw-week-save.mts docs/week/<week>.json'); process.exit(1) }
-const doc = JSON.parse(readFileSync(file, 'utf8')) as { week: string; cards: (WeekTask & { evidence?: unknown })[] }
+const doc = JSON.parse(readFileSync(file, 'utf8')) as { week: string; findings?: Finding[]; cards: (WeekTask & { evidence?: unknown })[] }
 
 const VAGUE = /\b(consider|analy[sz]e|explore|think about|look into|investigate|review the data)\b/i
 const problems: string[] = []
@@ -37,9 +37,22 @@ for (const { evidence: _e, ...t } of doc.cards) {
   cards.push(t)
 }
 
+// Findings come first on the To do page: each needs the evidence and where it came from,
+// and every open card must hang under one (owner, 28 Oct 2026).
+const findings = doc.findings ?? []
+const fids = new Set(findings.map(f => f.id))
+for (const f of findings) {
+  if (!f.evidence?.trim() || !f.source?.trim()) problems.push(`finding ${f.id}: needs evidence and a source`)
+  if (f.week !== doc.week) problems.push(`finding ${f.id}: week ${f.week} is not ${doc.week}`)
+}
+for (const t of cards) {
+  if (t.state !== 'cant' && !t.carried && findings.length && (!t.findingId || !fids.has(t.findingId))) problems.push(`${t.id}: not under any finding`)
+}
+
 if (problems.length) {
   console.error(`Not saved — ${problems.length} card(s) unfinished:\n  ${problems.join('\n  ')}`)
   process.exit(1)
 }
+const nf = await saveFindings(findings)
 const n = await saveTasks(cards, 'claude')
-console.log(`${doc.week}: saved ${n} cards`)
+console.log(`${doc.week}: saved ${nf} findings and ${n} cards`)

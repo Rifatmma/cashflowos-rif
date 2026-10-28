@@ -1264,3 +1264,55 @@ table.mw-ib td.eg { padding-left: 10px; color: var(--mw-ink-3); font-size: 11.5p
 
 .mw-week-ops { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .mw-week-err { margin: 0; font-size: 14px; color: var(--mw-bad); font-weight: 600; }
+
+.mw-move-where { display: block; font-size: 12px; color: var(--mw-ink-3, #6b7280); }
+
+/* ── To do (28 Oct 2026): findings first, the cards that fix each one under it ── */
+.mw-todo-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.mw-todo-h { font-size: 17px; margin: 6px 0 10px; }
+.mw-finding-title { display: flex; gap: 10px; align-items: baseline; font-size: 16px; line-height: 1.35; margin: 0 0 6px; }
+.mw-finding-n { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--mw-surface-2); color: var(--mw-brand); font-size: 12.5px; font-weight: 700; }
+.mw-finding-ev { color: var(--mw-ink-2); font-size: 14px; line-height: 1.6; margin: 0 0 6px; }
+.mw-actions { margin-top: 12px; border-top: .8px solid var(--mw-line); }
+.mw-action { border-bottom: .8px solid var(--mw-line); }
+.mw-action > summary { display: flex; gap: 10px; align-items: center; padding: 10px 2px; cursor: pointer; list-style: none; }
+.mw-action > summary::-webkit-details-marker { display: none; }
+.mw-action > summary::before { content: '▸'; color: var(--mw-ink-3); font-size: 11px; transition: transform .15s; }
+.mw-action[open] > summary::before { transform: rotate(90deg); }
+.mw-action-who { flex: none; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: var(--mw-surface-2); color: var(--mw-brand-deep); }
+.mw-action-title { flex: 1; min-width: 0; font-size: 14px; }
+.mw-action-st { flex: none; font-size: 12px; color: var(--mw-ink-3); white-space: nowrap; }
+.mw-action-st.is-done, .mw-action-st.is-submitted { color: var(--mw-good); }
+.mw-action-st.is-cant { color: var(--mw-bad); }
+.mw-action.is-cant .mw-action-title, .mw-action.is-done .mw-action-title { color: var(--mw-ink-3); }
+.mw-action > .mw-week-card { margin: 0 0 12px 18px; }
+.mw-info { border-top: .8px solid var(--mw-line); padding: 9px 0; }
+.mw-info > summary { cursor: pointer; font-size: 14px; }
+.mw-info .mw-finding-ev { margin-top: 6px; }
+.mw-last { list-style: none; padding: 0; margin: 6px 0 0; font-size: 13.5px; }
+.mw-last li { padding: 5px 0; border-top: .8px solid var(--mw-line); }
+.mw-last-st { display: inline-block; min-width: 92px; font-size: 12px; color: var(--mw-ink-3); }
+.mw-last-st.is-done, .mw-last-st.is-submitted { color: var(--mw-good); }
+.mw-last-st.is-cant { color: var(--mw-bad); }
+@media (max-width: 560px) {
+  .mw-action > summary { flex-wrap: wrap; }
+  .mw-action-title { flex-basis: 100%; order: 3; }
+  .mw-action > .mw-week-card { margin-left: 0; }
+}
+.mw-action .mw-week-title { display: none; } /* the row above already says it */
+
+/* ── Home (28 Oct 2026): the overall picture ── */
+.mw-home-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; }
+.mw-home-two > .mw-card { margin-bottom: 14px; }
+@media (max-width: 760px) { .mw-home-two { grid-template-columns: 1fr; } }
+.mw-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: 0; }
+.mw-donut svg { display: block; width: 100%; max-width: 190px; margin: 4px auto 10px; }
+.mw-donut-v { font-size: 19px; font-weight: 800; fill: var(--mw-ink); }
+.mw-donut-k { font-size: 10px; fill: var(--mw-ink-3); }
+.mw-legend { list-style: none; padding: 0; margin: 0; font-size: 13px; display: grid; gap: 4px; }
+
+/* Home filter: month over month, or any month against any other */
+.mw-period { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin: 0 0 14px; }
+.mw-period .mw-planner-cut { margin: 0; }
+.mw-period-pick { display: inline-flex; gap: 8px; align-items: center; }
+.mw-period select { font: inherit; font-size: 13.5px; padding: 6px 8px; border: .8px solid var(--mw-line-strong); border-radius: 8px; background: var(--mw-surface); color: var(--mw-ink); }

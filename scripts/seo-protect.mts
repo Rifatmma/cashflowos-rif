@@ -19,7 +19,7 @@ const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 if (!url || !key) { console.error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set'); process.exit(1) }
 const db = createClient(url, key, { auth: { persistSession: false } })
 
-const { data: rows, error } = await db.from('mw_market_seo').select('cycle, market, country, keywords')
+const { data: rows, error } = await db.from('mw_market_seo').select('cycle, market, country, keywords, gsc_keywords')
 if (error) { console.error('read failed:', error.message); process.exit(1) }
 
 const cycle = (rows ?? []).map((r: any) => String(r.cycle)).sort().pop() ?? '—'

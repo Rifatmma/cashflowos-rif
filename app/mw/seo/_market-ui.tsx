@@ -327,7 +327,8 @@ export function Momentum({ m }: { m: MarketSeo }) {
         <ul className={`mw-move ${dir}`}>
           {rows.map((k, i) => (
             <li key={`${k.q}-${i}`}>
-              <span className="q"><Serp q={k.q} country={countryOfUrl(k.url) ?? m.countries[0]?.country} /></span>
+              <span className="q"><Serp q={k.q} country={k.country ?? countryOfUrl(k.url) ?? m.countries[0]?.country} />
+                <small className="mw-move-where">{(k.url || '').replace(/^https?:\/\/[^/]+/, '') || '/'}{k.country ? ` · ${k.country.replace(/-/g, ' ')}` : ''}</small></span>
               <span className="d">
                 {dir === 'new' ? `new at #${k.pos.toFixed(0)}` : `#${k.prev.toFixed(0)} → #${k.pos.toFixed(0)}`}
               </span>

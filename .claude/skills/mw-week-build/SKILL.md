@@ -45,9 +45,33 @@ To reject, set its `state` to `"cant"` and `reason` to one plain sentence beginn
 
 ## 3. Do the `forClaude` analysis now
 
-These are steps the old dashboard waited for Rif to "Send to Claude". Do them.
-- When the result needs someone to act, write that as a card for the right person in this week's file. It counts against their cap; if their cap is full, put it first next week.
-- When it needs no one, record it in `mw_seo_step_state` and mark the step done (per `.claude/skills/mw-seo-inbox`).
+These are steps the old dashboard waited for Rif to "Send to Claude". Do them. Nobody presses anything any more: the planner card and its "Send to Claude" box are gone (Rif, 28 Oct 2026).
+- When the result needs someone to act, write it as a **finding** with a card for the right person under it. It counts against their cap; if their cap is full, put it first next week.
+- When it needs no one, write it as an `info` finding (it shows under "What else the data showed") and mark the step done in `mw_seo_step_state`.
+
+## 3b. Write the findings first (Rif, 28 Oct 2026)
+
+The To do page shows **what we found** first, then the cards that fix each finding:
+
+> "I want to show insights first what we discovered from data. And then, we show what is recommended to do to improve or fix the problems."
+
+Add a `findings` array to `docs/week/<week>.json`, and give every new card a `findingId`:
+
+```json
+{ "id": "2026-W45:f:<slug>", "week": "2026-W45", "rank": 1, "kind": "action",
+  "title": "One plain sentence: what the data shows",
+  "evidence": "The numbers: searches, positions, pages, rivals. Name every page and search.",
+  "source": "Google Search Console, last 28 days", "value": 2.1, "market": null, "links": [] }
+```
+
+- **3–5 `action` findings** a week, the 80/20: rank them by the summed `value` of their cards, most enquiries first. Everything else waits.
+- `title` says what is true, not what to do ("Two posts are seen 9,000 times a month but rarely clicked", not "Refresh posts").
+- `evidence` carries the numbers the card's `why` would repeat. A reader who only reads findings must understand the problem.
+- `source` is always named. Non-brand searches only.
+- `info` findings (`rank` 10+) hold finished analysis that needs nobody this week. Say when it turns into a card ("This becomes Dinesh's card next week.").
+- Carried cards keep last week's `findingId`.
+
+The save script refuses a finding without evidence or a source, and an open new card that isn't under a finding.
 
 ## 4. Write every card
 
@@ -65,7 +89,7 @@ Rules by card kind:
 
 | kind | Claude prepares | the card asks |
 |---|---|---|
-| `content-new` | Full blog post in a Google Doc: title, meta, H1, short H2s with the target search in its own H2, FAQ, internal links, a "For Dinesh" box at the top. Mark only what needs local knowledge as `[CHECK: …]` or `[YOUR EXAMPLE]`. | Fix each `[CHECK]`, add the example, Submit to Dinesh |
+| `content-new` | The finding and a guideline (target searches, headings, rival pages to beat) **plus** a full example post the lead may use as it is or change (Rif, 28 Oct 2026: "we can also provide a good example"). Full blog post in a Google Doc: title, meta, H1, short H2s with the target search in its own H2, FAQ, internal links, a "For Dinesh" box at the top. Mark only what needs local knowledge as `[CHECK: …]` or `[YOUR EXAMPLE]`. | Fix each `[CHECK]`, add the example, Submit to Dinesh |
 | `content-improve` | A Google Doc listing each change: where, current text, new text. Every change passes `checkChange()` (`lib/mw-page-proposal.ts`), so no Locked or Protect term is lost. Set `payload.page` to the live URL. | Check the local facts, Submit to Dinesh |
 | `publish` | Nothing new. It's created by Submit to Dinesh (`publishCardFor`). | (already written) |
 | `tech` | The exact change: the HTML or schema to paste, the field to edit, the before and after. If it's a proposal, link it. | Apply, check, press Done |
@@ -164,8 +188,8 @@ For each `publish` card that was done last week:
 scripts/mw-week-save.mts docs/week/<week>.json
 ```
 
-The script refuses any card without steps, with a vague step, a content card with no Google Doc, or a paid card with no operations. Fix whatever it lists and run it again.
+It saves the findings, then the cards. The script refuses a finding without evidence or a source, an open card not under a finding, any card without steps, with a vague step, a content card with no Google Doc, or a paid card with no operations. Fix whatever it lists and run it again.
 
 No Telegram and no email: Moving Walls lives on the dashboard only (owner, 26 Oct 2026). The cards are the announcement.
 
-Finish with one line per person: `name · cards · first card title`.
+Finish with the findings in rank order, then one line per person: `name · cards · first card title`. The team reads them on **To do** (`/mw/todo`); Rif, Mehul and Safwaan see the overall numbers on **Home** (`/mw`).

@@ -304,4 +304,24 @@ create table if not exists mw_week_tasks (
 );
 create index if not exists mw_week_tasks_week_owner on mw_week_tasks (week, owner);
 create index if not exists mw_week_tasks_open on mw_week_tasks (state) where state in ('todo');
+
+-- What the data showed this week, written by the Monday run. The To do page lists
+-- these first and hangs each card under the finding it fixes (owner, 28 Oct 2026).
+create table if not exists mw_week_findings (
+  id          text primary key,                 -- '<ISO week>:f:<slug>' or '<ISO week>:i:<slug>'
+  week        text not null,
+  rank        int not null default 0,           -- 1.. for actions, 10+ for info
+  title       text not null,                    -- what is true, not what to do
+  evidence    text not null default '',         -- the numbers, pages and searches
+  source      text not null default '',         -- 'Google Search Console, last 28 days'
+  value       numeric not null default 0,       -- summed value of its cards
+  market      text,
+  kind        text not null default 'action' check (kind in ('action','info')),
+  links       jsonb not null default '[]'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists mw_week_findings_week on mw_week_findings (week, rank);
+alter table mw_week_findings enable row level security;
+alter table mw_week_tasks add column if not exists finding_id text references mw_week_findings(id) on delete set null;
 alter table mw_week_tasks enable row level security;

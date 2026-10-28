@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { currentGuest } from '@/lib/guest'
 import { getMwData, num } from '@/lib/mw-data'
 import { MwHero, Tiles, Section, OrganicTrend } from '../_ui'
 import { getActions } from '@/lib/mw-actions'
@@ -9,10 +8,7 @@ import { worthWriting } from '@/lib/mw-gap'
 import { COUNTRIES } from '@/lib/mw-markets'
 import { THEMES, themeOf, rollUp, type ThemeChild } from '@/lib/mw-themes'
 import { MARKET } from '@/lib/mw-markets'
-import { loadPlanner, viewOf, latestForStep } from '@/lib/mw-seo-planner'
-import { glanceOf } from '@/lib/mw-seo-glance'
 import { keywordsCell, trafficCell } from '@/lib/mw-kw-display'
-import { SeoGlance, SeoPlanner } from './_planner'
 import {
   MarketTabs, BrandByMarket, OpportunitiesByMarket, CompetitorsByMarket,
   PageHealthBoard, FunnelLeaks, Momentum, WinningByMarket, ThemeChain, GapSummary,
@@ -37,36 +33,16 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-type Q = { brand?: string; opp?: string; comp?: string; move?: string; win?: string; step?: string; ch?: string; from?: string; cut?: string }
+type Q = { brand?: string; opp?: string; comp?: string; move?: string; win?: string }
 const KEEP = ['brand', 'opp', 'comp', 'move', 'win'] as const
 
 const pickMarket = (all: MarketSeo[], want?: string) =>
   all.find(m => m.market.key === want) ?? all[0]
 
 export default async function MwSeo({ searchParams }: { searchParams: Promise<Q> }) {
-  const guest = await currentGuest()
   const q = await searchParams
   const [snap, rows, markets, gaps] = await Promise.all([getMwData(), getActions('seo'), getMarketSeo(), getGaps()])
   const live = withData(markets)
-
-  // ── the planner card: the plan scored on today's numbers ─────────────────
-  const planner = await loadPlanner({ rows, markets })
-  const cut = q.cut === 'all' ? 'all' : 'focus'
-  // Two pickers share one GET form; the chapter one wins only if it changed.
-  const want = q.ch && q.ch !== q.from ? q.ch : q.step
-  const view = viewOf(planner, cut, want)
-  const replies = await latestForStep(view.step.id)
-  const keep = Object.fromEntries(KEEP.filter(k => q[k]).map(k => [k, String(q[k])]))
-  const planHref = (o: { step?: string; cut?: 'focus' | 'all' }) => {
-    const sp = new URLSearchParams(keep)
-    const c = o.cut ?? cut
-    if (c === 'all') sp.set('cut', 'all')
-    if (o.step) sp.set('step', o.step)
-    const s = sp.toString()
-    return `/mw/seo${s ? `?${s}` : ''}#planner`
-  }
-  const firstId = planner.focus.ids.find(id => !planner.prog.get(id)?.stage || !['done', 'moot'].includes(planner.prog.get(id)!.stage))
-  const first = firstId ? { step: planner.steps.find(s => s.id === firstId)!, leads: planner.scored.get(firstId)!.gain.leads, href: planHref({ step: firstId, cut: 'focus' }) } : null
 
   if (!snap) {
     return <div className="mw-wrap"><MwHero tab="seo" pulled="—" stale={false} headline="SEO & organic" /><p className="lede">No snapshot yet.</p></div>
@@ -121,10 +97,11 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
         { k: 'Authority score', v: String(k.authority), d: `${num(k.refDomains)} ref. domains`, tone: 'up' },
       ]} />
 
-      {/* ── 0. one look, then the plan: what to do first ─────────────────── */}
-      <SeoGlance signals={glanceOf(live)} top={first} />
-      <SeoPlanner p={planner} cut={cut} list={view.list} step={view.step} nav={view.nav} inList={view.inList}
-        replies={replies} isOwner={guest === null} href={planHref} keep={keep} />
+      {/* The planner card and its "Send to Claude" box are gone (owner, 28 Oct
+          2026): the Monday run does the analysis, and the work is on To do. */}
+      <section className="mw-card">
+        <p style={{ margin: 0 }}>This week&apos;s findings and everyone&apos;s SEO and content work are on <Link href="/mw/todo"><b>To do</b></Link>. This page is the detail behind them.</p>
+      </section>
 
       {/* SLIMMED 21 Oct 2026. Fourteen sections, one of which (the card above)
           asked anyone to do anything. The SEO-actions chain is gone (every task
@@ -184,7 +161,7 @@ export default async function MwSeo({ searchParams }: { searchParams: Promise<Q>
       )}
 
       <p className="lede" style={{ marginTop: 8 }}>
-        Everyone&apos;s tasks, organic and otherwise, are on <Link href="/mw">Today</Link> and <Link href="/mw/people">People</Link>.
+        The overall picture is on <Link href="/mw">Home</Link>; the work is on <Link href="/mw/todo">To do</Link>.
       </p>
     </div>
   )

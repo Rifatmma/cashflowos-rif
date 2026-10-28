@@ -59,6 +59,28 @@ export type WeekTask = {
   sourceId: string | null
   /** Weeks this card has been carried over unfinished. */
   carried: number
+  /** The finding on the To do page this card fixes (mw_week_findings). */
+  findingId?: string | null
+}
+
+/**
+ * What the data showed, written by the Monday run. The To do page lists these
+ * first and hangs each card under the finding it fixes (owner, 28 Oct 2026:
+ * "show insights first … then what is recommended to do"). An 'info' finding
+ * is analysis Claude finished with nothing for anyone to do.
+ */
+export type Finding = {
+  id: string
+  week: string
+  rank: number
+  title: string
+  evidence: string
+  source: string
+  /** Expected enquiries a month; orders the findings. */
+  value: number
+  market: string | null
+  kind: 'action' | 'info'
+  links: WeekLink[]
 }
 
 /** Tasks a person gets per week (owner, 26 Oct 2026). */
@@ -232,6 +254,7 @@ export function publishCardFor(lead: WeekTask, doc: string, dinesh: string): Wee
     payload: { doc, page: page || null, from: lead.id },
     sourceId: null,
     carried: 0,
+    findingId: lead.findingId ?? null,
   }
 }
 
