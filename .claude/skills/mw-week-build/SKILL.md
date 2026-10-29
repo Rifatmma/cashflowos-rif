@@ -34,6 +34,14 @@ It stores last week and the week before (Search Console lags two to three days) 
 
 If the pull fails, say so in your summary and carry on with last week's data.
 
+## 0b. First Monday of the month: the AI-answers check (Rif, 28 Oct 2026)
+
+Semrush goes through the browser only, so this runs **on Rif's PC** (Claude in Chrome, the work profile — Browser 2), not in the cloud run. The cloud run skips it and says "AI check due" in its summary when this month's `mw_settings` key is missing.
+
+1. Open `https://www.semrush.com/ai-seo/overview/?q=movingwalls.com` (Worldwide, All AI platforms). Read only; change nothing.
+2. Save `mw_settings` key `ai_visibility_<YYYY-MM>`: `{ month, checked, source, score, mentions, mentionsChange, citations, citationsChange, citedPages, citedPagesChange, byLlm, byCountry, topics, topicOpportunities }`. Home shows it as "Seen in AI answers".
+3. Open **Topic Opportunities**. Take the non-brand topics on buying outdoor media in our markets (formats, agencies, costs, cities); skip anything about "Moving Walls" itself. The top 3 by AI volume become one `action` finding ("AI answers about … name JCDecaux and Lamar, not us") with `content-new` or `content-improve` cards for the right market lead, the same as a content-gap topic.
+
 ## 1. Pick the week
 
 ```

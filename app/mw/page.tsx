@@ -6,7 +6,7 @@ import { getMwData, getMwMonths, num, type MwData } from '@/lib/mw-data'
 import { getMarketSeo, withData, type MarketSeo } from '@/lib/mw-market-data'
 import { getPeople } from '@/lib/mw-people-store'
 import { personByActor, doers } from '@/lib/mw-people'
-import { crmMonths, monthBefore } from '@/lib/mw-home'
+import { crmMonths, monthBefore, aiVisibility } from '@/lib/mw-home'
 import { isoWeek, isReady } from '@/lib/mw-week'
 import { weekTasks } from '@/lib/mw-week-store'
 import { buyerSummary, decayWatch } from '@/lib/mw-results'
@@ -59,10 +59,11 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
   const mB = compare ? q.vs! : monthBefore(mA)
   const isCur = (k: string) => k === thisMonth
 
-  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards, buyers, decay] = await Promise.all([
+  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards, buyers, decay, aiVis] = await Promise.all([
     getPeople(), getMwMonths(), getMwData(isCur(mA) ? undefined : mA), getMwData(mB),
-    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week), buyerSummary(), decayWatch(),
+    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week), buyerSummary(), decayWatch(), aiVisibility(),
   ])
+  const [ai, aiPrev] = aiVis
   const me = personByActor(people, isOwner ? 'owner' : guest)
   if (!isOwner && me?.role !== 'boss') redirect('/mw/todo')
 
@@ -120,6 +121,11 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
     { k: 'Enquiries', v: d ? String(enquiries) : '—', d: `GA4 · ${hasB ? vsTxt(String(enqB)) + ' · ' : ''}not reliable until the form fix` },
     { k: 'Non-brand share', v: sA.pct === null ? '—' : `${sA.pct}%`, d: sB.pct === null ? 'of organic search visits' : vsTxt(`${sB.pct}%`) },
     { k: 'Brand searches', v: live.length ? num(sA.br) : '—', d: `est. visits searching "Moving Walls"${sB.br ? ' · ' + vsTxt(num(sB.br)) : ''}` },
+    ...(ai ? [{
+      k: 'Seen in AI answers', v: `${ai.score}/100`,
+      d: `${ai.mentions} mentions · ${ai.citations} citations · ${label(ai.month)}${aiPrev ? ` · ${label(aiPrev.month)}: ${aiPrev.score}` : ''} · Semrush`,
+      tone: aiPrev ? (ai.score >= aiPrev.score ? 'up' as const : 'dn' as const) : undefined,
+    }] : []),
     { k: 'Paid cost per lead', v: cplA ? `S$${Math.round(cplA)}` : '—', d: d ? `${d.sem.kpi.leads} leads · S$${Math.round(d.sem.kpi.spend)}${cplB ? ' · ' + vsTxt(`S$${Math.round(cplB)}`) : ''}` : '', tone: cplA && cplB ? (cplA <= cplB ? 'up' : 'dn') : undefined },
   ]
 

@@ -47,3 +47,17 @@ export async function crmMonths(keys: string[], now = Date.now()): Promise<Map<s
   }
   return out
 }
+
+export type AiVisibility = { month: string; score: number; mentions: number; citations: number; citedPages: number; byLlm: Record<string, number>; source: string }
+
+/**
+ * The monthly AI-answers check (owner, 28 Oct 2026), newest first: Semrush AI
+ * Visibility read in the browser on the first Monday of the month and saved as
+ * mw_settings `ai_visibility_<YYYY-MM>`. Semrush goes through the browser only,
+ * so this is a local step, not part of the cloud run.
+ */
+export async function aiVisibility(): Promise<AiVisibility[]> {
+  if (!supabaseConfigured) return []
+  const { data } = await supabase.from('mw_settings').select('key, value').like('key', 'ai_visibility_%').order('key', { ascending: false }).limit(2)
+  return ((data ?? []) as any[]).map(r => r.value as AiVisibility)
+}
