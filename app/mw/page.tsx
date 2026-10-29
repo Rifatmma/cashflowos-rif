@@ -8,6 +8,7 @@ import { getPeople } from '@/lib/mw-people-store'
 import { personByActor, doers } from '@/lib/mw-people'
 import { crmMonths, monthBefore, aiVisibility, enquiriesByPage } from '@/lib/mw-home'
 import { pageLabel } from '@/lib/mw-cliq'
+import { INTENTS } from '@/lib/mw-lead-intent'
 import { isoWeek, isReady } from '@/lib/mw-week'
 import { weekTasks } from '@/lib/mw-week-store'
 import { buyerSummary, decayWatch } from '@/lib/mw-results'
@@ -117,6 +118,11 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
   const cplA = d?.sem.kpi.cpl ?? 0, cplB = bData?.sem.kpi.cpl ?? 0
   const tiles: { k: string; v: string; d: string; tone?: 'up' | 'dn' | 'bad' }[] = [
     { k: 'Qualified leads', v: String(cA.qualified), d: `${cA.leads} leads in all · ${vsTxt(`${cB.qualified} of ${cB.leads}`)}`, tone: cA.qualified / cA.days >= cB.qualified / (cB.days || 1) ? 'up' : 'dn' },
+    ...(enq.stored && enq.a.all + enq.b.all > 0 ? [{
+      k: 'High-intent leads', v: String(enq.a.intent.high),
+      d: `${enq.a.all} website enquiries · named a site, dates or a budget · ${vsTxt(`${enq.b.intent.high} of ${enq.b.all}`)}`,
+      tone: enq.a.intent.high / cA.days >= enq.b.intent.high / (cB.days || 1) ? 'up' as const : 'dn' as const,
+    }] : []),
     { k: 'Lead source known', v: `${pct(cA.sourced, cA.leads)}%`, d: `${cA.leads - cA.sourced} of ${cA.leads} have no source · ${vsTxt(`${pct(cB.sourced, cB.leads)}%`)}`, tone: cA.leads && cA.sourced / cA.leads < 0.5 ? 'bad' : undefined },
     { k: 'Answered within a day', v: `${pct(cA.answered24, cA.leads)}%`, d: vsTxt(`${pct(cB.answered24, cB.leads)}%`), tone: pct(cA.answered24, cA.leads) >= pct(cB.answered24, cB.leads) ? 'up' : 'dn' },
     { k: 'Enquiries', v: d ? String(enquiries) : '—', d: `GA4 · ${hasB ? vsTxt(String(enqB)) + ' · ' : ''}not reliable until the form fix` },
@@ -260,6 +266,48 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
             </table>
           </section>
         </div>
+      )}
+
+      {enq.stored && enq.a.all + enq.b.all > 0 && (
+        <section className="mw-card">
+          <h2 style={{ marginBottom: 2 }}>Lead intent</h2>
+          <p className="mw-planner-lab">
+            Read from each enquiry: high names at least two of a site, dates, a quote or budget, a campaign goal; medium one;
+            low no detail or a personal request; not a buyer is jobs, students, media owners and vendors · {LA} vs {LB}
+          </p>
+          <table className="mw-kw" style={{ marginTop: 8 }}>
+            <thead><tr><th>Intent</th><th className="num">{LA}</th><th className="num">{LB}</th></tr></thead>
+            <tbody>
+              {INTENTS.map(i => (
+                <tr key={i}>
+                  <td>{i[0].toUpperCase() + i.slice(1)}</td>
+                  <td className={`num ${i === 'high' ? (enq.a.intent.high > enq.b.intent.high ? 'mw-up' : enq.a.intent.high < enq.b.intent.high ? 'mw-dn' : '') : ''}`}>{enq.a.intent[i]}</td>
+                  <td className="num">{enq.b.intent[i]}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mw-home-two" style={{ marginTop: 10 }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>High-intent leads by page</h3>
+              <table className="mw-kw">
+                <thead><tr><th>Page</th><th className="num">{LA}</th><th className="num">{LB}</th></tr></thead>
+                <tbody>
+                  {enq.highByPage.slice(0, 10).map(r => <tr key={r.key}><td>{pageLabel(r.key || null)}</td><td className="num">{r.a || <span className="mw-zero">0</span>}</td><td className="num">{r.b}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <h3 style={{ margin: '0 0 4px', fontSize: 14 }}>High-intent leads by source / medium</h3>
+              <table className="mw-kw">
+                <thead><tr><th>Source / medium</th><th className="num">{LA}</th><th className="num">{LB}</th></tr></thead>
+                <tbody>
+                  {enq.highBySource.slice(0, 10).map(r => <tr key={r.key}><td>{r.key}</td><td className="num">{r.a || <span className="mw-zero">0</span>}</td><td className="num">{r.b}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       )}
 
       {live.length > 0 && (

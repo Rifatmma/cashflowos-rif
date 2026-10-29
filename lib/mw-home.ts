@@ -8,6 +8,7 @@ import 'server-only'
 
 import { supabase, supabaseConfigured } from './supabase'
 import { tally, sourceMedium, type Tally } from './mw-cliq'
+import { INTENTS, type Intent } from './mw-lead-intent'
 
 export type CrmMonth = { leads: number; qualified: number; sourced: number; answered24: number; days: number }
 
@@ -63,7 +64,12 @@ export async function aiVisibility(): Promise<AiVisibility[]> {
   return ((data ?? []) as any[]).map(r => r.value as AiVisibility)
 }
 
-export type Enquiries = { stored: boolean; a: { all: number; buyers: number }; b: { all: number; buyers: number }; byPage: Tally[]; bySource: Tally[] }
+type Count = { all: number; buyers: number; intent: Record<Intent, number> }
+export type Enquiries = {
+  stored: boolean; a: Count; b: Count; byPage: Tally[]; bySource: Tally[]
+  /** High-intent leads only (Rif, 29 Oct 2026): which pages and channels bring serious buyers. */
+  highByPage: Tally[]; highBySource: Tally[]
+}
 
 /**
  * Enquiries by the page they were sent from and by source / medium, months A
@@ -71,19 +77,27 @@ export type Enquiries = { stored: boolean; a: { all: number; buyers: number }; b
  * (mw_cliq_leads), because GA4 credits every enquiry to the Zoho form.
  */
 export async function enquiriesByPage(mA: string, mB: string): Promise<Enquiries> {
-  const none: Enquiries = { stored: false, a: { all: 0, buyers: 0 }, b: { all: 0, buyers: 0 }, byPage: [], bySource: [] }
+  const zero = (): Count => ({ all: 0, buyers: 0, intent: Object.fromEntries(INTENTS.map(i => [i, 0])) as Record<Intent, number> })
+  const none: Enquiries = { stored: false, a: zero(), b: zero(), byPage: [], bySource: [], highByPage: [], highBySource: [] }
   if (!supabaseConfigured) return none
   const A = monthBounds(mA), B = monthBounds(mB)
   const from = new Date(Math.min(A.from, B.from)).toISOString(), to = new Date(Math.max(A.to, B.to)).toISOString()
-  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, source, medium, is_buyer').gte('at', from).lt('at', to).limit(5000)
+  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, source, medium, is_buyer, intent').gte('at', from).lt('at', to).limit(5000)
   if (error) return none
-  const rows = ((data ?? []) as any[]).map(r => ({ at: String(r.at), page: r.page as string | null, source: r.source as string | null, medium: r.medium as string | null, isBuyer: !!r.is_buyer }))
+  const rows = ((data ?? []) as any[]).map(r => ({ at: String(r.at), page: r.page as string | null, source: r.source as string | null, medium: r.medium as string | null, isBuyer: !!r.is_buyer, intent: (r.intent ?? null) as Intent | null }))
   const inA = (at: string) => { const t = Date.parse(at); return t >= A.from && t < A.to }
   const inB = (at: string) => { const t = Date.parse(at); return t >= B.from && t < B.to }
-  const count = (f: (at: string) => boolean) => { const r = rows.filter(x => f(x.at)); return { all: r.length, buyers: r.filter(x => x.isBuyer).length } }
+  const count = (f: (at: string) => boolean): Count => {
+    const c = zero()
+    for (const x of rows.filter(r => f(r.at))) { c.all++; if (x.isBuyer) c.buyers++; if (x.intent) c.intent[x.intent]++ }
+    return c
+  }
+  const high = rows.filter(r => r.intent === 'high')
   return {
     stored: true, a: count(inA), b: count(inB),
     byPage: tally(rows, r => r.page ?? '', inA, inB),
     bySource: tally(rows, sourceMedium, inA, inB),
+    highByPage: tally(high, r => r.page ?? '', inA, inB),
+    highBySource: tally(high, sourceMedium, inA, inB),
   }
 }

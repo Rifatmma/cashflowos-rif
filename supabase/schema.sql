@@ -366,6 +366,8 @@ create table if not exists mw_cliq_leads (
   medium     text,
   page       text,                              -- slug: 'bengaluru', 'india', 'contact', 'homepage'
   is_buyer   boolean not null default true,     -- false: jobs, students, fan/birthday LEDs, media owners
+  intent     text check (intent in ('high','medium','low','not a buyer')),  -- lib/mw-lead-intent.ts
+  intent_reason text,                           -- a generic phrase: 'site + duration + quote'
   lead_id    text references mw_leads(id) on delete set null,
   synced_at  timestamptz not null default now()
 );

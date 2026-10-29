@@ -142,7 +142,7 @@ export default async function MwTodo({ searchParams }: { searchParams: Promise<Q
                 <b>{r.task.owner}</b> · {r.task.title} · <span className="mw-planner-lab">{r.page}</span><br />
                 <span className={r.result.ready ? (r.result.after.clicks > r.result.before.clicks ? 'mw-up' : r.result.after.clicks < r.result.before.clicks ? 'mw-dn' : '') : 'mw-planner-lab'}>{r.line}</span>
                 {r.enquiries && r.enquiries.before.all + r.enquiries.after.all > 0 && (
-                  <span className="mw-planner-lab"> · buyer enquiries from the page {r.enquiries.before.buyers} → {r.enquiries.after.buyers} ({r.enquiries.before.all} → {r.enquiries.after.all} in all)</span>
+                  <span className="mw-planner-lab"> · enquiries from the page: high-intent {r.enquiries.before.high} → {r.enquiries.after.high}, buyers {r.enquiries.before.buyers} → {r.enquiries.after.buyers}, all {r.enquiries.before.all} → {r.enquiries.after.all}</span>
                 )}
               </li>
             ))}

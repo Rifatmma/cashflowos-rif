@@ -27,7 +27,7 @@ export function pageOfCard(t: WeekTask): string | null {
   return /movingwalls\.com/i.test(url) ? pathOf(url) : null
 }
 
-export type Enq = { all: number; buyers: number }
+export type Enq = { all: number; buyers: number; high: number }
 export type CardResult = { task: WeekTask; page: string; changeWeek: string; result: BeforeAfter; line: string; enquiries: { before: Enq; after: Enq } | null }
 
 /**
@@ -39,15 +39,15 @@ async function enquiriesAround(items: { page: string; changeWeek: string }[]): P
   const out = new Map<string, { before: Enq; after: Enq }>()
   const slugs = [...new Set(items.map(i => slugOfPath(i.page)).filter((s): s is string => !!s))]
   if (!slugs.length) return out
-  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, is_buyer').in('page', slugs)
+  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, is_buyer, intent').in('page', slugs)
   if (error || !data?.length) return out
   // Weeks in Malaysia time, as the rest of /mw counts them.
-  const rows = (data as any[]).map(r => ({ page: String(r.page), week: isoWeek(new Date(Date.parse(r.at) + 8 * 3600_000).toISOString().slice(0, 10)), buyer: !!r.is_buyer }))
+  const rows = (data as any[]).map(r => ({ page: String(r.page), week: isoWeek(new Date(Date.parse(r.at) + 8 * 3600_000).toISOString().slice(0, 10)), buyer: !!r.is_buyer, high: r.intent === 'high' }))
   for (const i of items) {
     const slug = slugOfPath(i.page)
     const before = new Set([1, 2, 3, 4].map(k => addWeeks(i.changeWeek, -k)))
     const after = new Set([1, 2, 3, 4].map(k => addWeeks(i.changeWeek, k)))
-    const of = (ws: Set<string>) => { const r = rows.filter(x => x.page === slug && ws.has(x.week)); return { all: r.length, buyers: r.filter(x => x.buyer).length } }
+    const of = (ws: Set<string>) => { const r = rows.filter(x => x.page === slug && ws.has(x.week)); return { all: r.length, buyers: r.filter(x => x.buyer).length, high: r.filter(x => x.high).length } }
     out.set(`${i.page}|${i.changeWeek}`, { before: of(before), after: of(after) })
   }
   return out

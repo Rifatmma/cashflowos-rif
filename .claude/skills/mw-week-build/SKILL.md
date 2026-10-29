@@ -44,14 +44,15 @@ Semrush goes through the browser only, so this runs **on Rif's PC** (Claude in C
 
 ## 0c. Enquiries by page from Zoho Cliq (Rif, 29 Oct 2026)
 
-GA4 credits every enquiry to the Zoho form, so which page sent it comes from the bot posts in the Zoho Cliq channel **#Website Leads** (chat `CT_2243198605328716525_776399050`, org 776399050). Needs the **Rifat-MCP** connector's Cliq tools. **Read-only: never post, react, edit or delete in Cliq.**
+GA4 credits every enquiry to the Zoho form, so which page sent it comes from the bot posts in the Zoho Cliq channel **#Website Leads** (chat `CT_2243198605328716525_776399050`, org 776399050). **Read-only: never post, react, edit or delete in Cliq.**
 
 1. `scripts/cliq-leads.mts --since` prints the newest stored post time.
-2. Rifat-MCP **Get Messages** on that chat from that time onward (page back until you reach it; the whole history if nothing is stored). Save the raw messages as JSON to a scratch file — the script accepts `[msg]`, `{data:[msg]}` or `{messages:[msg]}`.
-3. `scripts/cliq-leads.mts <file.json>` parses each "Leads Submitted" post (`lib/mw-cliq.ts`), drops human replies, and upserts `mw_cliq_leads`: form, role, country, interest, source/medium, page slug, `is_buyer`, and the CRM lead it matches. No names, phones or inquiry text are stored; the email only as a hash.
+2. **If the Rifat-MCP connector shows its Cliq tools** (List all channels, Get Messages …): **Get Messages** on that chat from that time onward (page back until you reach it). Save the raw messages as JSON to a scratch file — the script accepts `[msg]`, `{data:[msg]}` or `{messages:[msg]}` — and run `scripts/cliq-leads.mts <file.json>`.
+   **If they are not there** (the cloud run before Rif refreshes the connector): skip, and write **"Cliq not reachable, run backfill locally"** in the summary. Locally, Claude in Chrome (Browser 2, Rif's work profile) on the channel can read the history with the web app's own GET `gettranscriptfromrsasjson.do?chid=…&lineslimit=100&totime=<oldest ms>`, run `lib/mw-cliq.ts` (bundled with esbuild) inside the tab, and hand only the parsed rows to `scripts/cliq-leads.mts --parsed <rows.json>` — names, phones and inquiry text never leave the tab.
+3. The script stores per post: form, role, country, interest, source/medium, page slug, `is_buyer`, **lead intent** (`lib/mw-lead-intent.ts`: high / medium / low / not a buyer, with a generic reason like "site + duration + quote"), and the CRM lead it matches. No names, phones or inquiry text; the email only as a hash.
 4. After the CRM sync, `scripts/cliq-leads.mts --relink` matches posts whose lead reached the CRM later.
 
-Home shows **Enquiries by page** and **by source / medium** for the chosen months; **Did it work?** on To do adds buyer enquiries from the page, 4 weeks before against 4 after. A location page whose buyer enquiries fell two months running is a finding, like decay. If Cliq is not reachable, say "Cliq not pulled" in the summary and carry on.
+Home shows **High-intent leads** (tile), **Lead intent**, **Enquiries by page** and **by source / medium** for the chosen months; **Did it work?** on To do adds high-intent and buyer enquiries from the page, 4 weeks before against 4 after. A location page whose high-intent leads fell two months running is a finding, like decay.
 
 ## 1. Pick the week
 

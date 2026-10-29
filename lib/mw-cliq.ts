@@ -9,6 +9,7 @@
 // `isBuyer` and is then dropped.
 
 import { createHash } from 'crypto'
+import { leadIntent, type Intent } from './mw-lead-intent'
 
 export type CliqLead = {
   msgId: string
@@ -22,6 +23,9 @@ export type CliqLead = {
   medium: string | null
   page: string | null
   isBuyer: boolean
+  intent: Intent
+  /** A generic phrase ("site + duration + quote"), never the enquirer's words. */
+  intentReason: string
 }
 
 // The labels the bot writes, in any order. The value of one runs to the next.
@@ -32,7 +36,8 @@ const LABELS: [keyof Fields, RegExp][] = [
   ['phone', /\b(?:phone|mobile|contact\s+number)(?:\s+number)?\s*:/i],
   ['role', /\bI\s+am\s+an?\s*:/i],
   ['country', /\bcountry\s*:/i],
-  ['interest', /\bI\s+am\s+interested\s+in\s*:/i],
+  // Some posts run it on one line: "I am a: Brand Interested in: Advertising on OOH/DOOH".
+  ['interest', /\b(?:I\s+am\s+)?interested\s+in\s*:/i],
   ['inquiry', /\b(?:inquiry|enquiry|message)\s*:/i],
   ['srcmed', /\bThis\s+Lead['’`]?s\s+Source\s*\/\s*Medium\s*:/i],
   ['page', /\bSubmitted\s+on\s+this\s+page\s*:/i],
@@ -45,6 +50,7 @@ export const plain = (s: string) => s
   .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
   .replace(/\[([^\]]*)\]\(([^)]*)\)/g, '$2')   // [text](url) → url
   .replace(/[*_~]{1,3}/g, '')
+  .replace(/Please check the notification email for further information\.?/gi, ' ')
   .replace(/[ \t\r]+/g, ' ')
   .trim()
 
@@ -74,6 +80,13 @@ export function fields(text: string): Partial<Fields> {
 const blank = (s: string | undefined) => (s && !/^(?:-|—|n\/?a|none|null|undefined|\(not set\)|\(none\))$/i.test(s.trim()) ? s.trim() : null)
 
 /**
+ * A picklist value ("Brand", "India", "Advertising on OOH/DOOH"), or null. An
+ * "Interested in:" typed inside an inquiry once pulled a paragraph and a phone
+ * number into `interest`; long text or digit runs are never a picklist value.
+ */
+const pick = (s: string | undefined) => { const v = blank(s); return v && v.length <= 60 && !/\d{5,}/.test(v.replace(/[\s-]/g, '')) ? v : null }
+
+/**
  * "https://www.movingwalls.com/locations/india/bengaluru/?x=1" → "bengaluru";
  * "/" or the home URL → "homepage". A bare slug stays as it is, lower case.
  */
@@ -90,41 +103,63 @@ export function pageSlug(raw: string | null | undefined): string | null {
 /** The slug of a site path the To do cards use ("/locations/india/bengaluru"). */
 export const slugOfPath = (path: string) => pageSlug(path.startsWith('/') ? path : `/${path}`)
 
-export const hashEmail = (email: string) => createHash('sha256').update(email.trim().toLowerCase()).digest('hex')
+/** First 32 hex of sha256 of the lower-cased email: enough to match a CRM lead, not to read it. */
+export const hashEmail = (email: string) => createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 32)
 
 /**
  * A brand or agency asking to advertise. Not a buyer: job seekers, students,
  * fan and birthday LED requests, and media owners selling their own screens.
  */
 export function isBuyer(f: { role?: string | null; interest?: string | null; inquiry?: string | null; company?: string | null }): boolean {
-  const role = (f.role ?? '').toLowerCase(), interest = (f.interest ?? '').toLowerCase()
-  const text = `${f.inquiry ?? ''} ${f.company ?? ''}`.toLowerCase()
-  if (/media\s*owner|publisher|vendor/.test(role)) return false
-  if (/selling|connecting\s+media|media\s+network/.test(interest)) return false
-  if (/student|job\s*seeker|candidate/.test(role)) return false
-  if (/\b(?:job|career|vacanc|intern(?:ship)?|resume|\bcv\b|hiring|apply(?:ing)?\s+for|position|employment|fresher)/.test(`${interest} ${text}`)) return false
-  if (/\b(?:student|thesis|dissertation|assignment|university\s+project|college\s+project|research\s+project|survey\s+for\s+my)/.test(text)) return false
-  if (/\b(?:birthday|anniversary|propos(?:e|al)\s+to|wish(?:ing)?\s+(?:my|her|him)|fan\s*(?:club|base|project)|idol|k-?pop|bias|surprise\s+(?:my|for))/.test(text)) return false
-  return true
+  const r = leadIntent(f)
+  return r.intent !== 'not a buyer' && r.reason !== 'personal or fan request'
 }
 
-/** One #Website Leads post, or null when it is not a lead (a human reply, a system note). */
-export function parseLead(msg: { id: string; time: string | number; text: string }): CliqLead | null {
+/**
+ * "Google Ads / cpc" → google ads, cpc. "https://www.movingwalls.com/market/india/ / referral"
+ * → movingwalls.com, referral (the URL keeps its own slashes: the split is on the last one).
+ */
+export function splitSourceMedium(raw: string | null | undefined): { source: string | null; medium: string | null; url: string | null } {
+  const s = (raw ?? '').trim()
+  const i = s.lastIndexOf('/')
+  const src = blank(i < 0 ? s : s.slice(0, i).trim()), med = blank(i < 0 ? '' : s.slice(i + 1).trim())
+  const isUrl = !!src && /^(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/|$)/i.test(src) && !/\s/.test(src)
+  const host = isUrl ? src!.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase() : null
+  // google.com and google.com.hk are the same engine as "google" in the newer posts.
+  const engine = host?.match(/^(google|bing|yahoo|duckduckgo|yandex|baidu)\.[a-z.]+$/)?.[1]
+  return { source: engine ?? host ?? src?.toLowerCase() ?? null, medium: med?.toLowerCase() ?? null, url: isUrl ? src : null }
+}
+
+/** "PuneContact" → "pune", "MalaysiaContact" → "malaysia"; the general forms name no page. */
+export function pageOfForm(form: string | null): string | null {
+  const m = form?.match(/^([A-Za-z]+?)Contact$/)
+  return m && !/^(?:MW|Mw)$/.test(m[1]) ? m[1].replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase() : null
+}
+
+/**
+ * One #Website Leads post, or null when it is not a lead (a human reply, a system note).
+ * Older posts have no "Submitted on this page": the page then comes from an own-site
+ * referrer URL, or from a city / country form ("PuneContact").
+ */
+export function parseLead(msg: { id: string; time: string | number; text: string }, hash: (email: string) => string = hashEmail): CliqLead | null {
   const t = plain(msg.text)
-  if (!/received\s+a\s+new\s+lead|Submitted\s+on\s+this\s+page/i.test(t)) return null
+  if (!/received\s+a\s+new\s+lead/i.test(t)) return null
   const f = fields(t)
-  const form = t.match(/new\s+lead\s+on\s+(?:the\s+)?(.+?)\s*:/i)?.[1]?.trim() ?? null
+  const formRaw = t.match(/new\s+lead\s+on\s+(?:the\s+)?(.+?)\s*:/i)?.[1]?.trim() ?? null
+  const form = formRaw ? formRaw.replace(/\s+/g, ' ') : null
   const email = blank(f.email)?.match(/[^\s<>()]+@[^\s<>()]+\.[a-z]{2,}/i)?.[0] ?? null
-  const [source, medium] = (blank(f.srcmed) ?? '').split(/\s*\/\s*/)
-  const at = typeof msg.time === 'number' ? new Date(msg.time).toISOString() : new Date(msg.time).toISOString()
+  const sm = splitSourceMedium(f.srcmed)
+  const ownRef = sm.url && /movingwalls\.com/i.test(sm.url) ? pageSlug(/^https?:/i.test(sm.url) ? sm.url : `https://${sm.url}`) : null
+  const page = pageSlug(f.page) ?? (ownRef && ownRef !== 'homepage' ? ownRef : null) ?? pageOfForm(form) ?? ownRef
+  const at = new Date(typeof msg.time === 'string' && /^\d+$/.test(msg.time) ? Number(msg.time) : msg.time).toISOString()
+  const intent = leadIntent({ role: f.role, interest: f.interest, inquiry: f.inquiry, company: f.company })
   return {
-    msgId: String(msg.id), at,
-    form: form ? form.replace(/\s+/g, ' ') : null,
-    emailHash: email ? hashEmail(email) : null,
-    role: blank(f.role), country: blank(f.country), interest: blank(f.interest),
-    source: blank(source)?.toLowerCase() ?? null, medium: blank(medium)?.toLowerCase() ?? null,
-    page: pageSlug(f.page),
-    isBuyer: isBuyer({ role: f.role, interest: f.interest, inquiry: f.inquiry, company: f.company }),
+    msgId: String(msg.id), at, form,
+    emailHash: email ? hash(email) : null,
+    role: pick(f.role), country: pick(f.country), interest: pick(f.interest),
+    source: sm.source, medium: sm.medium, page,
+    isBuyer: intent.intent !== 'not a buyer' && intent.reason !== 'personal or fan request',
+    intent: intent.intent, intentReason: intent.reason,
   }
 }
 
