@@ -350,3 +350,25 @@ create table if not exists mw_buyer_searches (
   primary key (market, query)
 );
 alter table mw_buyer_searches enable row level security;
+
+-- Every lead the bot posts in the Zoho Cliq channel #Website Leads (lib/mw-cliq.ts,
+-- scripts/cliq-leads.mts): which page and source/medium each enquiry came from.
+-- No names, phones or inquiry text; the email only as a sha256 hash to match mw_leads.
+create table if not exists mw_cliq_leads (
+  msg_id     text primary key,                  -- the Cliq message id
+  at         timestamptz not null,
+  form       text,
+  email_hash text,                              -- sha256 of the lower-cased email
+  role       text,                              -- "I am a"
+  country    text,
+  interest   text,                              -- "I am interested in"
+  source     text,
+  medium     text,
+  page       text,                              -- slug: 'bengaluru', 'india', 'contact', 'homepage'
+  is_buyer   boolean not null default true,     -- false: jobs, students, fan/birthday LEDs, media owners
+  lead_id    text references mw_leads(id) on delete set null,
+  synced_at  timestamptz not null default now()
+);
+create index if not exists mw_cliq_leads_at on mw_cliq_leads (at);
+create index if not exists mw_cliq_leads_page on mw_cliq_leads (page, at);
+alter table mw_cliq_leads enable row level security;

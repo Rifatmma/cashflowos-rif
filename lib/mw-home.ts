@@ -7,6 +7,7 @@ import 'server-only'
 // imports are left out, as everywhere else in /mw.
 
 import { supabase, supabaseConfigured } from './supabase'
+import { tally, sourceMedium, type Tally } from './mw-cliq'
 
 export type CrmMonth = { leads: number; qualified: number; sourced: number; answered24: number; days: number }
 
@@ -60,4 +61,29 @@ export async function aiVisibility(): Promise<AiVisibility[]> {
   if (!supabaseConfigured) return []
   const { data } = await supabase.from('mw_settings').select('key, value').like('key', 'ai_visibility_%').order('key', { ascending: false }).limit(2)
   return ((data ?? []) as any[]).map(r => r.value as AiVisibility)
+}
+
+export type Enquiries = { stored: boolean; a: { all: number; buyers: number }; b: { all: number; buyers: number }; byPage: Tally[]; bySource: Tally[] }
+
+/**
+ * Enquiries by the page they were sent from and by source / medium, months A
+ * and B (Rif, 29 Oct 2026). Read from the #Website Leads posts in Zoho Cliq
+ * (mw_cliq_leads), because GA4 credits every enquiry to the Zoho form.
+ */
+export async function enquiriesByPage(mA: string, mB: string): Promise<Enquiries> {
+  const none: Enquiries = { stored: false, a: { all: 0, buyers: 0 }, b: { all: 0, buyers: 0 }, byPage: [], bySource: [] }
+  if (!supabaseConfigured) return none
+  const A = monthBounds(mA), B = monthBounds(mB)
+  const from = new Date(Math.min(A.from, B.from)).toISOString(), to = new Date(Math.max(A.to, B.to)).toISOString()
+  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, source, medium, is_buyer').gte('at', from).lt('at', to).limit(5000)
+  if (error) return none
+  const rows = ((data ?? []) as any[]).map(r => ({ at: String(r.at), page: r.page as string | null, source: r.source as string | null, medium: r.medium as string | null, isBuyer: !!r.is_buyer }))
+  const inA = (at: string) => { const t = Date.parse(at); return t >= A.from && t < A.to }
+  const inB = (at: string) => { const t = Date.parse(at); return t >= B.from && t < B.to }
+  const count = (f: (at: string) => boolean) => { const r = rows.filter(x => f(x.at)); return { all: r.length, buyers: r.filter(x => x.isBuyer).length } }
+  return {
+    stored: true, a: count(inA), b: count(inB),
+    byPage: tally(rows, r => r.page ?? '', inA, inB),
+    bySource: tally(rows, sourceMedium, inA, inB),
+  }
 }

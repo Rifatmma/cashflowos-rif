@@ -7,6 +7,7 @@ import 'server-only'
 import { supabase, supabaseConfigured } from './supabase'
 import { isoWeek, type WeekTask } from './mw-week'
 import { pathOf } from './mw-gsc-week'
+import { slugOfPath } from './mw-cliq'
 import {
   addWeeks, beforeAfter, resultLine, decaying, buyerPositions, topTen,
   type BeforeAfter, type Decay, type BuyerSearch, type BuyerPos,
@@ -26,7 +27,31 @@ export function pageOfCard(t: WeekTask): string | null {
   return /movingwalls\.com/i.test(url) ? pathOf(url) : null
 }
 
-export type CardResult = { task: WeekTask; page: string; changeWeek: string; result: BeforeAfter; line: string }
+export type Enq = { all: number; buyers: number }
+export type CardResult = { task: WeekTask; page: string; changeWeek: string; result: BeforeAfter; line: string; enquiries: { before: Enq; after: Enq } | null }
+
+/**
+ * Enquiries sent from each page (its slug) in the four weeks before a change and
+ * the four after, from the #Website Leads posts in Zoho Cliq (mw_cliq_leads).
+ * The change week counts for neither, as with Search Console.
+ */
+async function enquiriesAround(items: { page: string; changeWeek: string }[]): Promise<Map<string, { before: Enq; after: Enq }>> {
+  const out = new Map<string, { before: Enq; after: Enq }>()
+  const slugs = [...new Set(items.map(i => slugOfPath(i.page)).filter((s): s is string => !!s))]
+  if (!slugs.length) return out
+  const { data, error } = await supabase.from('mw_cliq_leads').select('at, page, is_buyer').in('page', slugs)
+  if (error || !data?.length) return out
+  // Weeks in Malaysia time, as the rest of /mw counts them.
+  const rows = (data as any[]).map(r => ({ page: String(r.page), week: isoWeek(new Date(Date.parse(r.at) + 8 * 3600_000).toISOString().slice(0, 10)), buyer: !!r.is_buyer }))
+  for (const i of items) {
+    const slug = slugOfPath(i.page)
+    const before = new Set([1, 2, 3, 4].map(k => addWeeks(i.changeWeek, -k)))
+    const after = new Set([1, 2, 3, 4].map(k => addWeeks(i.changeWeek, k)))
+    const of = (ws: Set<string>) => { const r = rows.filter(x => x.page === slug && ws.has(x.week)); return { all: r.length, buyers: r.filter(x => x.buyer).length } }
+    out.set(`${i.page}|${i.changeWeek}`, { before: of(before), after: of(after) })
+  }
+  return out
+}
 
 /**
  * Every finished card that changed a live page — Dinesh's publishes and
@@ -42,10 +67,11 @@ export async function cardResults(tasks: WeekTask[]): Promise<CardResult[]> {
   const pages = [...new Set(done.map(x => x.page))]
   const { data } = await supabase.from('mw_gsc_pweek').select('week, page, clicks, impr, pos').in('page', pages)
   const rows = ((data ?? []) as any[]).map(r => ({ week: String(r.week), page: String(r.page), clicks: Number(r.clicks), impr: Number(r.impr), pos: Number(r.pos) }))
-  return done.map(({ t, page }) => {
-    const changeWeek = isoWeek(String(t.updatedAt).slice(0, 10))
+  const withWeek = done.map(({ t, page }) => ({ t, page, changeWeek: isoWeek(String(t.updatedAt).slice(0, 10)) }))
+  const enq = await enquiriesAround(withWeek)
+  return withWeek.map(({ t, page, changeWeek }) => {
     const result = beforeAfter(rows.filter(r => r.page === page), changeWeek, latest)
-    return { task: t, page, changeWeek, result, line: resultLine(result) }
+    return { task: t, page, changeWeek, result, line: resultLine(result), enquiries: enq.get(`${page}|${changeWeek}`) ?? null }
   }).sort((a, b) => b.changeWeek.localeCompare(a.changeWeek))
 }
 

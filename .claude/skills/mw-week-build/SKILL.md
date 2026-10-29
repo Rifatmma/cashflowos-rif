@@ -42,6 +42,17 @@ Semrush goes through the browser only, so this runs **on Rif's PC** (Claude in C
 2. Save `mw_settings` key `ai_visibility_<YYYY-MM>`: `{ month, checked, source, score, mentions, mentionsChange, citations, citationsChange, citedPages, citedPagesChange, byLlm, byCountry, topics, topicOpportunities }`. Home shows it as "Seen in AI answers".
 3. Open **Topic Opportunities**. Take the non-brand topics on buying outdoor media in our markets (formats, agencies, costs, cities); skip anything about "Moving Walls" itself. The top 3 by AI volume become one `action` finding ("AI answers about … name JCDecaux and Lamar, not us") with `content-new` or `content-improve` cards for the right market lead, the same as a content-gap topic.
 
+## 0c. Enquiries by page from Zoho Cliq (Rif, 29 Oct 2026)
+
+GA4 credits every enquiry to the Zoho form, so which page sent it comes from the bot posts in the Zoho Cliq channel **#Website Leads** (chat `CT_2243198605328716525_776399050`, org 776399050). Needs the **Rifat-MCP** connector's Cliq tools. **Read-only: never post, react, edit or delete in Cliq.**
+
+1. `scripts/cliq-leads.mts --since` prints the newest stored post time.
+2. Rifat-MCP **Get Messages** on that chat from that time onward (page back until you reach it; the whole history if nothing is stored). Save the raw messages as JSON to a scratch file — the script accepts `[msg]`, `{data:[msg]}` or `{messages:[msg]}`.
+3. `scripts/cliq-leads.mts <file.json>` parses each "Leads Submitted" post (`lib/mw-cliq.ts`), drops human replies, and upserts `mw_cliq_leads`: form, role, country, interest, source/medium, page slug, `is_buyer`, and the CRM lead it matches. No names, phones or inquiry text are stored; the email only as a hash.
+4. After the CRM sync, `scripts/cliq-leads.mts --relink` matches posts whose lead reached the CRM later.
+
+Home shows **Enquiries by page** and **by source / medium** for the chosen months; **Did it work?** on To do adds buyer enquiries from the page, 4 weeks before against 4 after. A location page whose buyer enquiries fell two months running is a finding, like decay. If Cliq is not reachable, say "Cliq not pulled" in the summary and carry on.
+
 ## 1. Pick the week
 
 ```

@@ -6,7 +6,8 @@ import { getMwData, getMwMonths, num, type MwData } from '@/lib/mw-data'
 import { getMarketSeo, withData, type MarketSeo } from '@/lib/mw-market-data'
 import { getPeople } from '@/lib/mw-people-store'
 import { personByActor, doers } from '@/lib/mw-people'
-import { crmMonths, monthBefore, aiVisibility } from '@/lib/mw-home'
+import { crmMonths, monthBefore, aiVisibility, enquiriesByPage } from '@/lib/mw-home'
+import { pageLabel } from '@/lib/mw-cliq'
 import { isoWeek, isReady } from '@/lib/mw-week'
 import { weekTasks } from '@/lib/mw-week-store'
 import { buyerSummary, decayWatch } from '@/lib/mw-results'
@@ -59,9 +60,9 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
   const mB = compare ? q.vs! : monthBefore(mA)
   const isCur = (k: string) => k === thisMonth
 
-  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards, buyers, decay, aiVis] = await Promise.all([
+  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards, buyers, decay, aiVis, enq] = await Promise.all([
     getPeople(), getMwMonths(), getMwData(isCur(mA) ? undefined : mA), getMwData(mB),
-    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week), buyerSummary(), decayWatch(), aiVisibility(),
+    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week), buyerSummary(), decayWatch(), aiVisibility(), enquiriesByPage(mA, mB),
   ])
   const [ai, aiPrev] = aiVis
   const me = personByActor(people, isOwner ? 'owner' : guest)
@@ -215,6 +216,48 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
             <ul className="mw-legend">
               {ch.slice(0, 5).map(c => <li key={c.n}><span className="mw-swatch" style={{ background: COLORS[c.n] ?? 'var(--mw-line-strong)' }} />{c.n} {pct(c.s, sessions)}%</li>)}
             </ul>
+          </section>
+        </div>
+      )}
+
+      {enq.stored && enq.a.all + enq.b.all > 0 && (
+        <div className="mw-home-two">
+          <section className="mw-card">
+            <h2 style={{ marginBottom: 2 }}>Enquiries by page</h2>
+            <p className="mw-planner-lab">
+              {LA}: {enq.a.all} enquiries, {enq.a.buyers} from buyers · {LB}: {enq.b.all}, {enq.b.buyers} · the page each form was sent from, from the #Website Leads posts in Zoho Cliq.
+              Buyers leave out job seekers, students, fan and birthday screens, and media owners selling their own.
+            </p>
+            <table className="mw-kw wide" style={{ marginTop: 8 }}>
+              <thead><tr><th>Page</th><th className="num">All</th><th className="num">Buyers</th><th className="num">{LB}</th></tr></thead>
+              <tbody>
+                {enq.byPage.slice(0, 15).map(r => (
+                  <tr key={r.key}>
+                    <td>{pageLabel(r.key || null)}</td>
+                    <td className="num">{r.a || <span className="mw-zero">0</span>}</td>
+                    <td className={`num ${r.aBuy > r.bBuy ? 'mw-up' : r.aBuy < r.bBuy ? 'mw-dn' : ''}`}>{r.aBuy || <span className="mw-zero">0</span>}</td>
+                    <td className="num">{r.b} <span className="mw-planner-lab">({r.bBuy})</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <section className="mw-card">
+            <h2 style={{ marginBottom: 2 }}>Enquiries by source / medium</h2>
+            <p className="mw-planner-lab">{LA} vs {LB} · as the form recorded it · buyers in brackets for {LB}</p>
+            <table className="mw-kw wide" style={{ marginTop: 8 }}>
+              <thead><tr><th>Source / medium</th><th className="num">All</th><th className="num">Buyers</th><th className="num">{LB}</th></tr></thead>
+              <tbody>
+                {enq.bySource.slice(0, 12).map(r => (
+                  <tr key={r.key}>
+                    <td>{r.key}</td>
+                    <td className="num">{r.a || <span className="mw-zero">0</span>}</td>
+                    <td className={`num ${r.aBuy > r.bBuy ? 'mw-up' : r.aBuy < r.bBuy ? 'mw-dn' : ''}`}>{r.aBuy || <span className="mw-zero">0</span>}</td>
+                    <td className="num">{r.b} <span className="mw-planner-lab">({r.bBuy})</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         </div>
       )}

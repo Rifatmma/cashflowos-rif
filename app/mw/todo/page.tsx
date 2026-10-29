@@ -135,12 +135,15 @@ export default async function MwTodo({ searchParams }: { searchParams: Promise<Q
       {results.length > 0 && !mine && (
         <section className="mw-card">
           <h2 style={{ marginBottom: 2 }}>Did it work?</h2>
-          <p className="mw-planner-lab">Every finished change to a live page: Search Console for the 4 weeks before it went live against the 4 weeks after.</p>
+          <p className="mw-planner-lab">Every finished change to a live page: Search Console for the 4 weeks before it went live against the 4 weeks after, and the enquiries sent from that page (Zoho Cliq #Website Leads) in the same weeks.</p>
           <ul className="mw-last">
             {results.map(r => (
               <li key={r.task.id}>
                 <b>{r.task.owner}</b> · {r.task.title} · <span className="mw-planner-lab">{r.page}</span><br />
                 <span className={r.result.ready ? (r.result.after.clicks > r.result.before.clicks ? 'mw-up' : r.result.after.clicks < r.result.before.clicks ? 'mw-dn' : '') : 'mw-planner-lab'}>{r.line}</span>
+                {r.enquiries && r.enquiries.before.all + r.enquiries.after.all > 0 && (
+                  <span className="mw-planner-lab"> · buyer enquiries from the page {r.enquiries.before.buyers} → {r.enquiries.after.buyers} ({r.enquiries.before.all} → {r.enquiries.after.all} in all)</span>
+                )}
               </li>
             ))}
           </ul>
