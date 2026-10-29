@@ -1,6 +1,6 @@
 import 'server-only'
 import Anthropic from '@anthropic-ai/sdk'
-import { sanitizePlan, type Plan } from './mw-brandfilm'
+import { sanitizePlan, type Plan, type SubLang } from './mw-brandfilm'
 import { VIDEO_LESSONS } from './mw-video-lessons'
 import type { LocationPage, Site } from './mw-locations'
 
@@ -42,7 +42,7 @@ const EXAMPLE = `{"title":"Featured sites · Kuala Lumpur",
   {"kind":"burst","line":6,"words":[{"s":"PLAN.","on":"Plan","bg":"white"},{"s":"BUY.","on":"buy","bg":"cover"},{"s":"MEASURE.","on":"measure","bg":"white"},{"s":"Real footfall.","on":"footfall","bg":"cover"}]},
   {"kind":"end","line":7,"text":[{"s":"Kuala Lumpur.","st":"h","scale":0.8},{"s":"Live on Moving Walls.","st":"s","on":"live"},{"s":"No boundaries.","st":"s","on":"no","accent":true},{"s":"movingwalls.com/locations/malaysia","st":"b","on":"boundaries"}]}]}`
 
-function prompt(place: string, pages: LocationPage[], sites: Site[]) {
+function prompt(place: string, pages: LocationPage[], sites: Site[], lang: SubLang) {
   const data = sites.map(s => ({ id: s.id, name: s.name, area: s.area, monthly_reach: s.reach, monthly_impressions: s.impressions }))
   return `You are writing a short video for Moving Walls (out-of-home advertising technology, tagline
 "No boundaries") that promotes FEATURED INVENTORY in ${place}. A narrator called Ava reads it.
@@ -91,7 +91,26 @@ A "site" scene: {"kind":"site","line":N,"site":"<id>","name":"…","setting":"�
 - "focus": LOOK AT ITS PHOTO. The advertising screen's bounding box as fractions of the photo
   width/height [left, top, width, height] — the screen face only, not the pole.
 
-Example for a different set of sites (do not copy its words):
+${lang === 'zh-voice' ? `LANGUAGE — THIS VIDEO IS IN MANDARIN, for the China team. The narrator is Xiaoxiao, a native
+Mandarin voice, not Ava. These rules win over the English ones above:
+- "lines" in Simplified Chinese: natural spoken Mandarin, casual but professional, written the way a
+  Chinese speaker would say it, not translated. Each site line ≤ 24 characters.
+- Well-known cities and countries in Chinese (吉隆坡, 马来西亚, 新加坡, 雅加达); site names, roads and
+  districts exactly as the page writes them (Bukit Bintang, Jalan Tun Razak, TRX) — never invent a
+  Chinese name for them.
+- Figures as Arabic digits with Chinese units, rounded DOWN and true to the data: "近60万人", "超过136万次曝光".
+  "on" for a site is the run of characters where she finishes the figure (e.g. "万人").
+- Brand names in Latin script (Moving Walls). Say 户外广告 / 数字户外 for (D)OOH.
+- The rhythm line: "按人群策划，程序化购买，衡量客流。" (or the pages' own claim, in Chinese).
+- The last line: "<place in Chinese>，已上线 Moving Walls。No boundaries." — the tagline stays in
+  ENGLISH, spoken and on screen, never 无界 (owner, 28 Oct 2026).
+- ALL on-screen text in Simplified Chinese except names kept as above and the English tagline:
+  "h" ≤ 12 characters, "s" ≤ 16, "lab" ≤ 8, burst words ≤ 4 characters. On site cards, "setting",
+  "format" and "near" are Chinese ("高速公路", "竖屏LED · NPE", "KLCC附近"); "name" stays as the page has it.
+- "on" anywhere is a short run of characters copied EXACTLY from that scene's line.
+- The example below is English to show the shape only — your words are Chinese.
+
+` : ''}Example for a different set of sites (do not copy its words):
 ${EXAMPLE}
 
 Reply with JSON only: {"title","lines","scenes"}.`
@@ -108,13 +127,13 @@ function parseKeyed(text: string, want: string): any | null {
 }
 
 export async function writeLocationFilm(
-  place: string, pages: LocationPage[], sites: Site[],
+  place: string, pages: LocationPage[], sites: Site[], lang: SubLang = 'none',
 ): Promise<{ plan: Plan; notes: string[] } | { error: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) return { error: 'ANTHROPIC_API_KEY is not set.' }
   if (!sites.length) return { error: 'Choose at least one site.' }
 
-  const content: Anthropic.ContentBlockParam[] = [{ type: 'text', text: prompt(place, pages, sites) }]
+  const content: Anthropic.ContentBlockParam[] = [{ type: 'text', text: prompt(place, pages, sites, lang) }]
   for (const s of sites) {
     content.push({ type: 'text', text: `Photo of ${s.id} (${s.name}):` })
     content.push({ type: 'image', source: { type: 'url', url: `${s.image}?w=1000&fm=jpg` } })
@@ -135,5 +154,5 @@ export async function writeLocationFilm(
   const used = new Set(plan.scenes.filter(s => s.site).map(s => s.site!.id))
   for (const s of sites) if (!used.has(s.id)) notes.push(`${s.name} did not get a card — rewrite, or leave it out.`)
   if (plan.lines.length < 3 || !used.size) return { error: 'The plan came back too thin to make a video from. Try again.' }
-  return { plan, notes }
+  return { plan: lang === 'zh-voice' ? { ...plan, lang } : plan, notes }
 }

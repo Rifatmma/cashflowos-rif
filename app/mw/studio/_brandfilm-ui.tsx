@@ -239,7 +239,7 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
     setError(''); setPlan(null); setVoice(null); setClip(null); setNotes([])
     start(async () => {
       const recent = readRecent()
-      const r = await writeLocationVideo(loc.url, picked)
+      const r = await writeLocationVideo(loc.url, picked, lang)
       if (!r.ok) return setError(r.error)
       const chosen = pickRecipe(r.plan, recent)
       remember(chosen.recipe)
@@ -526,6 +526,16 @@ export function BrandFilm({ source = 'article' }: { source?: 'article' | 'locati
               <ul>{loc.doubtful.map((d, i) => <li key={i}>{d.name}: {d.why}</li>)}</ul>
             </div>
           )}
+
+          <h3>Language</h3>
+          <div className="mw-studio-choice">
+            <button type="button" onClick={() => { setLang('none'); setPlan(null); setVoice(null); setClip(null) }} aria-current={lang !== 'zh-voice' ? 'true' : undefined}>
+              <b>English</b><small>Ava’s voice.</small>
+            </button>
+            <button type="button" onClick={() => { setLang('zh-voice'); setPlan(null); setVoice(null); setClip(null) }} aria-current={lang === 'zh-voice' ? 'true' : undefined}>
+              <b>中文 voice + Chinese on screen</b><small>Ava in Mandarin (the Xiaoxiao voice). Site names stay as the page writes them. Have a native speaker check the script before posting.</small>
+            </button>
+          </div>
 
           <h3>Which format?</h3>
           <p className="lede">Pick one. Each export is a full render, so choose the one you are posting.</p>

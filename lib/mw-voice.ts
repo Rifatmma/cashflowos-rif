@@ -71,7 +71,8 @@ export async function speak(
     try {
       const tts = new MsEdgeTTS()
       await tts.setMetadata(VOICES[voice].id, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)
-      const r = await tts.toStream(text, { rate, pitch } as any)
+      // Escaped: a bare "&" in a line ends the request with no audio.
+      const r = await tts.toStream(text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'), { rate, pitch } as any)
       const chunks: Buffer[] = []
       await new Promise<void>((res, rej) => {
         r.audioStream.on('data', (c: Buffer) => chunks.push(c))

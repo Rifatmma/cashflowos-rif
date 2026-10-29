@@ -252,5 +252,5 @@ export async function writeBrandFilm(
   }
   const { plan, notes } = sanitizePlan(out)
   if (plan.lines.length < 3 || plan.scenes.length < 3) return { error: 'The plan came back too thin to make a video from. Try again.' }
-  return { plan, notes }
+  return { plan: lang === 'zh-voice' ? { ...plan, lang } : plan, notes }
 }

@@ -110,7 +110,7 @@ export async function readLocationPage(url: string): Promise<LocationResult> {
  * rather than trusting sites sent from the browser, so the numbers on the
  * cards are always the page's own.
  */
-export async function writeLocationVideo(url: string, siteIds: string[]): Promise<BrandPlanResult> {
+export async function writeLocationVideo(url: string, siteIds: string[], lang: SubLang = 'none'): Promise<BrandPlanResult> {
   const r = await readLocation(String(url ?? '').slice(0, 300))
   if ('error' in r) return { ok: false, error: r.error }
   const all = r.cities.flatMap(c => c.sites)
@@ -120,7 +120,7 @@ export async function writeLocationVideo(url: string, siteIds: string[]): Promis
   const cities = [...new Set(sites.map(s => s.city))]
   const label = r.cities.filter(c => cities.includes(c.city)).map(c => c.label).join(' & ')
   const pages = r.pages.filter(p => p.kind === 'country' || cities.includes(p.city))
-  const out = await writeLocationFilm(label, pages, sites)
+  const out = await writeLocationFilm(label, pages, sites, lang === 'zh-voice' ? 'zh-voice' : 'none')
   if ('error' in out) return { ok: false, error: out.error }
   return { ok: true, plan: out.plan, notes: out.notes }
 }

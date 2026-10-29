@@ -140,6 +140,8 @@ export type Plan = {
   /** Optional subtitles: per line, one or two chunks in the target language. */
   supers?: string[][]
   scenes: PlanScene[]
+  /** Set on a Mandarin-voiced video, so the card labels are Chinese too. */
+  lang?: 'zh-voice'
 }
 
 /** One spoken line as the voice step returns it. */
@@ -232,7 +234,7 @@ export function resolveFilm(
   const scenes = plan.scenes.map((sc, i) => {
     const v = voice[sc.line]
     const a = i === 0 ? 0 : sc.from ? Math.max(starts[sc.line], at(sc.line, sc.from) - 0.1) : starts[sc.line]
-    if (sc.kind === 'site' && sc.site) return siteScene(sc.site, sc.line, a, starts[sc.line] + v.dur, w => at(sc.line, w))
+    if (sc.kind === 'site' && sc.site) return siteScene(sc.site, sc.line, a, starts[sc.line] + v.dur, w => at(sc.line, w), plan.lang === 'zh-voice')
     let cursor = sc.from ? wordTime(v, sc.from) - 0.01 : -1
     // The headline is on screen as the scene cuts in, so it is readable
     // while Ava says it — landing it on its word put it a second late
@@ -333,14 +335,14 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
  * format just after, the figure Ava says rolls so its last digit lands as
  * she finishes saying it, and the "near" line arrives as she ends the line.
  */
-function siteScene(s: PlanSite, line: number, a: number, end: number, at: (w: string) => number) {
+function siteScene(s: PlanSite, line: number, a: number, end: number, at: (w: string) => number, zh = false) {
   const landing = s.on ? at(s.on) + 0.25 : a + 1.8
   // Both counters appear together, reach first; the one Ava says counts
   // for as long as it takes her to get to it.
   const stat = (k: 'reach' | 'impressions') => {
     const t = a + (k === 'reach' ? 0.6 : 0.85)
     return {
-      t: +t.toFixed(3), value: s[k], label: k === 'reach' ? 'Monthly reach' : 'Monthly impressions',
+      t: +t.toFixed(3), value: s[k], label: zh ? (k === 'reach' ? '月覆盖人数' : '月曝光量') : k === 'reach' ? 'Monthly reach' : 'Monthly impressions',
       ...(s.stress === k ? { accent: true, roll: +Math.min(3.5, Math.max(0.8, landing - t)).toFixed(3) } : {}),
     }
   }

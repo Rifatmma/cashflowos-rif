@@ -43,6 +43,10 @@ export function refold(text: string, words: [string, number][]): [string, number
   }
   return out.concat(words.slice(i))
 }
+// The text goes to the service inside SSML and the client does not escape it,
+// so a bare "&" (Menara Tan & Tan) ends the request with no audio.
+export const ssmlSafe = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const unSsml = (t: string) => t.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 export type SpokenLine = VoiceLine & { mp3: string }
@@ -51,7 +55,7 @@ async function speakOnce(text: string, who: Narrator): Promise<SpokenLine> {
   const tts = new MsEdgeTTS()
   try {
     await tts.setMetadata(VOICE[who].id, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, { wordBoundaryEnabled: true })
-    const { audioStream, metadataStream } = tts.toStream(spoken(text), { rate: VOICE[who].rate })
+    const { audioStream, metadataStream } = tts.toStream(ssmlSafe(spoken(text)), { rate: VOICE[who].rate })
     const chunks: Buffer[] = []
     let meta = ''
     metadataStream?.on('data', (c: Buffer) => { meta += c.toString() })
@@ -67,7 +71,7 @@ async function speakOnce(text: string, who: Narrator): Promise<SpokenLine> {
     // are plain enough to read with one pattern rather than re-framing it.
     const words: [string, number][] = []
     for (const m of meta.matchAll(/"Offset":\s*(\d+)[\s\S]*?"Text":\s*"((?:[^"\\]|\\.)*)"/g)) {
-      words.push([JSON.parse(`"${m[2]}"`), +(Number(m[1]) / 1e7).toFixed(3)])
+      words.push([unSsml(JSON.parse(`"${m[2]}"`)), +(Number(m[1]) / 1e7).toFixed(3)])
     }
     // 48 kbit/s constant bitrate, so the byte count is the length.
     const dur = +(audio.length * 8 / 48_000).toFixed(3)

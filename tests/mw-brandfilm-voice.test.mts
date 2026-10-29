@@ -5,7 +5,7 @@
 // guessed the language phrase by phrase. And the English-only voice says "LMX"
 // as "lemex" unless it is given the letters.
 
-import { AVA, XIAOXIAO, spoken, refold } from '../lib/mw-brandfilm-voice.ts'
+import { AVA, XIAOXIAO, spoken, refold, ssmlSafe } from '../lib/mw-brandfilm-voice.ts'
 import { resolveFilm, estimateSeconds } from '../lib/mw-brandfilm.ts'
 
 let bad = 0
@@ -33,6 +33,7 @@ const ts = film.scenes[0].text.map((t: any) => +(t.t - 0.5 + 0.3).toFixed(3))
 eq(ts[1], 2.0, 'a cue spanning two service words lands on the first of them')
 eq(ts[2], 3.0, 'a cue inside a longer service word lands on that word')
 eq(estimateSeconds(['中国品牌正在出海，户外广告是第一站。']) >= 5, true, 'Chinese length is counted by the character')
+eq(ssmlSafe('Menara Tan & Tan <KL>'), 'Menara Tan &amp; Tan &lt;KL&gt;', 'an ampersand cannot break the voice request')
 
 console.log(bad ? `\n${bad} failed` : '\nall passed')
 process.exit(bad ? 1 : 0)
