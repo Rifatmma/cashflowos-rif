@@ -9,6 +9,8 @@ import { personByActor, doers } from '@/lib/mw-people'
 import { crmMonths, monthBefore } from '@/lib/mw-home'
 import { isoWeek, isReady } from '@/lib/mw-week'
 import { weekTasks } from '@/lib/mw-week-store'
+import { buyerSummary, decayWatch } from '@/lib/mw-results'
+import { MARKET } from '@/lib/mw-markets'
 import { MwHero } from './_ui'
 
 // 👉 Moving Walls → Home. The overall picture, not a list of work (owner,
@@ -57,9 +59,9 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
   const mB = compare ? q.vs! : monthBefore(mA)
   const isCur = (k: string) => k === thisMonth
 
-  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards] = await Promise.all([
+  const [people, months, snapA, snapB, marketsA, marketsB, crm, cards, buyers, decay] = await Promise.all([
     getPeople(), getMwMonths(), getMwData(isCur(mA) ? undefined : mA), getMwData(mB),
-    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week),
+    getMarketSeo(mA), getMarketSeo(mB), crmMonths([mA, mB]), weekTasks(week), buyerSummary(), decayWatch(),
   ])
   const me = personByActor(people, isOwner ? 'owner' : guest)
   if (!isOwner && me?.role !== 'boss') redirect('/mw/todo')
@@ -246,8 +248,42 @@ export default async function MwHome({ searchParams }: { searchParams: Promise<Q
               </tbody>
             </table>
             <p className="mw-planner-lab" style={{ marginTop: 6 }}><Link href="/mw/seo#health">Every page, graded</Link></p>
+            <h3 style={{ margin: '14px 0 2px', fontSize: 14 }}>Losing clicks</h3>
+            <p className="mw-planner-lab">Clicks down three months running · Search Console, 16 weeks</p>
+            {decay.pages.length ? (
+              <ul className="mw-last">
+                {decay.pages.slice(0, 6).map(p => <li key={p.page}>{p.page} <span className="mw-dn">{p.blocks.join(' → ')} clicks</span></li>)}
+              </ul>
+            ) : <p className="mw-planner-lab" style={{ marginTop: 6 }}>No page is losing clicks three months running.</p>}
           </section>
         </div>
+      )}
+
+      {buyers.byMarket.length > 0 && (
+        <section className="mw-card">
+          <h2 style={{ marginBottom: 2 }}>Buyer searches in the top 10</h2>
+          <p className="mw-planner-lab">
+            The money searches each market is judged on (&ldquo;billboard advertising singapore&rdquo;, not questions or our brand) ·
+            Search Console, last 4 weeks to {buyers.latest} vs the 4 weeks before
+          </p>
+          <table className="mw-kw wide" style={{ marginTop: 8 }}>
+            <thead><tr><th>Market</th><th className="num">In the top 10</th><th className="num">4 weeks before</th><th className="num">Ranking at all</th><th>Best one outside the top 10</th></tr></thead>
+            <tbody>
+              {[...buyers.byMarket].sort((a, b) => b.top10 / b.total - a.top10 / a.total).map(m => {
+                const next = buyers.list.filter(p => p.market === m.market && p.pos !== null && p.pos > 10).sort((a, b) => b.impr - a.impr)[0]
+                return (
+                  <tr key={m.market}>
+                    <td><b>{MARKET[m.market]?.label ?? m.market}</b></td>
+                    <td className="num">{m.top10} of {m.total}</td>
+                    <td className={`num ${m.top10 > m.top10Before ? 'mw-up' : m.top10 < m.top10Before ? 'mw-dn' : ''}`}>{m.top10Before}</td>
+                    <td className="num">{m.ranked}</td>
+                    <td>{next ? `"${next.query}" #${Math.round(next.pos!)}` : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </section>
       )}
 
       <section className="mw-card">

@@ -21,6 +21,19 @@ Who does what:
 - **Rif** owns paid search and tracking.
 - **Mehul and Safwaan** only view.
 
+## 0. Pull Search Console for last week (Rif, 28 Oct 2026)
+
+```
+scripts/gsc-week.mts
+```
+
+It stores last week and the week before (Search Console lags two to three days) in `mw_gsc_qweek` and `mw_gsc_pweek`. Everything below reads it:
+- **Did it work?** on To do: each finished change, 4 weeks before against 4 after (`lib/mw-results.ts`). Nothing to do; it fills itself.
+- **Decay watch:** `decayWatch()` lists pages whose clicks fell three 4-week blocks running. Each one becomes an `action` finding ("… has lost N% of its clicks since July") with a `content-improve` card for the market's lead (or `tech` for Dinesh on a location page): a refresh doc that adds what the pages above it answer, passing `checkChange()`.
+- **Buyer searches:** the first Monday of each quarter, after the content-gap pull, re-run `scripts/buyer-searches.mts --save`. A market whose top-10 count fell since four weeks ago gets a finding naming the searches that dropped.
+
+If the pull fails, say so in your summary and carry on with last week's data.
+
 ## 1. Pick the week
 
 ```

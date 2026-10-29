@@ -61,6 +61,8 @@ export type WeekTask = {
   carried: number
   /** The finding on the To do page this card fixes (mw_week_findings). */
   findingId?: string | null
+  /** When the card last changed state — for a done card, when the change went live. Read-only. */
+  updatedAt?: string | null
 }
 
 /**

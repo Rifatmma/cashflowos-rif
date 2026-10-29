@@ -16,7 +16,7 @@ export function rowToTask(r: any): WeekTask {
     links: Array.isArray(r.links) ? r.links.filter((l: any) => l?.url).map((l: any) => ({ label: String(l.label ?? 'Open'), url: String(l.url) })) : [],
     doneWhen: String(r.done_when ?? ''), due: String(r.due).slice(0, 10), value: Number(r.value) || 0,
     state: r.state, reason: r.reason ?? null, payload: r.payload ?? null, sourceId: r.source_id ?? null,
-    carried: Number(r.carried) || 0, findingId: r.finding_id ?? null,
+    carried: Number(r.carried) || 0, findingId: r.finding_id ?? null, updatedAt: r.updated_at ?? null,
   }
 }
 

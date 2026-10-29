@@ -325,3 +325,28 @@ create index if not exists mw_week_findings_week on mw_week_findings (week, rank
 alter table mw_week_findings enable row level security;
 alter table mw_week_tasks add column if not exists finding_id text references mw_week_findings(id) on delete set null;
 alter table mw_week_tasks enable row level security;
+
+
+-- Search Console one ISO week at a time (lib/mw-gsc-week.ts, scripts/gsc-week.mts).
+create table if not exists mw_gsc_qweek (
+  week text not null, country text not null, query text not null, page text not null,
+  clicks int not null default 0, impr int not null default 0, pos numeric not null default 0,
+  primary key (week, country, query, page)
+);
+create index if not exists mw_gsc_qweek_page on mw_gsc_qweek (page, week);
+create index if not exists mw_gsc_qweek_query on mw_gsc_qweek (query, week);
+alter table mw_gsc_qweek enable row level security;
+create table if not exists mw_gsc_pweek (
+  week text not null, page text not null,
+  clicks int not null default 0, impr int not null default 0, pos numeric not null default 0,
+  primary key (week, page)
+);
+alter table mw_gsc_pweek enable row level security;
+
+-- The money searches each market is judged on (scripts/buyer-searches.mts).
+create table if not exists mw_buyer_searches (
+  market text not null, query text not null, country text,
+  added_at timestamptz not null default now(), why text not null default '',
+  primary key (market, query)
+);
+alter table mw_buyer_searches enable row level security;

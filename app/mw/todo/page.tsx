@@ -9,6 +9,7 @@ import { getPeople } from '@/lib/mw-people-store'
 import { personByActor } from '@/lib/mw-people'
 import { isoWeek, mondayOf, dueOf, isReady, type WeekTask, type Finding } from '@/lib/mw-week'
 import { weekTasks, weekFindings } from '@/lib/mw-week-store'
+import { finishedChanges, cardResults, buyerSummary } from '@/lib/mw-results'
 import { MwHero } from '../_ui'
 import { WeekCard } from '../_week-ui'
 
@@ -40,9 +41,13 @@ export default async function MwTodo({ searchParams }: { searchParams: Promise<Q
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10)
   const week = isoWeek(today)
   const prev = isoWeek(new Date(Date.parse(mondayOf(week) + 'T00:00:00Z') - 7 * 864e5).toISOString().slice(0, 10))
-  const [people, cards, findings, lastCards, snap, markets] = await Promise.all([
-    getPeople(), weekTasks(week), weekFindings(week), weekTasks(prev), getMwData(), getMarketSeo(),
+  const [people, cards, findings, lastCards, snap, markets, changed, buyers] = await Promise.all([
+    getPeople(), weekTasks(week), weekFindings(week), weekTasks(prev), getMwData(), getMarketSeo(), finishedChanges(), buyerSummary(),
   ])
+  const results = await cardResults(changed)
+  const bTotal = buyers.byMarket.reduce((t, m) => t + m.total, 0)
+  const bTop = buyers.byMarket.reduce((t, m) => t + m.top10, 0)
+  const bBefore = buyers.byMarket.reduce((t, m) => t + m.top10Before, 0)
   const me = personByActor(people, isOwner ? 'owner' : guest)
   const seesAll = isOwner || me?.role === 'boss'
   // A lead or Dinesh opens on their own cards; "Everyone" is one click away.
@@ -75,7 +80,9 @@ export default async function MwTodo({ searchParams }: { searchParams: Promise<Q
       </MwHero>
 
       <div className="mw-todo-top">
-        <div className="mw-tile"><div className="k">Non-brand share</div><div className="v">{nb?.value ?? '—'}</div><div className="d mw-nu">{nb?.note ?? ''}</div></div>
+        {bTotal > 0
+          ? <div className="mw-tile"><div className="k">Buyer searches in the top 10</div><div className="v">{bTop} of {bTotal}</div><div className={`d ${bTop > bBefore ? 'mw-up' : bTop < bBefore ? 'mw-dn' : 'mw-nu'}`}>{bBefore} four weeks before · Search Console</div></div>
+          : <div className="mw-tile"><div className="k">Non-brand share</div><div className="v">{nb?.value ?? '—'}</div><div className="d mw-nu">{nb?.note ?? ''}</div></div>}
         <div className="mw-tile"><div className="k">Organic enquiries</div><div className="v">{orgLeads ?? '—'}</div><div className="d mw-nu">GA4 · not reliable until the form fix</div></div>
         <div className="mw-tile"><div className="k">Done this week</div><div className="v">{done} of {open.length}</div><div className="d mw-nu">due Fri {fmt(dueOf(week))}</div></div>
       </div>
@@ -122,6 +129,21 @@ export default async function MwTodo({ searchParams }: { searchParams: Promise<Q
               <p className="mw-planner-lab">Source: {f.source}</p>
             </details>
           ))}
+        </section>
+      )}
+
+      {results.length > 0 && !mine && (
+        <section className="mw-card">
+          <h2 style={{ marginBottom: 2 }}>Did it work?</h2>
+          <p className="mw-planner-lab">Every finished change to a live page: Search Console for the 4 weeks before it went live against the 4 weeks after.</p>
+          <ul className="mw-last">
+            {results.map(r => (
+              <li key={r.task.id}>
+                <b>{r.task.owner}</b> · {r.task.title} · <span className="mw-planner-lab">{r.page}</span><br />
+                <span className={r.result.ready ? (r.result.after.clicks > r.result.before.clicks ? 'mw-up' : r.result.after.clicks < r.result.before.clicks ? 'mw-dn' : '') : 'mw-planner-lab'}>{r.line}</span>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 
