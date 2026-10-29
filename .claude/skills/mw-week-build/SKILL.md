@@ -36,7 +36,7 @@ If the pull fails, say so in your summary and carry on with last week's data.
 
 ## 0b. First Monday of the month: the AI-answers check (Rif, 28 Oct 2026)
 
-Semrush goes through the browser only, so this runs **on Rif's PC** (Claude in Chrome, the work profile — Browser 2), not in the cloud run. The cloud run skips it and says "AI check due" in its summary when this month's `mw_settings` key is missing.
+Semrush goes through the browser only, so this runs **on Rif's PC** (Claude in Chrome, the work profile — Browser 2), not in the cloud run. It is a local scheduled task, "MW · monthly AI-answers check" (`mw-ai-visibility-monthly`, 10:00 on the 1st), which saves last month's key with an `opportunities` list. The weekly build only reads it: when the newest `ai_visibility_*` key has `opportunities` not yet used, turn the top 3 into one finding (step 3 below). If last month's key is missing, say "AI check didn't run — start it from Scheduled in the Claude app" in the summary.
 
 1. Open `https://www.semrush.com/ai-seo/overview/?q=movingwalls.com` (Worldwide, All AI platforms). Read only; change nothing.
 2. Save `mw_settings` key `ai_visibility_<YYYY-MM>`: `{ month, checked, source, score, mentions, mentionsChange, citations, citationsChange, citedPages, citedPagesChange, byLlm, byCountry, topics, topicOpportunities }`. Home shows it as "Seen in AI answers".
