@@ -9,11 +9,37 @@ import { NextResponse, type NextRequest } from 'next/server'
 // set, we DON'T gate anything — the app shows a calm setup banner instead, so a
 // half-configured clone never locks you out of your own HQ.
 export function proxy(req: NextRequest) {
+  // PUBLIC: the pre-class checklist a consulting client opens from a link she
+  // was sent. It is allowed before the passcode is even read, because meeting a
+  // login screen is exactly where a non-technical client stops. The header it
+  // sets tells app/layout.tsx to render the bare shell -- without it she'd get
+  // the restaurant's sidebar (Cash Out, Stock, Approvals) around her checklist.
+  // Only /class itself: /class/signups is the owner's view and stays gated.
+  // The header picks a SHELL, never an access decision -- somebody sending it
+  // by hand on another path only loses their own menu, and every real guard
+  // below still runs.
+  if (req.nextUrl.pathname === '/class') {
+    const headers = new Headers(req.headers)
+    headers.set('x-cfo-public', '1')
+    return NextResponse.next({ request: { headers } })
+  }
+
   const passcode = (process.env.APP_PASSCODE ?? '').trim()
   if (!passcode) return NextResponse.next()          // no lock installed → open door
 
   const session = req.cookies.get('cfo_session')?.value
   if (session) return NextResponse.next()            // has the opaque session cookie → allow
+
+  // Anyone else under /class (the owner's /class/signups, a mistyped path) goes
+  // back to the client checklist, NOT to /login: the login page carries the
+  // full sidebar, and a client sent the wrong link must never see what this
+  // app holds (owner, 1 Nov 2026).
+  if (req.nextUrl.pathname.startsWith('/class/')) {
+    const back = req.nextUrl.clone()
+    back.pathname = '/class'
+    back.search = ''
+    return NextResponse.redirect(back)
+  }
 
   // GUEST TIER (Moving Walls). Reached only when there is NO cfo_session, i.e. on
   // the path that used to end in "redirect to /login" — so nothing above changes.
@@ -64,6 +90,10 @@ export function proxy(req: NextRequest) {
 // A single missed exclusion here = a locked webhook on class day, so this list is tested.
 export const config = {
   matcher: [
+    // `class` is the pre-class checklist a consulting client opens from a
+    // link. It has to work without a login — meeting one is where a
+    // non-technical client stops. /class/signups, the owner's view of who
+    // filled it in, checks the session itself inside the page.
     '/((?!login|api/login|api/telegram|api/cron-daily|api/cron-sales-reminder|api/mw-refresh|api/mw-cutouts|api/mw-act|api/mw-digest|manifest\\.webmanifest|manifest\\.json|icons|_next|favicon\\.ico).*)',
   ],
 }

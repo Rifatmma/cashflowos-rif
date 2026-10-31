@@ -17,6 +17,7 @@ import BottomNav from './_components/BottomNav'
 import ConnStatus from './_components/ConnStatus'
 import { getPendingCount } from '@/lib/records'
 import { currentGuest } from '@/lib/guest'
+import { headers } from 'next/headers'
 
 export const metadata: Metadata = {
   title: 'CashFlowOS AI Agents 🤖',
@@ -51,8 +52,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Stock — every link bounced by proxy.ts, but the structure itself is private.
   // The getPendingCount() query is skipped too: a guest has no business triggering
   // a read of the restaurant's records table.
-  const guest = await currentGuest()
-  if (guest) {
+  // The same bare shell for the public pre-class checklist, tagged by proxy.ts.
+  // A client who was sent a link should see her checklist and nothing of the
+  // business around it -- and should not trigger getPendingCount() either.
+  const isPublic = (await headers()).get('x-cfo-public') === '1'
+
+  const guest = isPublic ? null : await currentGuest()
+  if (guest || isPublic) {
     return (
       <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${plexSerif.variable}`}>
         <body>

@@ -28,6 +28,7 @@ const MORE: MoreTab[] = [
   { href: '/ads/funnel', label: 'Leads & Money', ico: '💬' },
   { href: '/ads/playbook', label: 'Playbook', ico: '🎬' },
   { href: '/mw', label: 'MW Marketing', ico: '🌐' },
+  { href: '/class/signups', label: 'Claude Code Intermediate Plan', ico: '🎓' },
   { href: '/mw/paid', label: 'MW Paid search', ico: '🔎' },
   { href: '/mw/seo', label: 'MW SEO', ico: '🌱' },
   { href: '/employees', label: 'AI Employees', ico: '🤖' },

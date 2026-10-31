@@ -1,0 +1,102 @@
+/* The pre-class checklist. Deliberately its own stylesheet and its own visual
+   language: a client sees this page and nothing else of the app, so it should
+   read as a document somebody wrote for her, not as a tab in a tool. */
+
+.cls {
+  --paper: #fcfcfa; --ink: #15201a; --mut: #5c6b63; --line: #e3e8e4;
+  --go: #1f7a4d; --warm: #b45309;
+  max-width: 760px; margin: 0 auto; padding: 28px 20px 80px;
+  background: var(--paper); color: var(--ink);
+  font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.cls * { box-sizing: border-box; }
+
+.cls-head { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 26px; }
+.cls-kicker { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--mut); margin: 0 0 6px; }
+.cls-head h1 { font-size: clamp(27px, 6vw, 38px); line-height: 1.15; margin: 0 0 12px; letter-spacing: -.02em; }
+.cls-lede { margin: 0 0 18px; color: #35463d; }
+
+.cls-os { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--mut); }
+.cls-os button {
+  min-height: 42px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line);
+  background: #fff; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer;
+}
+.cls-os button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+/* ---- the form ---- */
+.cls-form { border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: #fff; }
+.cls-form h2 { margin: 0 0 4px; font-size: 21px; }
+.cls-form > p { margin: 0 0 16px; color: var(--mut); font-size: 15px; }
+.cls-form label { display: block; font-size: 14px; font-weight: 600; margin: 14px 0 5px; }
+.cls-form input, .cls-form textarea {
+  width: 100%; font: inherit; font-size: 16px;   /* 16px: smaller zooms on iOS */
+  padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
+}
+.cls-form input:focus, .cls-form textarea:focus { outline: 2px solid var(--go); outline-offset: 1px; }
+.cls-go {
+  margin-top: 20px; width: 100%; min-height: 50px; border: 0; border-radius: 10px;
+  background: var(--go); color: #fff; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer;
+}
+.cls-go:disabled { opacity: .6; cursor: progress; }
+.cls-err { color: #b91c1c; font-size: 14px; margin: 12px 0 0; }
+.cls-small { font-size: 13px; color: var(--mut); margin: 12px 0 0; }
+
+/* ---- progress ---- */
+.cls-bar { position: sticky; top: 0; z-index: 5; background: var(--paper); padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+.cls-bar-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; margin-bottom: 7px; }
+.cls-bar-track { height: 8px; border-radius: 99px; background: #e8ece9; overflow: hidden; }
+.cls-bar-fill { height: 100%; background: var(--go); transition: width .25s ease; }
+.cls-done { margin: 10px 0 0; color: var(--go); font-weight: 600; }
+
+/* ---- steps ---- */
+.cls-steps { list-style: none; margin: 22px 0 0; padding: 0; }
+.cls-step { border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 0 0 14px; background: #fff; }
+.cls-step.is-done { opacity: .58; }
+.cls-step.is-done h3 { text-decoration: line-through; }
+.cls-step-head { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; }
+.cls-step h3 { margin: 0; font-size: 18px; line-height: 1.3; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cls-why { margin: 6px 0 0; color: var(--mut); font-size: 15px; }
+.cls-mins { font-size: 13px; color: var(--mut); white-space: nowrap; }
+.cls-tag { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  background: #eef2ef; color: var(--mut); padding: 3px 8px; border-radius: 5px; }
+.cls-cost { font-size: 12px; font-weight: 600; color: var(--warm); background: #fef6e7; padding: 3px 8px; border-radius: 5px; }
+
+/* A 44px target, because this is done one-handed on a sofa. */
+.cls-check { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.cls-check input { position: absolute; opacity: 0; width: 44px; height: 44px; margin: 0; cursor: pointer; }
+.cls-n {
+  width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line);
+  display: grid; place-items: center; font-weight: 700; font-size: 14px; color: var(--mut); background: #fff;
+}
+.cls-check input:checked + .cls-n { background: var(--go); border-color: var(--go); color: transparent; }
+.cls-check input:checked + .cls-n::after { content: '✓'; color: #fff; position: absolute; font-size: 17px; }
+.cls-check input:focus-visible + .cls-n { outline: 2px solid var(--go); outline-offset: 2px; }
+
+.cls-do { margin: 14px 0 0; padding-left: 22px; }
+.cls-do li { margin: 7px 0; }
+.cls-cmd { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.cls-cmd code {
+  flex: 1 1 240px; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace;
+  background: #15201a; color: #d7f0e2; padding: 10px 12px; border-radius: 8px;
+  word-break: break-all;        /* a long curl must never widen the page */
+}
+.cls-cmd button {
+  min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--ink);
+}
+.cls-verify { margin: 14px 0 0; padding: 11px 13px; background: #f1f7f3; border-left: 3px solid var(--go);
+  border-radius: 0 8px 8px 0; font-size: 14.5px; }
+.cls-step a { color: var(--go); font-weight: 600; }
+
+.cls-foot { margin-top: 34px; padding-top: 20px; border-top: 1px solid var(--line); }
+.cls-foot code { font-size: 13px; word-break: break-all; }
+
+@media (max-width: 520px) {
+  .cls-step-head { grid-template-columns: auto 1fr; }
+  .cls-mins { grid-column: 2; }
+}
+
+/* The client's link is light. Honouring dark mode here would mean maintaining
+   a second palette for a page used a handful of times; a fixed light sheet is
+   the honest trade. It is declared so the browser does not invert it. */
+.cls { color-scheme: light; }

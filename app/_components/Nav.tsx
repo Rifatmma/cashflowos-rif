@@ -34,6 +34,7 @@ export const NAV_GROUPS: { label: string; tabs: { href: string; label: string }[
   ] },
   { label: 'Moving Walls', tabs: [
     { href: '/mw', label: 'Marketing' },
+    { href: '/class/signups', label: 'Claude Code Intermediate Plan' },
     { href: '/mw/paid', label: 'Paid search' },
     { href: '/mw/seo', label: 'SEO & organic' },
   ] },
